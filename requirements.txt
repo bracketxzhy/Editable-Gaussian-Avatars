@@ -1,0 +1,6 @@
+pyyaml
+opencv-python
+numpy
+torch
+torchvision
+tqdm
