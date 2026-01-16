@@ -1,0 +1,14 @@
+project_root: .
+seed: 42
+log_dir: outputs/logs
+
+data:
+  frames_dir: data/frames/input
+
+camera:
+  # 简单 pinhole，相机内参你后面再换成真实的
+  K: [800, 0, 320, 0, 800, 240, 0, 0, 1]
+
+stage1:
+  out_dir: outputs/stage1
+  dummy_n_verts: 1200
