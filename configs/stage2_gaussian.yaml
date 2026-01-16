@@ -1,0 +1,14 @@
+project_root: .
+seed: 42
+log_dir: outputs/logs
+
+data:
+  frames_dir: data/frames/input
+
+stage2:
+  stage1_dir: outputs/stage1
+  out_dir: outputs/stage2
+  first_frame_name: "000000.jpg"
+  n_gaussians: 800
+  iters: 200
+  lr: 0.01
