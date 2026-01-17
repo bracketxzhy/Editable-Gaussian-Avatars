@@ -1,51 +1,74 @@
 from __future__ import annotations
 from pathlib import Path
+import json
 import numpy as np
+from scipy.optimize import least_squares
 
-def dummy_fit_smpl_from_frames(
-    frames_dir: str | Path,
+# —— SMPL 简化骨架映射（MediaPipe → SMPL joints 子集）
+# 这里只选 torso + limbs，足够稳定
+MP_TO_SMPL = {
+    11: 2,  # left shoulder
+    12: 5,  # right shoulder
+    23: 9,  # left hip
+    24: 12, # right hip
+}
+
+def project_points(V, K, t):
+    X = V + t[None, :]
+    x = X[:, 0] / (X[:, 2] + 1e-6)
+    y = X[:, 1] / (X[:, 2] + 1e-6)
+    u = K[0,0] * x + K[0,2]
+    v = K[1,1] * y + K[1,2]
+    return np.stack([u, v], axis=1)
+
+def fit_smpl_from_keypoints(
+    keypoints_json: str | Path,
     out_dir: str | Path,
-    n_verts: int = 1000,
-    seed: int = 42,
-) -> dict:
-    """
-    最小占位：不做真实拟合，只生成可用的 smpl_params + 一个“人体样”的粗网格（球/椭球）OBJ。
-    目的：先打通 stage1 -> stage2 -> render 的全流程文件接口。
-    """
-    frames_dir = Path(frames_dir)
+    K_list: list[float],
+    n_verts: int = 1200,
+):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    rng = np.random.default_rng(seed)
+    with open(keypoints_json, "r", encoding="utf-8") as f:
+        kpts_all = json.load(f)
 
-    # 伪 SMPL 参数：pose(72), betas(10), trans(3), scale(1)
+    # 用第一帧
+    first = next(iter(kpts_all.values()))
+    kpts = np.array(first, dtype=np.float32)
+
+    # 伪 SMPL mesh（你后面会换成真实 smplx）
+    rng = np.random.default_rng(0)
+    V = rng.normal(size=(n_verts, 3)).astype(np.float32)
+    V[:,1] *= 0.6
+    V[:,2] += 2.5
+
+    K = np.asarray(K_list, dtype=np.float32).reshape(3,3)
+
+    def residual(x):
+        tx, ty, tz = x
+        proj = project_points(V, K, np.array([tx, ty, tz], dtype=np.float32))
+        res = []
+        for mp_idx, _ in MP_TO_SMPL.items():
+            if kpts[mp_idx,2] < 0.5:
+                continue
+            res.append(proj[mp_idx] - kpts[mp_idx,:2])
+        return np.concatenate(res, axis=0)
+
+    x0 = np.array([0,0,2.5], dtype=np.float32)
+    sol = least_squares(residual, x0, verbose=0)
+
     pose = np.zeros((72,), dtype=np.float32)
     betas = np.zeros((10,), dtype=np.float32)
-    trans = np.zeros((3,), dtype=np.float32)
+    trans = sol.x.astype(np.float32)
     scale = np.array([1.0], dtype=np.float32)
 
-    np.savez(out_dir / "smpl_params.npz", pose=pose, betas=betas, trans=trans, scale=scale)
+    np.savez(out_dir / "smpl_params.npz",
+             pose=pose, betas=betas, trans=trans, scale=scale)
 
-    # 生成一个简单的“椭球点云”，再做一个非常粗的三角剖分（这里直接输出点当作顶点 + 随机三角形）
-    # 注意：这只是占位 mesh，用于初始化 Gaussians（按顶点）
-    verts = rng.normal(size=(n_verts, 3)).astype(np.float32)
-    verts[:, 0] *= 0.25  # x
-    verts[:, 1] *= 0.60  # y（身高）
-    verts[:, 2] *= 0.20  # z
-    verts[:, 1] += 0.2   # 上移一点
-
-    # 随机三角面（占位）
-    faces = rng.integers(low=0, high=n_verts, size=(n_verts // 3, 3), dtype=np.int32)
-
-    mesh_path = out_dir / "smpl_mesh.obj"
-    with mesh_path.open("w", encoding="utf-8") as f:
-        for v in verts:
+    # 输出 mesh
+    with (out_dir / "smpl_mesh.obj").open("w") as f:
+        for v in V:
             f.write(f"v {v[0]} {v[1]} {v[2]}\n")
-        for tri in faces:
-            # obj face index 从 1 开始
-            f.write(f"f {tri[0]+1} {tri[1]+1} {tri[2]+1}\n")
 
-    return {
-        "smpl_params": str(out_dir / "smpl_params.npz"),
-        "smpl_mesh": str(mesh_path),
-    }
+    return out_dir

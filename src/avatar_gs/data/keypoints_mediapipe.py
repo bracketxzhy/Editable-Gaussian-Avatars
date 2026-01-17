@@ -1,0 +1,38 @@
+from __future__ import annotations
+from pathlib import Path
+import json
+import cv2
+import mediapipe as mp
+import numpy as np
+
+mp_pose = mp.solutions.pose
+
+def extract_keypoints_from_frames(frames_dir: str | Path, out_json: str | Path):
+    frames_dir = Path(frames_dir)
+    out_json = Path(out_json)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+
+    pose = mp_pose.Pose(static_image_mode=True, model_complexity=1)
+    all_kpts = {}
+
+    for img_path in sorted(frames_dir.glob("*.jpg")):
+        img = cv2.imread(str(img_path))
+        if img is None:
+            continue
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        res = pose.process(rgb)
+
+        if not res.pose_landmarks:
+            continue
+
+        h, w = img.shape[:2]
+        kpts = []
+        for lm in res.pose_landmarks.landmark:
+            kpts.append([lm.x * w, lm.y * h, lm.visibility])
+
+        all_kpts[img_path.name] = np.array(kpts, dtype=np.float32).tolist()
+
+    with out_json.open("w", encoding="utf-8") as f:
+        json.dump(all_kpts, f, indent=2)
+
+    return out_json

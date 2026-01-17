@@ -8,7 +8,8 @@ data:
 stage2:
   stage1_dir: outputs/stage1
   out_dir: outputs/stage2
-  first_frame_name: "000000.jpg"
-  n_gaussians: 800
-  iters: 200
-  lr: 0.01
+  n_frames: 20
+  n_gaussians: 3000
+  iters: 2000
+  lr_gauss: 0.01
+  lr_cam: 0.001

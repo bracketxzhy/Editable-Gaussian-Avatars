@@ -1,3 +1,27 @@
 [2026-01-17 00:42:29] [INFO] Video: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\videos\input.mp4
 [2026-01-17 00:42:29] [INFO] Output frames dir: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input
 [2026-01-17 00:42:29] [INFO] frame_step=1, max_frames=-1, resize=(0,0)
+[2026-01-17 15:28:36] [INFO] Video: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\videos\input.mp4
+[2026-01-17 15:28:36] [INFO] Output frames dir: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input
+[2026-01-17 15:28:36] [INFO] frame_step=1, max_frames=-1, resize=(0,0)
+[2026-01-17 15:28:36] [INFO] Saved 50 frames...
+[2026-01-17 15:28:36] [INFO] Saved 100 frames...
+[2026-01-17 15:28:37] [INFO] Done. Saved frames: 145. Metadata: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input\metadata.json
+[2026-01-17 16:18:28] [INFO] Video: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\videos\input.mp4
+[2026-01-17 16:18:28] [INFO] Output frames dir: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input
+[2026-01-17 16:18:28] [INFO] frame_step=1, max_frames=-1, resize=(0,0)
+[2026-01-17 16:18:28] [INFO] Saved 50 frames...
+[2026-01-17 16:18:28] [INFO] Saved 100 frames...
+[2026-01-17 16:18:28] [INFO] Done. Saved frames: 145. Metadata: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input\metadata.json
+[2026-01-17 18:23:34] [INFO] Video: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\videos\input.mp4
+[2026-01-17 18:23:34] [INFO] Output frames dir: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input
+[2026-01-17 18:23:34] [INFO] frame_step=1, max_frames=-1, resize=(0,0)
+[2026-01-17 18:23:34] [INFO] Saved 50 frames...
+[2026-01-17 18:23:34] [INFO] Saved 100 frames...
+[2026-01-17 18:23:34] [INFO] Done. Saved frames: 145. Metadata: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input\metadata.json
+[2026-01-17 18:26:11] [INFO] Video: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\videos\input.mp4
+[2026-01-17 18:26:11] [INFO] Output frames dir: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input
+[2026-01-17 18:26:11] [INFO] frame_step=1, max_frames=-1, resize=(0,0)
+[2026-01-17 18:26:11] [INFO] Saved 50 frames...
+[2026-01-17 18:26:11] [INFO] Saved 100 frames...
+[2026-01-17 18:26:11] [INFO] Done. Saved frames: 145. Metadata: C:\Users\brack\Projects_by_zhy\Editable Gaussian Avatars\data\frames\input\metadata.json

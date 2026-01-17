@@ -2,7 +2,6 @@ project_root: .
 log_dir: outputs/logs
 
 render:
-  stage1_dir: outputs/stage1
   stage2_dir: outputs/stage2
   out_dir: outputs/renders
   W: 640

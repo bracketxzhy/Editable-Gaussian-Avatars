@@ -4,3 +4,10 @@ numpy
 torch
 torchvision
 tqdm
+
+scipy
+
+mediapipe==0.10.14
+
+# for 3DGS renderer (you will install from source)
+# diff-gaussian-rasterization

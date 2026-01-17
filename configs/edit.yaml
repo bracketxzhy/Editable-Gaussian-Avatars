@@ -1,0 +1,11 @@
+# configs/edit.yaml
+
+project_root: .
+
+# render resolution
+H: 480
+W: 640
+
+# gaussian init
+n_keep: 600
+seed: 0
