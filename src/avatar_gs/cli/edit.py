@@ -1,231 +1,212 @@
 from __future__ import annotations
 
 from pathlib import Path
-import inspect
+from typing import Any, Dict, Optional, Tuple
+
 import numpy as np
 import torch
 import cv2
 
 from avatar_gs.utils.cfg import load_yaml, apply_overrides, parse_args_base
-from avatar_gs.utils.io import ensure_dir, read_json
+from avatar_gs.utils.io import ensure_dir
 from avatar_gs.utils.log import setup_logger
 
-from avatar_gs.gaussian.init_from_smpl import init_gaussians_from_mesh_3d
+from avatar_gs.gaussian.structured_gaussian import Gaussian3D
 from avatar_gs.renderer.gaussian_renderer import render_gaussians_3d
 
 
-def _to_tensor(x, device, dtype=torch.float32) -> torch.Tensor:
-    return torch.as_tensor(x, device=device, dtype=dtype)
+def _pick(d: Dict[str, Any], keys: Tuple[str, ...], required: bool = True):
+    for k in keys:
+        if k in d:
+            return d[k]
+    if required:
+        raise KeyError(f"Missing keys {keys} in checkpoint. Available keys: {list(d.keys())}")
+    return None
 
 
-def _normalize_K(K_like, H: int, W: int) -> np.ndarray:
+def _axis_angle_to_matrix(w: torch.Tensor) -> torch.Tensor:
     """
-    Convert various intrinsics formats into a 3x3 K matrix.
-
-    Supported:
-      - 3x3 matrix
-      - flat length-9
-      - scalar focal length -> assumes fx=fy=f, cx=W/2, cy=H/2
-      - length-4 [fx, fy, cx, cy]
-      - dict with fx/fy/cx/cy (or focal variants)
+    Rodrigues: w (...,3) -> R (...,3,3)
     """
-    if isinstance(K_like, dict):
-        fx = K_like.get("fx", K_like.get("focal_x", K_like.get("f", None)))
-        fy = K_like.get("fy", K_like.get("focal_y", fx))
-        cx = K_like.get("cx", K_like.get("ppx", W * 0.5))
-        cy = K_like.get("cy", K_like.get("ppy", H * 0.5))
-        if fx is None:
-            raise ValueError(f"Cannot normalize K from dict: {K_like}")
-        return np.array([[float(fx), 0.0, float(cx)],
-                         [0.0, float(fy), float(cy)],
-                         [0.0, 0.0, 1.0]], dtype=np.float32)
+    w = w.to(dtype=torch.float32)
+    theta = torch.linalg.norm(w, dim=-1, keepdim=True).clamp(min=1e-12)
+    k = w / theta
+    kx, ky, kz = k[..., 0], k[..., 1], k[..., 2]
 
-    arr = np.asarray(K_like, dtype=np.float32)
+    zero = torch.zeros_like(kx)
+    K = torch.stack([
+        torch.stack([zero, -kz,  ky], dim=-1),
+        torch.stack([kz,  zero, -kx], dim=-1),
+        torch.stack([-ky, kx,  zero], dim=-1),
+    ], dim=-2)  # (...,3,3)
 
-    if arr.ndim == 0:
-        f = float(arr)
-        return np.array([[f, 0.0, W * 0.5],
-                         [0.0, f, H * 0.5],
-                         [0.0, 0.0, 1.0]], dtype=np.float32)
-
-    if arr.shape == (3, 3):
-        return arr
-
-    if arr.size == 9:
-        return arr.reshape(3, 3)
-
-    if arr.size == 4:
-        fx, fy, cx, cy = [float(x) for x in arr.reshape(-1)]
-        return np.array([[fx, 0.0, cx],
-                         [0.0, fy, cy],
-                         [0.0, 0.0, 1.0]], dtype=np.float32)
-
-    raise ValueError(f"Unrecognized K format/shape: shape={arr.shape}, size={arr.size}, value={K_like}")
+    I = torch.eye(3, device=w.device, dtype=torch.float32).expand(K.shape)
+    ct = torch.cos(theta)[..., None]
+    st = torch.sin(theta)[..., None]
+    R = I + st * K + (1.0 - ct) * (K @ K)
+    return R
 
 
-def _pick_cam0(cam: dict, H: int, W: int):
+def _read_image_rgb_float(path: Path, H: int, W: int) -> torch.Tensor:
     """
-    Pick first camera and derive (K_3x3, R, t) in world->camera convention.
-    Supports cameras.json variants:
-      - K: [N][3][3] or [3][3] or scalar/flat/4-vec/dict
-      - R/t lists (optional)
-      - w2c list 4x4 (optional)
-      - c2w list 4x4 (optional)
+    Read image -> RGB float32 in [0,1], shape (H,W,3).
     """
-    def first(v):
-        if isinstance(v, list):
-            return v[0]
-        return v
-
-    K0 = cam.get("K", None)
-    if K0 is None:
-        for k in ("intrinsics", "K_matrix", "K0"):
-            if k in cam:
-                K0 = cam[k]
-                break
-    if K0 is None:
-        raise KeyError("cameras.json missing intrinsics (expected key 'K' or equivalent)")
-    K0 = first(K0)
-    K3 = _normalize_K(K0, H=H, W=W)
-
-    # Preferred: explicit R/t
-    R0 = cam.get("R", None)
-    t0 = cam.get("t", None)
-    if R0 is not None and t0 is not None:
-        R = np.asarray(first(R0), dtype=np.float32)
-        t = np.asarray(first(t0), dtype=np.float32)
-        return K3, R, t
-
-    # w2c 4x4
-    w2c = cam.get("w2c", None) or cam.get("world_to_camera", None)
-    if w2c is not None:
-        M = np.asarray(first(w2c), dtype=np.float32)
-        return K3, M[:3, :3], M[:3, 3]
-
-    # c2w 4x4 -> invert
-    c2w = cam.get("c2w", None) or cam.get("camera_to_world", None)
-    if c2w is not None:
-        M = np.asarray(first(c2w), dtype=np.float32)
-        W2C = np.linalg.inv(M)
-        return K3, W2C[:3, :3], W2C[:3, 3]
-
-    raise KeyError("cameras.json missing extrinsics: expected (R,t) or w2c/c2w 4x4")
+    img_bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img_bgr is None:
+        raise FileNotFoundError(f"Cannot read image: {path}")
+    img_bgr = cv2.resize(img_bgr, (W, H), interpolation=cv2.INTER_AREA)
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    img = torch.from_numpy(img_rgb).float() / 255.0
+    return img  # (H,W,3)
 
 
-def _call_init_gaussians_from_mesh_3d(
-    mesh: Path,
-    cam: dict,
-    n_keep: int,
-    seed: int,
-):
+def _apply_simple_edit(g: Gaussian3D, cfg: Dict[str, Any]) -> Gaussian3D:
     """
-    Robustly call init_gaussians_from_mesh_3d by matching its actual signature.
-    This avoids breakage when parameter names differ across forks/versions.
+    “编辑”示例（基于 stage2 高斯）：
+      - global_translate: [dx,dy,dz]
+      - global_scale: s
+      - rgb_gain: [gr,gg,gb]  (在 rgb 空间乘法，尽量轻微)
+      - opacity_gain: s (在 alpha 空间乘法，尽量轻微)
+    这些编辑都是可逆/可控的，不会破坏曝光匹配。
     """
-    sig = inspect.signature(init_gaussians_from_mesh_3d)
-    params = sig.parameters
+    with torch.no_grad():
+        # global scale/translate on xyz
+        s = float(cfg.get("global_scale", 1.0))
+        t = cfg.get("global_translate", [0.0, 0.0, 0.0])
+        t = torch.as_tensor(t, device=g.xyz.device, dtype=g.xyz.dtype).view(1, 3)
 
-    pool = {
-        # mesh
-        "mesh_obj": mesh,
-        "mesh_path": mesh,
-        "obj_path": mesh,
-        "obj": mesh,
-        "path": mesh,
+        xyz = g.xyz * s + t
 
-        # camera info (some impls accept these, some ignore them)
-        "K_list": cam.get("K", None),
-        "Ks": cam.get("K", None),
-        "K": cam.get("K", None),
+        # mild rgb gain in rgb-space (not logit) then map back to logits safely
+        rgb_gain = cfg.get("rgb_gain", [1.0, 1.0, 1.0])
+        rgb_gain = torch.as_tensor(rgb_gain, device=g.xyz.device, dtype=g.xyz.dtype).view(1, 3)
 
-        "t_list": cam.get("t", None),
-        "ts": cam.get("t", None),
-        "t": cam.get("t", None),
+        rgb = torch.sigmoid(g.rgb_logit) * rgb_gain
+        rgb = rgb.clamp(1e-4, 1.0 - 1e-4)
+        rgb_logit = torch.log(rgb / (1.0 - rgb))
 
-        "R_list": cam.get("R", None),
-        "Rs": cam.get("R", None),
-        "R": cam.get("R", None),
+        # mild opacity gain in alpha-space then back to logits
+        opacity_gain = float(cfg.get("opacity_gain", 1.0))
+        a = torch.sigmoid(g.opacity_logit) * opacity_gain
+        a = a.clamp(1e-4, 1.0 - 1e-4)
+        opacity_logit = torch.log(a / (1.0 - a))
 
-        "w2c": cam.get("w2c", None) or cam.get("world_to_camera", None),
-        "w2c_list": cam.get("w2c", None) or cam.get("world_to_camera", None),
-
-        "c2w": cam.get("c2w", None) or cam.get("camera_to_world", None),
-        "c2w_list": cam.get("c2w", None) or cam.get("camera_to_world", None),
-
-        # init controls
-        "n_keep": n_keep,
-        "num_keep": n_keep,
-        "n_points": n_keep,
-        "num_points": n_keep,
-        "N": n_keep,
-
-        "seed": seed,
-        "rng_seed": seed,
-        "random_seed": seed,
-    }
-
-    kwargs = {}
-    for name in params.keys():
-        if name in pool and pool[name] is not None:
-            kwargs[name] = pool[name]
-
-    # Try keyword call first; then positional fallbacks
-    try:
-        return init_gaussians_from_mesh_3d(**kwargs)
-    except TypeError:
-        try:
-            return init_gaussians_from_mesh_3d(mesh, **kwargs)
-        except TypeError:
-            return init_gaussians_from_mesh_3d(mesh)
+    return Gaussian3D(
+        xyz=xyz,
+        log_scales=g.log_scales,
+        quat=g.quat,
+        opacity_logit=opacity_logit,
+        rgb_logit=rgb_logit,
+    )
 
 
 def main():
-    parser = parse_args_base("Edit SMPL params and render edited gaussian")
+    parser = parse_args_base("Edit stage2 gaussians and render with original-like exposure")
     args = parser.parse_args()
     cfg = apply_overrides(load_yaml(args.config), args.override)
 
     root = Path(cfg.get("project_root", ".")).resolve()
-    out_dir = ensure_dir(root / "outputs" / "edits")
     logger = setup_logger("edit", None)
 
-    # stage1
-    stage1 = root / "outputs" / "stage1"
-    cam = read_json(stage1 / "cameras.json")
+    # ---- paths ----
+    stage2_dir = root / cfg.get("stage2_dir", "outputs/stage2")
+    ckpt_path = stage2_dir / cfg.get("stage2_ckpt", "gaussians3d.pt")
+    out_dir = ensure_dir(root / cfg.get("out_dir", "outputs/edits"))
 
-    # image size (prefer cfg, otherwise defaults)
+    # ---- render size ----
     H = int(cfg.get("H", cfg.get("height", 480)))
     W = int(cfg.get("W", cfg.get("width", 640)))
 
-    # load & edit SMPL params (NOTE: this script does NOT regenerate mesh from pose)
-    smpl = np.load(stage1 / "smpl_params.npz")
-    pose = smpl["pose"].copy()
-    if pose.size > 3:
-        pose[3] += 0.5  # dummy edit; does not affect mesh unless you regenerate it
+    # ---- load checkpoint ----
+    ckpt: Dict[str, Any] = torch.load(str(ckpt_path), map_location="cpu")
 
-    # mesh (still using stage1 mesh as-is)
-    mesh = stage1 / "smpl_mesh.obj"
-
-    # init gaussians
-    n_keep = int(cfg.get("n_keep", 600))
-    seed = int(cfg.get("seed", 0))
-    gauss = _call_init_gaussians_from_mesh_3d(mesh=mesh, cam=cam, n_keep=n_keep, seed=seed)
+    gauss_sd = _pick(ckpt, ("gaussians", "gaussian", "g"), required=True)
+    K_ckpt = _pick(ckpt, ("K", "intrinsics"), required=True)
+    cam_w = _pick(ckpt, ("cam_w", "camera_w", "w"), required=True)
+    cam_t = _pick(ckpt, ("cam_t", "camera_t", "t"), required=True)
+    frames = _pick(ckpt, ("frames", "frame_names"), required=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    gauss = gauss.to(device)
 
-    # camera 0
-    K_np, R_np, t_np = _pick_cam0(cam, H=H, W=W)
-    K = _to_tensor(K_np, device=device, dtype=torch.float32)
-    R = _to_tensor(R_np, device=device, dtype=torch.float32)
-    t = _to_tensor(t_np, device=device, dtype=torch.float32)
+    gauss = Gaussian3D.load_state_dict(gauss_sd).to(str(device))
+    K = K_ckpt.to(device=device, dtype=torch.float32)
 
-    img = render_gaussians_3d(gauss, K, R, t, H, W).detach().clamp(0, 1)  # [3,H,W]
-    img = (img.permute(1, 2, 0).cpu().numpy() * 255).astype("uint8")       # [H,W,3] RGB
+    # ---- select frame ----
+    frame_idx = int(cfg.get("frame_idx", 0))
+    if torch.is_tensor(cam_w):
+        w_i = cam_w[frame_idx].to(device=device)
+    else:
+        w_i = torch.as_tensor(cam_w[frame_idx], device=device, dtype=torch.float32)
+
+    if torch.is_tensor(cam_t):
+        t_i = cam_t[frame_idx].to(device=device)
+    else:
+        t_i = torch.as_tensor(cam_t[frame_idx], device=device, dtype=torch.float32)
+
+    # cam_w can be axis-angle (3,) or rotation matrix (3,3)
+    if w_i.ndim == 1 and w_i.numel() == 3:
+        R = _axis_angle_to_matrix(w_i).to(device=device, dtype=torch.float32)
+    elif w_i.ndim == 2 and tuple(w_i.shape) == (3, 3):
+        R = w_i.to(device=device, dtype=torch.float32)
+    else:
+        raise ValueError(f"Unsupported cam_w shape: {tuple(w_i.shape)} (expect (3,) axis-angle or (3,3) matrix)")
+
+    t = t_i.to(device=device, dtype=torch.float32).view(3)
+
+    # ---- optional: load GT background frame for exposure/color matching ----
+    use_gt_bg = bool(cfg.get("use_gt_background", True))
+    bg = (0.0, 0.0, 0.0)
+
+    frames_dir = cfg.get("frames_dir", None)
+    if use_gt_bg and frames_dir is not None:
+        frames_dir = (root / frames_dir).resolve()
+
+        # try to pick filename from ckpt frames list if available; else fall back to pattern
+        if isinstance(frames, (list, tuple)) and len(frames) > frame_idx:
+            fname = frames[frame_idx]
+            img_path = frames_dir / fname
+            if not img_path.exists():
+                # try common extensions if fname has no suffix
+                if img_path.suffix == "":
+                    for ext in (".png", ".jpg", ".jpeg"):
+                        p = img_path.with_suffix(ext)
+                        if p.exists():
+                            img_path = p
+                            break
+        else:
+            # fallback: 000000.png
+            img_path = frames_dir / f"{frame_idx:06d}.png"
+            if not img_path.exists():
+                img_path = frames_dir / f"{frame_idx:06d}.jpg"
+
+        if img_path.exists():
+            bg = _read_image_rgb_float(img_path, H=H, W=W).to(device=device, dtype=torch.float32)
+            logger.info(f"Using GT background: {img_path}")
+        else:
+            logger.warning(f"GT background requested but not found. frames_dir={frames_dir}, idx={frame_idx}. Using black bg.")
+
+    # ---- apply edit on stage2 gaussians (in-place style edit) ----
+    edit_cfg = cfg.get("edit", {})
+    gauss_edit = _apply_simple_edit(gauss, edit_cfg)
+
+    # ---- render (background is GT frame -> exposure naturally close to original) ----
+    rgb = render_gaussians_3d(
+        gauss_edit,
+        K=K,
+        R=R,
+        t=t,
+        H=H,
+        W=W,
+        bg=bg,
+    ).detach().clamp(0, 1)  # (3,H,W)
+
+    # save
+    img = (rgb.permute(1, 2, 0).cpu().numpy() * 255).astype("uint8")  # HWC RGB
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-    out = out_dir / "edit_000000.png"
-    cv2.imwrite(str(out), img)
-    logger.info(f"Saved edited render: {out}")
+    out_path = out_dir / f"edit_{frame_idx:06d}.png"
+    cv2.imwrite(str(out_path), img)
+    logger.info(f"Saved edited render: {out_path}")
 
 
 if __name__ == "__main__":

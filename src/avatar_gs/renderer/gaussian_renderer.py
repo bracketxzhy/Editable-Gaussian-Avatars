@@ -1,66 +1,178 @@
 from __future__ import annotations
+
+from typing import Optional, Tuple, Union
+
 import torch
+import gsplat  # pip package "gsplat"
+
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
 
-try:
-    import gsplat  # type: ignore
-except Exception as e:  # pragma: no cover
-    gsplat = None
-    _gsplat_err = e
+
+def _ensure_hwc_background(
+    bg: Union[None, Tuple[float, float, float], torch.Tensor],
+    H: int,
+    W: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """
+    Returns background tensor of shape (H, W, 3) on device.
+    - bg is None: black background
+    - bg is (3,) tuple/list/tensor: broadcast to (H,W,3)
+    - bg is (H,W,3) tensor: used as-is
+    """
+    if bg is None:
+        return torch.zeros((H, W, 3), device=device, dtype=dtype)
+
+    if torch.is_tensor(bg):
+        bgt = bg.to(device=device, dtype=dtype)
+        if bgt.ndim == 1 and bgt.numel() == 3:
+            return bgt.view(1, 1, 3).expand(H, W, 3).contiguous()
+        if bgt.ndim == 3 and tuple(bgt.shape) == (H, W, 3):
+            return bgt.contiguous()
+        raise ValueError(f"bg tensor must be (3,) or (H,W,3). Got {tuple(bgt.shape)}")
+
+    if isinstance(bg, (tuple, list)) and len(bg) == 3:
+        bgt = torch.tensor(bg, device=device, dtype=dtype).view(1, 1, 3)
+        return bgt.expand(H, W, 3).contiguous()
+
+    raise ValueError(f"Unsupported bg type: {type(bg)}")
 
 
-def _viewmat_world_to_cam(R: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+def _ensure_R(R: torch.Tensor) -> torch.Tensor:
+    """Accept (3,3) or (B,3,3) -> return (B,3,3)."""
+    if R.ndim == 2 and R.shape == (3, 3):
+        return R[None, ...].contiguous()
+    if R.ndim == 3 and R.shape[1:] == (3, 3):
+        return R.contiguous()
+    raise ValueError(f"R must be (3,3) or (B,3,3), got {tuple(R.shape)}")
+
+
+def _ensure_t(t: torch.Tensor) -> torch.Tensor:
+    """Accept (3,) or (B,3) -> return (B,3)."""
+    if t.ndim == 1 and t.numel() == 3:
+        return t[None, :].contiguous()
+    if t.ndim == 2 and t.shape[1] == 3:
+        return t.contiguous()
+    raise ValueError(f"t must be (3,) or (B,3), got {tuple(t.shape)}")
+
+
+def _ensure_K(K: torch.Tensor) -> torch.Tensor:
+    """Accept (3,3) or (B,3,3) -> return (B,3,3)."""
+    if K.ndim == 2 and K.shape == (3, 3):
+        return K[None, ...].contiguous()
+    if K.ndim == 3 and K.shape[1:] == (3, 3):
+        return K.contiguous()
+    raise ValueError(f"K must be (3,3) or (B,3,3), got {tuple(K.shape)}")
+
+
+def _make_viewmats(Rs: torch.Tensor, ts: torch.Tensor) -> torch.Tensor:
     """
-    Build a 4x4 world->camera matrix:
-        Xc = R * Xw + t
+    Build viewmats (world->cam) of shape (B, 4, 4) from:
+      Rs: (B,3,3)
+      ts: (B,3)
     """
-    V = torch.eye(4, device=R.device, dtype=R.dtype)
-    V[:3, :3] = R
-    V[:3, 3] = t
-    return V
+    B = Rs.shape[0]
+    view = torch.eye(4, device=Rs.device, dtype=Rs.dtype).unsqueeze(0).repeat(B, 1, 1)
+    view[:, :3, :3] = Rs
+    view[:, :3, 3] = ts
+    return view
+
+
+def _squeeze_bc(x: torch.Tensor) -> torch.Tensor:
+    """
+    Squeeze leading batch/cam dims if they are 1.
+    Typical gsplat outputs:
+      (B, C, H, W, 3) or (B, C, H, W, 1)
+    We want:
+      (H, W, 3) or (H, W, 1)
+    """
+    while x.ndim >= 4 and x.shape[0] == 1:
+        x = x.squeeze(0)
+    while x.ndim >= 4 and x.shape[0] == 1:
+        x = x.squeeze(0)
+    if x.ndim == 4 and x.shape[0] == 1:
+        x = x[0]
+    return x
+
+
+def _infer_hw_from_ref(
+    ref_image: Optional[torch.Tensor],
+    bg: Optional[Union[Tuple[float, float, float], torch.Tensor]],
+) -> Tuple[int, int]:
+    """
+    Infer (H,W) from:
+    - ref_image: (3,H,W) or (H,W,3)
+    - bg tensor: (H,W,3)
+    """
+    if ref_image is not None:
+        if not torch.is_tensor(ref_image):
+            raise ValueError("ref_image must be a torch.Tensor when provided.")
+        if ref_image.ndim == 3:
+            if ref_image.shape[0] == 3:
+                return int(ref_image.shape[1]), int(ref_image.shape[2])  # (H,W) from (3,H,W)
+            if ref_image.shape[2] == 3:
+                return int(ref_image.shape[0]), int(ref_image.shape[1])  # (H,W) from (H,W,3)
+        raise ValueError(f"ref_image must be (3,H,W) or (H,W,3). Got {tuple(ref_image.shape)}")
+
+    if torch.is_tensor(bg):
+        bgt = bg
+        if bgt.ndim == 3 and bgt.shape[2] == 3:
+            return int(bgt.shape[0]), int(bgt.shape[1])
+
+    raise ValueError(
+        "H/W were not provided and could not be inferred. "
+        "Pass H and W explicitly, or pass ref_image (3,H,W)/(H,W,3), or pass bg tensor (H,W,3)."
+    )
 
 
 def render_gaussians_3d(
     g: Gaussian3D,
-    K: torch.Tensor,   # (3,3)
-    R: torch.Tensor,   # (3,3) world->camera
-    t: torch.Tensor,   # (3,)  world->camera
-    H: int,
-    W: int,
-    bg_color=(0.0, 0.0, 0.0),
-) -> torch.Tensor:
+    K: torch.Tensor,
+    R: torch.Tensor,
+    t: torch.Tensor,
+    H: Optional[int],
+    W: Optional[int],
+    bg: Optional[Union[Tuple[float, float, float], torch.Tensor]] = (0.0, 0.0, 0.0),
+    near_plane: float = 0.01,
+    far_plane: float = 1e5,
+    return_alpha: bool = False,
+    packed: bool = True,
+    ref_image: Optional[torch.Tensor] = None,
+) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     """
-    Render 3D Gaussians using gsplat.rasterization (common legacy signature).
-    Returns: (3,H,W) float in [0,1]
-    """
-    if gsplat is None:  # pragma: no cover
-        raise ModuleNotFoundError(
-            "gsplat is not installed or failed to import. "
-            f"Original error: {_gsplat_err}"
-        )
+    Render Gaussian3D with gsplat (v1.x compatible).
 
+    If H/W are None, infer them from ref_image (recommended) or bg tensor shape.
+    This enables "render output size equals input frame size" without hard-coding H/W.
+    """
     device = g.xyz.device
     dtype = g.xyz.dtype
 
-    # ---- Gaussian params ----
-    means = g.xyz.contiguous()                         # [N,3]
-    quats = g.normalized_quat().contiguous()           # [N,4]
-    scales = g.scales().contiguous()                   # [N,3]
-    opacities = g.opacity().squeeze(-1).contiguous()   # [N]
-    colors = g.rgb().contiguous()                      # [N,3] or [N,D] depending on render_mode
+    if H is None or W is None:
+        H, W = _infer_hw_from_ref(ref_image=ref_image, bg=bg)
 
-    # ---- Camera batch (C=1) ----
-    viewmats = _viewmat_world_to_cam(R, t)[None, :].contiguous()  # [1,4,4]
-    Ks = K[None, :].contiguous()                                  # [1,3,3]
+    if not isinstance(H, int) or not isinstance(W, int) or H <= 0 or W <= 0:
+        raise ValueError(f"Invalid H/W: H={H}, W={W}")
 
-    # ---- Background ----
-    # IMPORTANT:
-    # Your current gsplat build expects per-camera background colors (C, 3) for this rasterization API.
-    # With C=1, shape must be (1, 3). Do NOT expand to (H, W, 3).
-    backgrounds = torch.tensor(bg_color, device=device, dtype=dtype).view(1, 3).contiguous()  # [1,3]
+    Ks_b = _ensure_K(K.to(device=device, dtype=dtype))  # (B,3,3)
+    Rs_b = _ensure_R(R.to(device=device, dtype=dtype))  # (B,3,3)
+    ts_b = _ensure_t(t.to(device=device, dtype=dtype))  # (B,3)
 
-    # ---- Rasterize ----
-    out = gsplat.rasterization(
+    viewmats_b = _make_viewmats(Rs_b, ts_b)             # (B,4,4)
+
+    # gsplat expects explicit camera dimension C
+    viewmats = viewmats_b[:, None, :, :]  # (B,1,4,4)
+    Ks = Ks_b[:, None, :, :]              # (B,1,3,3)
+
+    # Prepare gaussians
+    means = g.xyz[None, ...].contiguous()                      # (1,N,3)
+    scales = g.scales()[None, ...].contiguous()                # (1,N,3)
+    quats = g.normalized_quat()[None, ...].contiguous()        # (1,N,4)
+    opacities = g.opacity().view(-1)[None, ...].contiguous()   # (1,N)
+    colors = g.rgb()[None, ...].contiguous()                   # (1,N,3)
+
+    render_colors, render_alphas, _meta = gsplat.rasterization(
         means=means,
         quats=quats,
         scales=scales,
@@ -70,41 +182,29 @@ def render_gaussians_3d(
         Ks=Ks,
         width=int(W),
         height=int(H),
-        backgrounds=backgrounds,
-        packed=False,          # <- key: avoid packed path shape assertion mismatch
+        near_plane=near_plane,
+        far_plane=far_plane,
+        packed=packed,
+        backgrounds=None,     # avoid strict asserts
         render_mode="RGB",
     )
 
-    # ---- Output compatibility ----
-    # Depending on version, return could be:
-    # (render_colors, render_alphas, meta) OR ((render_colors, render_alphas), meta) etc.
-    render_colors = None
+    render_colors = _squeeze_bc(render_colors)
+    render_alphas = _squeeze_bc(render_alphas)
 
-    if isinstance(out, tuple):
-        # case A: (colors, alphas, meta)
-        if len(out) >= 1 and torch.is_tensor(out[0]):
-            render_colors = out[0]
-        # case B: ((colors, alphas), meta)
-        elif (
-            len(out) >= 1
-            and isinstance(out[0], (tuple, list))
-            and len(out[0]) >= 1
-            and torch.is_tensor(out[0][0])
-        ):
-            render_colors = out[0][0]
+    if render_colors.ndim != 3 or render_colors.shape[-1] != 3:
+        raise RuntimeError(f"Unexpected render_colors shape: {tuple(render_colors.shape)}")
+    if render_alphas.ndim != 3 or render_alphas.shape[-1] != 1:
+        raise RuntimeError(f"Unexpected render_alphas shape: {tuple(render_alphas.shape)}")
 
-    if render_colors is None:
-        raise RuntimeError(
-            "Unexpected gsplat.rasterization() return format; please paste the full traceback/output."
-        )
+    if bg is not None:
+        bg_hwc = _ensure_hwc_background(bg, int(H), int(W), device=device, dtype=dtype)
+        render_colors = render_colors + (1.0 - render_alphas) * bg_hwc
+        render_colors = render_colors.clamp(0.0, 1.0)
 
-    # render_colors usually: [C, H, W, 3]
-    if render_colors.ndim == 4:
-        img = render_colors[0]  # [H,W,3]
-        img = img.permute(2, 0, 1).contiguous()  # [3,H,W]
-    elif render_colors.ndim == 3 and render_colors.shape[-1] == 3:
-        img = render_colors.permute(2, 0, 1).contiguous()
-    else:
-        raise RuntimeError(f"Unexpected rendered colors shape: {tuple(render_colors.shape)}")
+    rgb = render_colors.permute(2, 0, 1).contiguous()   # (3,H,W)
+    alpha = render_alphas.permute(2, 0, 1).contiguous() # (1,H,W)
 
-    return img.clamp(0.0, 1.0)
+    if return_alpha:
+        return rgb, alpha
+    return rgb

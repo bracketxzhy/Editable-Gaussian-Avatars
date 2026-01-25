@@ -8,8 +8,12 @@ data:
 stage2:
   stage1_dir: outputs/stage1
   out_dir: outputs/stage2
-  n_frames: 20
-  n_gaussians: 3000
-  iters: 2000
-  lr_gauss: 0.01
-  lr_cam: 0.001
+
+  # ---------- Stage2 training schedule (Stage A: stabilize) ----------
+  n_frames: 30
+  n_gaussians: 40000
+  iters: 8000
+
+  # Learning rates
+  lr_gauss: 0.002
+  lr_cam: 0.0

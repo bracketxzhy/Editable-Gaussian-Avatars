@@ -4,5 +4,13 @@ log_dir: outputs/logs
 render:
   stage2_dir: outputs/stage2
   out_dir: outputs/renders
-  W: 640
-  H: 480
+  # 可选：如果你的帧不在 data/frames/input，就指定 frames_dir
+  # frames_dir: data/frames/input
+  # 可选：只渲染前 N 帧
+  # max_frames: 50
+  # 可选：背景色（默认白底）
+  # bg: [1.0, 1.0, 1.0]
+render:
+  stage2_dir: outputs/stage2
+  out_dir: outputs/renders
+  max_frames: 1
