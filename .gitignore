@@ -52,8 +52,11 @@ outputs/logs/
 *.avi
 *.mov
 *.mkv
+*.pkl
+
 
 # ---- Temporary ----
 *.tmp
 *.cache
 *.zip
+

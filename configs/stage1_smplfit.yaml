@@ -6,9 +6,13 @@ data:
   frames_dir: data/frames/input
 
 camera:
-  # 简单 pinhole，相机内参你后面再换成真实的
-  K: [800, 0, 320, 0, 800, 240, 0, 0, 1]
+  K: [500, 0, 232, 0, 500, 344, 0, 0, 1]
 
 stage1:
   out_dir: outputs/stage1
-  dummy_n_verts: 1200
+  smpl_model_path: assets
+  smpl_model_type: smpl
+  smpl_gender: neutral
+  fit_frames: 120
+  fit_iters: 2000
+  fit_lr: 0.03

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import cv2
 import torch
+import torch.nn.functional as F
 
 from avatar_gs.utils.cfg import load_yaml, apply_overrides, parse_args_base, resolve_path
 from avatar_gs.utils.io import ensure_dir
@@ -50,6 +51,28 @@ def save_rgb(path: str | Path, rgb_chw: torch.Tensor) -> None:
     ok = cv2.imwrite(str(path), bgr)
     if not ok:
         raise RuntimeError(f"Failed to write image: {path}")
+
+
+def _scale_intrinsics(K: torch.Tensor, scale: float) -> torch.Tensor:
+    """Scale camera intrinsics for image size change."""
+    if scale == 1.0:
+        return K
+    Ks = K.clone()
+    Ks[0, 0] *= scale
+    Ks[1, 1] *= scale
+    Ks[0, 2] *= scale
+    Ks[1, 2] *= scale
+    return Ks
+
+
+def _resize_chw(x: torch.Tensor, H: int, W: int) -> torch.Tensor:
+    """Resize (C,H,W) tensor to (C,H,W) with safe down/up-sampling."""
+    if x.shape[1] == H and x.shape[2] == W:
+        return x
+    mode = "area" if (x.shape[1] > H or x.shape[2] > W) else "bilinear"
+    if mode == "area":
+        return F.interpolate(x.unsqueeze(0), size=(H, W), mode=mode).squeeze(0)
+    return F.interpolate(x.unsqueeze(0), size=(H, W), mode=mode, align_corners=False).squeeze(0)
 
 
 def _resolve_stage2_ckpt(stage2_dir: Path) -> Path:
@@ -173,9 +196,18 @@ def main():
     logger.info(f"Frames dir: {frames_dir}")
     logger.info(f"Will render: {to_render} frames; bg={bg}")
 
+    fg_scale = float(render_cfg.get("fg_scale", 1.0))
+    bg_scale = float(render_cfg.get("bg_scale", 1.0))
+    if fg_scale <= 0.0 or bg_scale <= 0.0:
+        raise ValueError(f"fg_scale/bg_scale must be > 0. Got fg_scale={fg_scale}, bg_scale={bg_scale}")
+
+    if fg_scale != 1.0 or bg_scale != 1.0:
+        logger.info(f"Render scales: fg_scale={fg_scale}, bg_scale={bg_scale}")
+
     for i in range(to_render):
         frame_path = frames_dir / frames[i]
         gt = read_image_rgb(frame_path).to(device)  # (3,H,W)
+        base_h, base_w = int(gt.shape[1]), int(gt.shape[2])
 
         # Camera for this frame
         if cam_w is None or cam_t is None:
@@ -185,17 +217,52 @@ def main():
             R = axis_angle_to_rotmat(cam_w[i])
             t = cam_t[i]
 
-        # IMPORTANT: infer output size from gt (do NOT hardcode H/W)
-        pred = render_gaussians_3d(
-            g=g,
-            K=K,
-            R=R,
-            t=t,
-            H=None,
-            W=None,
-            bg=bg,
-            ref_image=gt,  # << output size == gt size
-        )
+        if fg_scale == 1.0 and bg_scale == 1.0:
+            # IMPORTANT: infer output size from gt (do NOT hardcode H/W)
+            pred = render_gaussians_3d(
+                g=g,
+                K=K,
+                R=R,
+                t=t,
+                H=None,
+                W=None,
+                bg=bg,
+                ref_image=gt,  # << output size == gt size
+            )
+        else:
+            # Foreground: higher scale, keep alpha for compositing
+            fg_h = max(1, int(round(base_h * fg_scale)))
+            fg_w = max(1, int(round(base_w * fg_scale)))
+            K_fg = _scale_intrinsics(K, fg_scale)
+            fg_rgb, fg_alpha = render_gaussians_3d(
+                g=g,
+                K=K_fg,
+                R=R,
+                t=t,
+                H=fg_h,
+                W=fg_w,
+                bg=None,
+                return_alpha=True,
+            )
+            fg_rgb = _resize_chw(fg_rgb, base_h, base_w)
+            fg_alpha = _resize_chw(fg_alpha, base_h, base_w).clamp(0.0, 1.0)
+
+            # Background: allow lower scale to save cost/detail
+            bg_h = max(1, int(round(base_h * bg_scale)))
+            bg_w = max(1, int(round(base_w * bg_scale)))
+            K_bg = _scale_intrinsics(K, bg_scale)
+            bg_rgb = render_gaussians_3d(
+                g=g,
+                K=K_bg,
+                R=R,
+                t=t,
+                H=bg_h,
+                W=bg_w,
+                bg=bg,
+            )
+            bg_rgb = _resize_chw(bg_rgb, base_h, base_w)
+
+            pred = fg_rgb * fg_alpha + bg_rgb * (1.0 - fg_alpha)
 
         out_path = out_dir / f"{i:06d}.png"
         save_rgb(out_path, pred)

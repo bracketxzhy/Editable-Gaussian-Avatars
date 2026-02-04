@@ -33,12 +33,17 @@ def main():
     extract_keypoints_from_frames(frames_dir, kpt_json)
     logger.info(f"Saved keypoints: {kpt_json}")
 
-    # 2) Fit SMPL (lite) using the extracted keypoints (currently a minimal placeholder fit)
+    # 2) Fit SMPL using extracted keypoints (requires smplx model files)
     fit_smpl_from_keypoints(
         keypoints_json=kpt_json,
         out_dir=out_dir,
         K_list=cfg["camera"]["K"],
-        n_verts=int(cfg["stage1"].get("dummy_n_verts", 1200)),
+        smpl_model_path=cfg["stage1"]["smpl_model_path"],
+        smpl_model_type=str(cfg["stage1"].get("smpl_model_type", "smpl")),
+        smpl_gender=str(cfg["stage1"].get("smpl_gender", "neutral")),
+        fit_frames=int(cfg["stage1"].get("fit_frames", 20)),
+        fit_iters=int(cfg["stage1"].get("fit_iters", 300)),
+        fit_lr=float(cfg["stage1"].get("fit_lr", 5e-2)),
     )
     logger.info("Saved smpl_params.npz and smpl_mesh.obj")
 
