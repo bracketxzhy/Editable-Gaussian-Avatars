@@ -6,13 +6,52 @@ data:
   frames_dir: data/frames/input
 
 camera:
-  K: [500, 0, 232, 0, 500, 344, 0, 0, 1]
+  # For 1000x1000 frames, start from centered principal point.
+  # If you have exact camera intrinsics, replace this with calibrated values.
+  K: [1000, 0, 500, 0, 1000, 500, 0, 0, 1]
+
+mediapipe:
+  # For video sequences, tracking mode is usually more stable.
+  static_image_mode: false
+  model_complexity: 2
+  min_detection_confidence: 0.6
+  min_tracking_confidence: 0.6
 
 stage1:
   out_dir: outputs/stage1
   smpl_model_path: assets
   smpl_model_type: smpl
   smpl_gender: neutral
-  fit_frames: 120
-  fit_iters: 2000
-  fit_lr: 0.03
+  # sequence: shared shape + per-frame pose/trans; static: one body for all frames
+  fit_mode: sequence
+  fit_frames: -1
+  fit_iters: 4000
+  fit_lr: 0.015
+  frame_batch: 24
+  temporal_pose_weight: 0.001
+  temporal_orient_weight: 0.002
+  temporal_trans_weight: 0.008
+  # Estimate shape from history frames with strong regularization.
+  optimize_betas: true
+  unfreeze_betas_iter: -1
+  betas_l2_weight: 0.2
+  betas_abs_max: 2.5
+  # Use previous frames to estimate body shape, then use final frame for final pose.
+  shape_from_previous_frames: true
+  final_pose_from_last_frame: true
+  last_frame_refine_iters: 500
+  # Physical priors
+  upright_prior_weight: 0.02
+  knee_hinge_weight: 0.004
+  knee_direction_weight: 0.01
+  knee_min_flex: 0.02
+  left_knee_flex_sign: 1.0
+  right_knee_flex_sign: 1.0
+  # Export alignment for Blender
+  enforce_export_upright: true
+  export_center_xy: true
+  export_on_floor: true
+  # Export mesh smoothing (visual)
+  export_smooth_iters: 3
+  export_smooth_alpha: 0.12
+  export_meshes: false
