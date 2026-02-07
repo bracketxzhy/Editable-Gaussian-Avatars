@@ -8,6 +8,7 @@ from avatar_gs.utils.log import setup_logger
 from avatar_gs.utils.seed import seed_everything
 
 from avatar_gs.data.keypoints_mediapipe import extract_keypoints_from_frames
+from avatar_gs.data.h36m import resolve_h36m_image_paths
 from avatar_gs.smpl.fit_from_video import (
     fit_smpl_from_keypoints,
     fit_smpl_sequence_from_keypoints,
@@ -31,12 +32,20 @@ def main():
     logger.info(f"Frames dir: {frames_dir}")
     logger.info(f"Stage1 out: {out_dir}")
 
-    # 1) Extract MediaPipe keypoints from frames (single fixed camera sequence)
+    # 1) Extract MediaPipe keypoints from frames.
+    # For Human3.6M-style multi-view exports, you can provide data.h36m.* to select a subset.
     mp_cfg = cfg.get("mediapipe", {})
     kpt_json = out_dir / "keypoints.json"
+    frame_paths = None
+    if "h36m" in cfg.get("data", {}):
+        frame_paths = resolve_h36m_image_paths(project_root=project_root, data_cfg=cfg["data"])
+        frames_dir = frame_paths[0].parent
+        logger.info(f"H36M resolved frames_dir: {frames_dir}")
+        logger.info(f"H36M selected frames: {len(frame_paths)}")
     extract_keypoints_from_frames(
         frames_dir=frames_dir,
         out_json=kpt_json,
+        frame_paths=frame_paths,
         static_image_mode=bool(mp_cfg.get("static_image_mode", False)),
         model_complexity=int(mp_cfg.get("model_complexity", 1)),
         min_detection_confidence=float(mp_cfg.get("min_detection_confidence", 0.5)),
@@ -57,6 +66,10 @@ def main():
         fit_frames=int(stage1_cfg.get("fit_frames", 120)),
         fit_iters=int(stage1_cfg.get("fit_iters", 2000)),
         fit_lr=float(stage1_cfg.get("fit_lr", 3e-2)),
+        export_pose_mode=str(stage1_cfg.get("export_pose_mode", "last_frame")),
+        export_ensure_head_up=bool(stage1_cfg.get("export_ensure_head_up", False)),
+        export_center_xyz=bool(stage1_cfg.get("export_center_xyz", False)),
+        export_on_floor=bool(stage1_cfg.get("export_on_floor", True)),
         export_smooth_iters=int(stage1_cfg.get("export_smooth_iters", 0)),
         export_smooth_alpha=float(stage1_cfg.get("export_smooth_alpha", 0.1)),
     )
@@ -79,12 +92,25 @@ def main():
             upright_prior_weight=float(stage1_cfg.get("upright_prior_weight", 1e-2)),
             knee_hinge_weight=float(stage1_cfg.get("knee_hinge_weight", 2e-3)),
             knee_direction_weight=float(stage1_cfg.get("knee_direction_weight", 5e-3)),
-            knee_min_flex=float(stage1_cfg.get("knee_min_flex", 0.02)),
-            left_knee_flex_sign=float(stage1_cfg.get("left_knee_flex_sign", 1.0)),
-            right_knee_flex_sign=float(stage1_cfg.get("right_knee_flex_sign", 1.0)),
+            knee_hinge_axis=int(stage1_cfg.get("knee_hinge_axis", 1)),
+            knee_min_flex=float(stage1_cfg.get("knee_min_flex", 0.12)),
+            left_knee_flex_sign=float(stage1_cfg.get("left_knee_flex_sign", -1.0)),
+            right_knee_flex_sign=float(stage1_cfg.get("right_knee_flex_sign", -1.0)),
+            auto_knee_sign=bool(stage1_cfg.get("auto_knee_sign", False)),
+            knee_sign_update_every=int(stage1_cfg.get("knee_sign_update_every", 200)),
+            enforce_knee_hard=bool(stage1_cfg.get("enforce_knee_hard", True)),
+            enforce_right_knee_only=bool(stage1_cfg.get("enforce_right_knee_only", True)),
+            knee_zero_non_hinge_axes=bool(stage1_cfg.get("knee_zero_non_hinge_axes", False)),
+            ankle_twist_weight=float(stage1_cfg.get("ankle_twist_weight", 3e-3)),
+            back_stability_weight=float(stage1_cfg.get("back_stability_weight", 6e-3)),
+            enforce_strict_upright=bool(stage1_cfg.get("enforce_strict_upright", False)),
+            upright_tilt_max=float(stage1_cfg.get("upright_tilt_max", 0.0)),
+            enforce_spine_hard=bool(stage1_cfg.get("enforce_spine_hard", False)),
+            spine_tilt_max=float(stage1_cfg.get("spine_tilt_max", 0.15)),
             enforce_export_upright=bool(stage1_cfg.get("enforce_export_upright", True)),
             export_center_xy=bool(stage1_cfg.get("export_center_xy", True)),
-            export_on_floor=bool(stage1_cfg.get("export_on_floor", True)),
+            export_center_mode=str(stage1_cfg.get("export_center_mode", "pelvis")),
+            full_batch_every=int(stage1_cfg.get("full_batch_every", 200)),
             export_meshes=bool(stage1_cfg.get("export_meshes", False)),
         )
     logger.info(f"Saved SMPL outputs (fit_mode={fit_mode})")

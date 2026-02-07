@@ -10,6 +10,7 @@ mp_pose = mp.solutions.pose
 def extract_keypoints_from_frames(
     frames_dir: str | Path,
     out_json: str | Path,
+    frame_paths: list[str | Path] | None = None,
     static_image_mode: bool = True,
     model_complexity: int = 1,
     min_detection_confidence: float = 0.5,
@@ -27,7 +28,13 @@ def extract_keypoints_from_frames(
     )
     all_kpts = {}
 
-    for img_path in sorted(frames_dir.glob("*.jpg")):
+    if frame_paths is None:
+        img_paths = list(frames_dir.glob("*.jpg")) + list(frames_dir.glob("*.png"))
+        img_paths = sorted(img_paths)
+    else:
+        img_paths = [Path(p) for p in frame_paths]
+
+    for img_path in img_paths:
         img = cv2.imread(str(img_path))
         if img is None:
             continue

@@ -4,16 +4,87 @@ log_dir: outputs/logs
 
 data:
   frames_dir: data/frames/input
+  # Optional: Human3.6M multi-view selection (same as stage1).
+  # h36m:
+  #   root_dir: data/frames/input/human3.6/S1
+  #   images_list: data/frames/input/human3.6/h36m_annot/train_images.txt
+  #   subject: S1
+  #   action: Directions
+  #   trial: 1
+  #   cameras: [54138969, 55011271, 58860488, 60457274]
+  #   stride: 1
+  #   max_images: -1
 
 stage2:
   stage1_dir: outputs/stage1
   out_dir: outputs/stage2
 
   # ---------- Stage2 training schedule (Stage A: stabilize) ----------
-  n_frames: 30
-  n_gaussians: 40000
-  iters: 8000
+  n_frames: 1
+  n_gaussians: 200000
+  # Extra background gaussians (unbound)
+  n_gaussians_bg: 0
+  bg_extent: [4.0, 4.0, 1.0]
+  bg_center_z: 2.5
+  bg_log_scale: -3.5
+  bg_opacity_logit: -4.0
+  # Keep background away from the body to reduce ghosting
+  bg_exclude_bbox_pad: 0.2
+  # Low-precision background (unused when n_gaussians_bg=0)
+  bg_grad_scale: 0.2
+  bg_opacity_logit_max: -3.5
+  bg_log_scale_min: -3.5
+  bg_log_scale_max: -2.0
+  # Foreground constraints: allow enough opacity while keeping splats small
+  fg_opacity_logit_max: 2.0
+  fg_log_scale_min: -7.0
+  fg_log_scale_max: -5.0
+  iters: 60000
 
   # Learning rates
-  lr_gauss: 0.002
+  lr_gauss: 0.0015
   lr_cam: 0.0
+  camera_mode: fixed
+  cam_t_prior: [0.0, 0.0, 2.5]
+  cam_reg_weight: 0.0
+  cam_warmup_iters: 0
+  l1_weight: 0.5
+  use_alpha_mask: true
+  alpha_threshold: 0.1
+  # Optional face emphasis (disabled by default for stability)
+  keypoints_json: null
+  kpt_conf_min: 0.2
+  kpt_box_pad: 0.2
+  use_kpt_bbox_mask: false
+  face_weight: 1.0
+  face_conf_min: 0.3
+  face_box_pad: 0.15
+  bg_rgb: [1.0, 1.0, 1.0]
+  # Use only the last frame (sharpest)
+  frame_select: last
+
+  # ---------- Dynamic binding to SMPL mesh sequence ----------
+  # Require stage1.export_meshes=true to generate outputs/stage1/smpl_mesh_sequence
+  bind_to_mesh: true
+  bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
+  bind_cache_size: 8
+  # stage1 exports meshes in Blender coordinates; convert back to camera coords for training
+  bind_mesh_to_camera: true
+
+render:
+  stage2_dir: outputs/stage2
+  out_dir: outputs/renders
+  frames_dir: data/frames/input
+  max_frames: 1
+  bg: [1.0, 1.0, 1.0]
+  # Larger view range (smaller K -> wider FOV)
+  k_scale: 1.0
+  # Foreground high-res, background low-res
+  fg_scale: 1.0
+  bg_scale: 1.0
+  split_by_bind: true
+  use_gt_background: true
+  bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
+  bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
+  # stage1 exports meshes in Blender coordinates; convert back to camera coords for rendering
+  bind_mesh_to_camera: true

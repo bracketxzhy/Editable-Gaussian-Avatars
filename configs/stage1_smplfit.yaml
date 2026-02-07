@@ -4,6 +4,17 @@ log_dir: outputs/logs
 
 data:
   frames_dir: data/frames/input
+  # Optional: Human3.6M multi-view selection from a flat image folder.
+  # If provided, stage1/stage2 will use this list instead of globbing frames_dir/*.jpg.
+  # h36m:
+  #   root_dir: data/frames/input/human3.6/S1
+  #   images_list: data/frames/input/human3.6/h36m_annot/train_images.txt
+  #   subject: S1
+  #   action: Directions
+  #   trial: 1
+  #   cameras: [54138969, 55011271, 58860488, 60457274]
+  #   stride: 1
+  #   max_images: -1
 
 camera:
   # For 1000x1000 frames, start from centered principal point.
@@ -25,9 +36,9 @@ stage1:
   # sequence: shared shape + per-frame pose/trans; static: one body for all frames
   fit_mode: sequence
   fit_frames: -1
-  fit_iters: 4000
-  fit_lr: 0.015
-  frame_batch: 24
+  fit_iters: 12000
+  fit_lr: 0.008
+  frame_batch: 40
   temporal_pose_weight: 0.001
   temporal_orient_weight: 0.002
   temporal_trans_weight: 0.008
@@ -39,19 +50,37 @@ stage1:
   # Use previous frames to estimate body shape, then use final frame for final pose.
   shape_from_previous_frames: true
   final_pose_from_last_frame: true
-  last_frame_refine_iters: 500
+  last_frame_refine_iters: 300
+  # Output pose override: last_frame | fit | tpose (arms out)
+  export_pose_mode: tpose
   # Physical priors
   upright_prior_weight: 0.02
-  knee_hinge_weight: 0.004
-  knee_direction_weight: 0.01
-  knee_min_flex: 0.02
+  knee_hinge_weight: 0.006
+  knee_direction_weight: 0.025
+  knee_hinge_axis: 1
+  knee_min_flex: 0.1
   left_knee_flex_sign: 1.0
-  right_knee_flex_sign: 1.0
+  right_knee_flex_sign: -1.0
+  auto_knee_sign: false
+  knee_sign_update_every: 100
+  enforce_knee_hard: true
+  enforce_right_knee_only: true
+  knee_zero_non_hinge_axes: true
+  ankle_twist_weight: 0.004
+  back_stability_weight: 0.01
+  enforce_strict_upright: false
+  upright_tilt_max: 0.0
+  enforce_spine_hard: false
+  spine_tilt_max: 0.15
   # Export alignment for Blender
   enforce_export_upright: true
-  export_center_xy: true
-  export_on_floor: true
+  export_ensure_head_up: true
+  export_center_xy: false
+  export_center_xyz: false
+  export_center_mode: centroid
+  export_on_floor: false
+  full_batch_every: 80
   # Export mesh smoothing (visual)
-  export_smooth_iters: 3
-  export_smooth_alpha: 0.12
-  export_meshes: false
+  export_smooth_iters: 12
+  export_smooth_alpha: 0.15
+  export_meshes: true

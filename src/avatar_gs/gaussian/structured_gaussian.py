@@ -15,6 +15,8 @@ class Gaussian3D:
     opacity_logit: torch.Tensor
     # (N,3) RGB in logit space (or SH later)
     rgb_logit: torch.Tensor
+    # (N,) optional binding to mesh vertex indices (for dynamic attachment)
+    bind_idx: torch.Tensor | None = None
 
     def to(self, device: str):
         return Gaussian3D(
@@ -23,16 +25,20 @@ class Gaussian3D:
             quat=self.quat.to(device),
             opacity_logit=self.opacity_logit.to(device),
             rgb_logit=self.rgb_logit.to(device),
+            bind_idx=self.bind_idx.to(device) if self.bind_idx is not None else None,
         )
 
     def state_dict(self):
-        return {
+        sd = {
             "xyz": self.xyz,
             "log_scales": self.log_scales,
             "quat": self.quat,
             "opacity_logit": self.opacity_logit,
             "rgb_logit": self.rgb_logit,
         }
+        if self.bind_idx is not None:
+            sd["bind_idx"] = self.bind_idx
+        return sd
 
     @staticmethod
     def load_state_dict(sd: dict) -> "Gaussian3D":
@@ -42,6 +48,7 @@ class Gaussian3D:
             quat=sd["quat"],
             opacity_logit=sd["opacity_logit"],
             rgb_logit=sd["rgb_logit"],
+            bind_idx=sd.get("bind_idx", None),
         )
 
     def rgb(self):

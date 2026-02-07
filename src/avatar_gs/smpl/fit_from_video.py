@@ -141,10 +141,26 @@ def _compute_upright_rotation_from_joints(joints_cam: np.ndarray | None) -> np.n
     if joints_cam is None:
         return np.eye(3, dtype=np.float32)
     jb = _camera_to_blender(joints_cam)
-    # SMPL joint ids: 1/2 hips, 16/17 shoulders
-    hip_center = 0.5 * (jb[1] + jb[2])
-    shoulder_center = 0.5 * (jb[16] + jb[17])
-    up_vec = shoulder_center - hip_center
+    pelvis = jb[0]
+    cands = []
+    # SMPL joint ids: 12 neck, 15 head, 16/17 shoulders
+    for j in (12, 15):
+        v = jb[j] - pelvis
+        n = float(np.linalg.norm(v))
+        if n > 1e-6:
+            cands.append(v / n)
+    v_sh = 0.5 * (jb[16] + jb[17]) - pelvis
+    n_sh = float(np.linalg.norm(v_sh))
+    if n_sh > 1e-6:
+        cands.append(v_sh / n_sh)
+
+    if not cands:
+        return np.eye(3, dtype=np.float32)
+    up_vec = np.sum(np.stack(cands, axis=0), axis=0)
+    if float(np.linalg.norm(up_vec)) < 1e-6:
+        up_vec = cands[0]
+    if up_vec[2] < 0:
+        up_vec = -up_vec
     if float(np.linalg.norm(up_vec)) < 1e-6:
         return np.eye(3, dtype=np.float32)
     target = np.array([0.0, 0.0, 1.0], dtype=np.float32)
@@ -193,13 +209,35 @@ def _laplacian_smooth_with_neighbors(
     return out
 
 
+def _force_world_alignment(
+    verts: np.ndarray,
+    center_xy: bool,
+    center_mode: str,
+    put_on_floor: bool,
+) -> np.ndarray:
+    out = verts.astype(np.float32, copy=True)
+    if center_xy:
+        mode = str(center_mode).lower()
+        if mode == "centroid":
+            cxy = out[:, :2].mean(axis=0)
+        else:
+            cxy = 0.5 * (out[:, :2].min(axis=0) + out[:, :2].max(axis=0))
+        out[:, :2] -= cxy.reshape(1, 2)
+    if put_on_floor:
+        out[:, 2] -= float(out[:, 2].min())
+    return out
+
+
 def _transform_export_vertices(
     verts: np.ndarray,
     joints_cam: np.ndarray | None = None,
     enforce_upright: bool = True,
     upright_rot: np.ndarray | None = None,
+    ensure_head_up: bool = False,
     center_xy: bool = True,
     xy_center: np.ndarray | None = None,
+    center_xyz: bool = False,
+    center_mode: str = "pelvis",
     put_on_floor: bool = True,
     floor_z: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None, float | None, np.ndarray]:
@@ -219,17 +257,79 @@ def _transform_export_vertices(
         if upright_rot is None:
             upright_rot = np.eye(3, dtype=np.float32)
 
+    if ensure_head_up and joints_cam is not None:
+        jb = _camera_to_blender(joints_cam)
+        if enforce_upright:
+            jb = (jb @ upright_rot.T).astype(np.float32)
+        if jb.shape[0] > 15:
+            pelvis = jb[0]
+            head = jb[15]
+            if float(head[2]) < float(pelvis[2]):
+                flip = np.array([[1.0, 0.0, 0.0],
+                                 [0.0, -1.0, 0.0],
+                                 [0.0, 0.0, -1.0]], dtype=np.float32)
+                out = (out @ flip.T).astype(np.float32)
+                upright_rot = (flip @ upright_rot).astype(np.float32)
+
     if center_xy:
         if xy_center is None:
-            xy_center = 0.5 * (out[:, :2].min(axis=0) + out[:, :2].max(axis=0))
+            mode = str(center_mode).lower()
+            if mode == "pelvis" and joints_cam is not None:
+                pelvis = _camera_to_blender(joints_cam[0:1])[0]
+                if enforce_upright:
+                    pelvis = (upright_rot @ pelvis.astype(np.float32)).astype(np.float32)
+                xy_center = pelvis[:2]
+            elif mode == "centroid":
+                xy_center = out[:, :2].mean(axis=0)
+            else:
+                xy_center = 0.5 * (out[:, :2].min(axis=0) + out[:, :2].max(axis=0))
         out[:, :2] -= xy_center.reshape(1, 2)
+
+    if center_xyz:
+        mode = str(center_mode).lower()
+        if mode == "pelvis" and joints_cam is not None:
+            pelvis = _camera_to_blender(joints_cam[0:1])[0]
+            if enforce_upright:
+                pelvis = (upright_rot @ pelvis.astype(np.float32)).astype(np.float32)
+            z_center = float(pelvis[2])
+        elif mode == "centroid":
+            z_center = float(out[:, 2].mean())
+        else:
+            z_center = 0.5 * float(out[:, 2].min() + out[:, 2].max())
+        out[:, 2] -= z_center
 
     if put_on_floor:
         if floor_z is None:
-            floor_z = float(out[:, 2].min())
+            mode = str(center_mode).lower()
+            if mode == "pelvis" and joints_cam is not None:
+                pelvis = _camera_to_blender(joints_cam[0:1])[0]
+                if enforce_upright:
+                    pelvis = (upright_rot @ pelvis.astype(np.float32)).astype(np.float32)
+                floor_z = float(pelvis[2])
+            else:
+                floor_z = float(out[:, 2].min())
         out[:, 2] -= float(floor_z)
 
     return out, xy_center, floor_z, upright_rot
+
+
+def _pelvis_export_offset(
+    joints_cam: np.ndarray,
+    enforce_upright: bool,
+    upright_rot: np.ndarray,
+    center_xy: bool,
+    xy_center: np.ndarray | None,
+    put_on_floor: bool,
+    floor_z: float | None,
+) -> np.ndarray:
+    pelvis = _camera_to_blender(joints_cam[0:1])[0]
+    if enforce_upright:
+        pelvis = (upright_rot @ pelvis.astype(np.float32)).astype(np.float32)
+    if center_xy and xy_center is not None:
+        pelvis[:2] -= xy_center
+    if put_on_floor and floor_z is not None:
+        pelvis[2] -= float(floor_z)
+    return pelvis.astype(np.float32)
 
 
 def _loss_upright(joints: torch.Tensor) -> torch.Tensor:
@@ -244,23 +344,82 @@ def _loss_upright(joints: torch.Tensor) -> torch.Tensor:
 
 def _loss_knee_priors(
     body_pose: torch.Tensor,
+    knee_hinge_axis: int,
     knee_min_flex: float,
     left_knee_flex_sign: float,
     right_knee_flex_sign: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     # SMPL body_pose is (B, 23*3), joints indexed 0..22
     pose = body_pose.view(body_pose.shape[0], 23, 3)
-    left_knee = pose[:, 4, :]
-    right_knee = pose[:, 5, :]
+    # body_pose indices: 3 left_knee, 4 right_knee
+    left_knee = pose[:, 3, :]
+    right_knee = pose[:, 4, :]
+    axis = int(knee_hinge_axis)
+    if axis < 0 or axis > 2:
+        axis = 1
 
-    # Knee should mostly be hinge-like (around one major axis), suppress twist/abduction
-    hinge_loss = (left_knee[:, 1:] ** 2).mean() + (right_knee[:, 1:] ** 2).mean()
+    other_axes = [0, 1, 2]
+    other_axes.remove(axis)
+    # Knee should mostly be hinge-like around one axis, suppress the other two axes.
+    hinge_loss = (left_knee[:, other_axes] ** 2).mean() + (right_knee[:, other_axes] ** 2).mean()
 
     # Encourage anatomically plausible bend direction
-    dir_l = F.relu(float(knee_min_flex) - float(left_knee_flex_sign) * left_knee[:, 0]).mean()
-    dir_r = F.relu(float(knee_min_flex) - float(right_knee_flex_sign) * right_knee[:, 0]).mean()
+    dir_l = F.relu(float(knee_min_flex) - float(left_knee_flex_sign) * left_knee[:, axis]).mean()
+    dir_r = F.relu(float(knee_min_flex) - float(right_knee_flex_sign) * right_knee[:, axis]).mean()
     direction_loss = dir_l + dir_r
     return hinge_loss, direction_loss
+
+
+def _loss_ankle_back_priors(
+    body_pose: torch.Tensor,
+    ankle_hinge_weight_axes: tuple[float, float] = (1.0, 1.0),
+) -> tuple[torch.Tensor, torch.Tensor]:
+    pose = body_pose.view(body_pose.shape[0], 23, 3)
+    left_ankle = pose[:, 6, :]
+    right_ankle = pose[:, 7, :]
+    spine = pose[:, [2, 5, 8], :]  # spine1/spine2/spine3
+
+    # Suppress ankle twist/roll and excessive back bending/twisting
+    ankle_twist = (
+        float(ankle_hinge_weight_axes[0]) * (left_ankle[:, 1:] ** 2).mean()
+        + float(ankle_hinge_weight_axes[1]) * (right_ankle[:, 1:] ** 2).mean()
+    )
+    back_stability = (spine[:, :, 1:] ** 2).mean() + 0.5 * (spine[:, :, 0] ** 2).mean()
+    return ankle_twist, back_stability
+
+
+def _enforce_knee_hard_constraints(
+    body_pose: torch.Tensor,
+    knee_hinge_axis: int,
+    knee_min_flex: float,
+    left_knee_flex_sign: float,
+    right_knee_flex_sign: float,
+    zero_non_hinge_axes: bool = True,
+) -> None:
+    # In-place projection to feasible knee subspace.
+    pose = body_pose.view(body_pose.shape[0], 23, 3)
+    axis = int(knee_hinge_axis)
+    if axis < 0 or axis > 2:
+        axis = 1
+    l0 = pose[:, 3, axis] * float(left_knee_flex_sign)
+    r0 = pose[:, 4, axis] * float(right_knee_flex_sign)
+
+    pose[:, 3, axis] = float(left_knee_flex_sign) * torch.clamp(l0, min=float(knee_min_flex))
+    pose[:, 4, axis] = float(right_knee_flex_sign) * torch.clamp(r0, min=float(knee_min_flex))
+
+    if zero_non_hinge_axes:
+        other_axes = [0, 1, 2]
+        other_axes.remove(axis)
+        pose[:, 3, other_axes] = 0.0
+        pose[:, 4, other_axes] = 0.0
+
+
+def _enforce_spine_upright_hard(body_pose: torch.Tensor, spine_tilt_max: float = 0.15) -> None:
+    pose = body_pose.view(body_pose.shape[0], 23, 3)
+    # spine1/spine2/spine3 indices
+    for si in (2, 5, 8):
+        pose[:, si, 0].clamp_(-float(spine_tilt_max), float(spine_tilt_max))
+        pose[:, si, 1:] = 0.0
 
 
 def _require_smplx(smpl_model_path: str | Path) -> Path:
@@ -285,6 +444,10 @@ def fit_smpl_from_keypoints(
     fit_frames: int = 20,
     fit_iters: int = 300,
     fit_lr: float = 5e-2,
+    export_pose_mode: str = "fit",
+    export_ensure_head_up: bool = False,
+    export_center_xyz: bool = False,
+    export_on_floor: bool = True,
     export_smooth_iters: int = 0,
     export_smooth_alpha: float = 0.1,
 ):
@@ -389,14 +552,25 @@ def fit_smpl_from_keypoints(
             )
 
     with torch.no_grad():
-        out = model(global_orient=global_orient, body_pose=body_pose, betas=betas, transl=transl)
+        pose_mode = str(export_pose_mode or "fit").lower()
+        if pose_mode in ("tpose", "t-pose", "arms_out", "fixed"):
+            export_go = torch.zeros((1, 3), device=device)
+            export_bp = torch.zeros((1, body_pose_dim), device=device)
+            export_tr = transl.detach()
+        else:
+            export_go = global_orient
+            export_bp = body_pose
+            export_tr = transl
+        out = model(global_orient=export_go, body_pose=export_bp, betas=betas, transl=export_tr)
         verts = (out.vertices.squeeze(0) * scale.view(1, 1)).cpu().numpy()
         joints_full = out.joints.squeeze(0).cpu().numpy()
     verts, _, _, _ = _transform_export_vertices(
         verts,
         joints_cam=joints_full,
         enforce_upright=True,
+        ensure_head_up=bool(export_ensure_head_up),
         center_xy=True,
+        center_xyz=bool(export_center_xyz),
         put_on_floor=True,
     )
     neighbors = _build_vertex_neighbors(num_verts=verts.shape[0], faces=faces)
@@ -406,13 +580,26 @@ def fit_smpl_from_keypoints(
         iters=int(export_smooth_iters),
         alpha=float(export_smooth_alpha),
     )
+    verts = _force_world_alignment(
+        verts=verts,
+        center_xy=True,
+        center_mode="centroid",
+        put_on_floor=bool(export_on_floor),
+    )
 
-    pose = np.concatenate(
-        [global_orient.detach().cpu().numpy().reshape(-1), body_pose.detach().cpu().numpy().reshape(-1)],
-        axis=0,
-    ).astype(np.float32)
+    if pose_mode in ("tpose", "t-pose", "arms_out", "fixed"):
+        pose = np.concatenate(
+            [export_go.detach().cpu().numpy().reshape(-1), export_bp.detach().cpu().numpy().reshape(-1)],
+            axis=0,
+        ).astype(np.float32)
+        trans_np = export_tr.detach().cpu().numpy().reshape(-1).astype(np.float32)
+    else:
+        pose = np.concatenate(
+            [global_orient.detach().cpu().numpy().reshape(-1), body_pose.detach().cpu().numpy().reshape(-1)],
+            axis=0,
+        ).astype(np.float32)
+        trans_np = transl.detach().cpu().numpy().reshape(-1).astype(np.float32)
     betas_np = betas.detach().cpu().numpy().reshape(-1).astype(np.float32)
-    trans_np = transl.detach().cpu().numpy().reshape(-1).astype(np.float32)
     scale_np = scale.detach().cpu().numpy().reshape(-1).astype(np.float32)
 
     np.savez(out_dir / "smpl_params.npz", pose=pose, betas=betas_np, trans=trans_np, scale=scale_np)
@@ -442,17 +629,34 @@ def fit_smpl_sequence_from_keypoints(
     shape_from_previous_frames: bool = True,
     final_pose_from_last_frame: bool = True,
     last_frame_refine_iters: int = 300,
+    export_pose_mode: str = "last_frame",
+    export_ensure_head_up: bool = False,
     upright_prior_weight: float = 1e-2,
     knee_hinge_weight: float = 2e-3,
     knee_direction_weight: float = 5e-3,
-    knee_min_flex: float = 0.02,
-    left_knee_flex_sign: float = 1.0,
-    right_knee_flex_sign: float = 1.0,
+    knee_hinge_axis: int = 1,
+    knee_min_flex: float = 0.0,
+    left_knee_flex_sign: float = -1.0,
+    right_knee_flex_sign: float = -1.0,
+    auto_knee_sign: bool = False,
+    knee_sign_update_every: int = 200,
+    enforce_knee_hard: bool = True,
+    enforce_right_knee_only: bool = True,
+    knee_zero_non_hinge_axes: bool = False,
+    ankle_twist_weight: float = 3e-3,
+    back_stability_weight: float = 6e-3,
+    enforce_strict_upright: bool = False,
+    upright_tilt_max: float = 0.0,
+    enforce_spine_hard: bool = False,
+    spine_tilt_max: float = 0.15,
     enforce_export_upright: bool = True,
     export_center_xy: bool = True,
+    export_center_xyz: bool = False,
+    export_center_mode: str = "pelvis",
     export_on_floor: bool = True,
     export_smooth_iters: int = 0,
     export_smooth_alpha: float = 0.1,
+    full_batch_every: int = 200,
     export_meshes: bool = False,
 ):
     """
@@ -524,6 +728,8 @@ def fit_smpl_sequence_from_keypoints(
 
     pbar = trange(iters, desc="Stage1 SMPL fit (sequence)", dynamic_ncols=True)
     fit_pool_n = use_n - 1 if (shape_from_previous_frames and use_n > 1) else use_n
+    left_sign_cur = float(left_knee_flex_sign)
+    right_sign_cur = float(right_knee_flex_sign)
     for it in pbar:
         if (not optimize_betas) and int(unfreeze_betas_iter) >= 0 and it == int(unfreeze_betas_iter):
             betas.requires_grad_(True)
@@ -535,7 +741,8 @@ def fit_smpl_sequence_from_keypoints(
 
         optimizer.zero_grad(set_to_none=True)
 
-        if batch_size >= fit_pool_n:
+        use_full_batch = int(full_batch_every) > 0 and (it % int(full_batch_every) == 0)
+        if use_full_batch or batch_size >= fit_pool_n:
             idxs = np.arange(fit_pool_n, dtype=int)
         else:
             idxs = rng.choice(fit_pool_n, size=batch_size, replace=False)
@@ -556,6 +763,24 @@ def fit_smpl_sequence_from_keypoints(
         per = F.smooth_l1_loss(proj, tgt, reduction="none")
         loss_kpt = (per * w).sum() / (w.sum() + 1e-6)
 
+        if bool(auto_knee_sign) and int(knee_sign_update_every) > 0 and (it % int(knee_sign_update_every) == 0):
+            best_obj = None
+            best_signs = (left_sign_cur, right_sign_cur)
+            candidates = ((1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0))
+            for ls, rs in candidates:
+                _, dir_loss_cand = _loss_knee_priors(
+                    body_pose=body_pose[idx_t],
+                    knee_hinge_axis=int(knee_hinge_axis),
+                    knee_min_flex=float(knee_min_flex),
+                    left_knee_flex_sign=float(ls),
+                    right_knee_flex_sign=float(rs),
+                )
+                obj = float(loss_kpt.detach().cpu()) + float(knee_direction_weight) * float(dir_loss_cand.detach().cpu())
+                if best_obj is None or obj < best_obj:
+                    best_obj = obj
+                    best_signs = (float(ls), float(rs))
+            left_sign_cur, right_sign_cur = best_signs
+
         loss_reg = (
             2e-4 * (global_orient ** 2).mean()
             + 1e-4 * (body_pose ** 2).mean()
@@ -567,13 +792,19 @@ def fit_smpl_sequence_from_keypoints(
         loss_upright = float(upright_prior_weight) * _loss_upright(out.joints)
         loss_knee_hinge, loss_knee_dir = _loss_knee_priors(
             body_pose=body_pose[idx_t],
+            knee_hinge_axis=int(knee_hinge_axis),
             knee_min_flex=float(knee_min_flex),
-            left_knee_flex_sign=float(left_knee_flex_sign),
-            right_knee_flex_sign=float(right_knee_flex_sign),
+            left_knee_flex_sign=float(left_sign_cur),
+            right_knee_flex_sign=float(right_sign_cur),
         )
         loss_knee = (
             float(knee_hinge_weight) * loss_knee_hinge
             + float(knee_direction_weight) * loss_knee_dir
+        )
+        loss_ankle, loss_back = _loss_ankle_back_priors(body_pose=body_pose[idx_t])
+        loss_phys_extra = (
+            float(ankle_twist_weight) * loss_ankle
+            + float(back_stability_weight) * loss_back
         )
 
         loss_temp = torch.zeros((), dtype=torch.float32, device=device)
@@ -584,7 +815,7 @@ def fit_smpl_sequence_from_keypoints(
                 + float(temporal_trans_weight) * ((transl[1:] - transl[:-1]) ** 2).mean()
             )
 
-        loss = loss_kpt + loss_reg + loss_temp + loss_upright + loss_knee
+        loss = loss_kpt + loss_reg + loss_temp + loss_upright + loss_knee + loss_phys_extra
         loss.backward()
         optimizer.step()
 
@@ -592,6 +823,33 @@ def fit_smpl_sequence_from_keypoints(
             scale.clamp_(0.2, 5.0)
             transl[:, 2].clamp_(0.2, 10.0)
             betas.clamp_(-float(betas_abs_max), float(betas_abs_max))
+            if bool(enforce_knee_hard):
+                if bool(enforce_right_knee_only):
+                    pose_view = body_pose.view(body_pose.shape[0], 23, 3)
+                    axis = int(knee_hinge_axis)
+                    if axis < 0 or axis > 2:
+                        axis = 1
+                    r0 = pose_view[:, 4, axis] * float(right_sign_cur)
+                    pose_view[:, 4, axis] = float(right_sign_cur) * torch.clamp(r0, min=float(knee_min_flex))
+                    if bool(knee_zero_non_hinge_axes):
+                        other_axes = [0, 1, 2]
+                        other_axes.remove(axis)
+                        pose_view[:, 4, other_axes] = 0.0
+                else:
+                    _enforce_knee_hard_constraints(
+                        body_pose=body_pose,
+                        knee_hinge_axis=int(knee_hinge_axis),
+                        knee_min_flex=float(knee_min_flex),
+                        left_knee_flex_sign=float(left_sign_cur),
+                        right_knee_flex_sign=float(right_sign_cur),
+                        zero_non_hinge_axes=bool(knee_zero_non_hinge_axes),
+                    )
+            if bool(enforce_strict_upright):
+                # Keep only yaw in global orientation to prevent whole-body "lying down".
+                global_orient[:, 0].clamp_(-float(upright_tilt_max), float(upright_tilt_max))
+                global_orient[:, 1].clamp_(-float(upright_tilt_max), float(upright_tilt_max))
+            if bool(enforce_spine_hard):
+                _enforce_spine_upright_hard(body_pose=body_pose, spine_tilt_max=float(spine_tilt_max))
 
         if it % 10 == 0 or it == iters - 1:
             pbar.set_postfix(
@@ -602,11 +860,14 @@ def fit_smpl_sequence_from_keypoints(
                 temp=float(loss_temp.detach().cpu()),
                 up=float(loss_upright.detach().cpu()),
                 knee=float(loss_knee.detach().cpu()),
+                phys=float(loss_phys_extra.detach().cpu()),
                 scale=float(scale.detach().cpu()),
                 z=float(transl[:, 2].mean().detach().cpu()),
                 frames=use_n,
                 b=B,
                 betan=float(torch.linalg.vector_norm(betas).detach().cpu()),
+                lks=float(left_sign_cur),
+                rks=float(right_sign_cur),
             )
 
     if final_pose_from_last_frame and use_n > 0 and int(last_frame_refine_iters) > 0:
@@ -640,18 +901,54 @@ def fit_smpl_sequence_from_keypoints(
             last_opt.step()
             with torch.no_grad():
                 tr_last[:, 2].clamp_(0.2, 10.0)
+                if bool(enforce_knee_hard):
+                    if bool(enforce_right_knee_only):
+                        pose_last = bp_last.view(bp_last.shape[0], 23, 3)
+                        axis = int(knee_hinge_axis)
+                        if axis < 0 or axis > 2:
+                            axis = 1
+                        r0_last = pose_last[:, 4, axis] * float(right_sign_cur)
+                        pose_last[:, 4, axis] = float(right_sign_cur) * torch.clamp(r0_last, min=float(knee_min_flex))
+                        if bool(knee_zero_non_hinge_axes):
+                            other_axes = [0, 1, 2]
+                            other_axes.remove(axis)
+                            pose_last[:, 4, other_axes] = 0.0
+                    else:
+                        _enforce_knee_hard_constraints(
+                            body_pose=bp_last,
+                            knee_hinge_axis=int(knee_hinge_axis),
+                            knee_min_flex=float(knee_min_flex),
+                            left_knee_flex_sign=float(left_sign_cur),
+                            right_knee_flex_sign=float(right_sign_cur),
+                            zero_non_hinge_axes=bool(knee_zero_non_hinge_axes),
+                        )
+                if bool(enforce_strict_upright):
+                    go_last[:, 0].clamp_(-float(upright_tilt_max), float(upright_tilt_max))
+                    go_last[:, 1].clamp_(-float(upright_tilt_max), float(upright_tilt_max))
+                if bool(enforce_spine_hard):
+                    _enforce_spine_upright_hard(body_pose=bp_last, spine_tilt_max=float(spine_tilt_max))
         with torch.no_grad():
             global_orient[last_idx:last_idx + 1] = go_last
             body_pose[last_idx:last_idx + 1] = bp_last
             transl[last_idx:last_idx + 1] = tr_last
 
-    export_idx = (use_n - 1) if (final_pose_from_last_frame and use_n > 0) else 0
+    pose_mode = str(export_pose_mode or "last_frame").lower()
+    if pose_mode in ("tpose", "t-pose", "arms_out", "fixed"):
+        export_idx = 0
+        export_go = torch.zeros((1, 3), device=device)
+        export_bp = torch.zeros((1, body_pose_dim), device=device)
+        export_tr = transl.mean(dim=0, keepdim=True).detach()
+    else:
+        export_idx = (use_n - 1) if (final_pose_from_last_frame and use_n > 0) else 0
+        export_go = global_orient[export_idx:export_idx + 1]
+        export_bp = body_pose[export_idx:export_idx + 1]
+        export_tr = transl[export_idx:export_idx + 1]
     with torch.no_grad():
         out0 = model(
-            global_orient=global_orient[export_idx:export_idx + 1],
-            body_pose=body_pose[export_idx:export_idx + 1],
+            global_orient=export_go,
+            body_pose=export_bp,
             betas=betas,
-            transl=transl[export_idx:export_idx + 1],
+            transl=export_tr,
         )
         verts0 = (out0.vertices.squeeze(0) * scale.view(1, 1)).cpu().numpy()
         joints0 = out0.joints.squeeze(0).cpu().numpy()
@@ -659,7 +956,10 @@ def fit_smpl_sequence_from_keypoints(
         verts0,
         joints_cam=joints0,
         enforce_upright=bool(enforce_export_upright),
+        ensure_head_up=bool(export_ensure_head_up),
         center_xy=bool(export_center_xy),
+        center_xyz=bool(export_center_xyz),
+        center_mode=str(export_center_mode),
         put_on_floor=bool(export_on_floor),
     )
     neighbors = _build_vertex_neighbors(num_verts=verts0.shape[0], faces=faces)
@@ -668,6 +968,12 @@ def fit_smpl_sequence_from_keypoints(
         neighbors=neighbors,
         iters=int(export_smooth_iters),
         alpha=float(export_smooth_alpha),
+    )
+    verts0 = _force_world_alignment(
+        verts=verts0,
+        center_xy=bool(export_center_xy),
+        center_mode=str(export_center_mode),
+        put_on_floor=bool(export_on_floor),
     )
 
     global_orient_np = global_orient.detach().cpu().numpy().astype(np.float32)
@@ -688,12 +994,20 @@ def fit_smpl_sequence_from_keypoints(
         export_frame_index=np.asarray([export_idx], dtype=np.int32),
     )
 
-    pose0 = np.concatenate([global_orient_np[export_idx], body_pose_np[export_idx]], axis=0).astype(np.float32)
+    if pose_mode in ("tpose", "t-pose", "arms_out", "fixed"):
+        pose0 = np.concatenate(
+            [export_go.detach().cpu().numpy().reshape(-1), export_bp.detach().cpu().numpy().reshape(-1)],
+            axis=0,
+        ).astype(np.float32)
+        trans0 = export_tr.detach().cpu().numpy().reshape(-1).astype(np.float32)
+    else:
+        pose0 = np.concatenate([global_orient_np[export_idx], body_pose_np[export_idx]], axis=0).astype(np.float32)
+        trans0 = trans_np[export_idx]
     np.savez(
         out_dir / "smpl_params.npz",
         pose=pose0,
         betas=betas_np,
-        trans=trans_np[export_idx],
+        trans=trans0,
         scale=scale_np,
         export_frame_index=np.asarray([export_idx], dtype=np.int32),
     )
@@ -714,10 +1028,14 @@ def fit_smpl_sequence_from_keypoints(
                 verts_i = (out_i.vertices.squeeze(0) * scale.view(1, 1)).cpu().numpy()
                 verts_i, _, _, _ = _transform_export_vertices(
                     verts_i,
+                    joints_cam=None,
                     enforce_upright=bool(enforce_export_upright),
                     upright_rot=export_upright_rot,
+                    ensure_head_up=bool(export_ensure_head_up),
                     center_xy=bool(export_center_xy),
                     xy_center=export_center_xy_val,
+                    center_xyz=bool(export_center_xyz),
+                    center_mode=str(export_center_mode),
                     put_on_floor=bool(export_on_floor),
                     floor_z=export_floor,
                 )

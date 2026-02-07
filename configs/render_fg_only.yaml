@@ -1,0 +1,18 @@
+project_root: .
+seed: 42
+log_dir: outputs/logs
+
+render:
+  stage2_dir: outputs/stage2
+  out_dir: outputs/renders/fg_only
+  frames_dir: data/frames/input
+  max_frames: 1
+  bg: [0.0, 0.0, 0.0]
+  k_scale: 1.0
+  fg_scale: 1.0
+  bg_scale: 1.0
+  split_by_bind: true
+  use_gt_background: false
+  bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
+  bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
+  bind_mesh_to_camera: true
