@@ -20,8 +20,9 @@ stage2:
   out_dir: outputs/stage2
 
   # ---------- Stage2 training schedule (Stage A: stabilize) ----------
-  n_frames: 1
-  n_gaussians: 200000
+  n_frames: -1
+  n_gaussians: 120000
+  sample_on_surface: true
   # Extra background gaussians (unbound)
   n_gaussians_bg: 0
   bg_extent: [4.0, 4.0, 1.0]
@@ -36,32 +37,32 @@ stage2:
   bg_log_scale_min: -3.5
   bg_log_scale_max: -2.0
   # Foreground constraints: allow enough opacity while keeping splats small
-  fg_opacity_logit_max: 2.0
-  fg_log_scale_min: -7.0
-  fg_log_scale_max: -5.0
-  iters: 60000
+  fg_opacity_logit_max: 4.0
+  fg_log_scale_min: -6.5
+  fg_log_scale_max: -4.2
+  iters: 50000
 
   # Learning rates
-  lr_gauss: 0.0015
+  lr_gauss: 0.002
   lr_cam: 0.0
   camera_mode: fixed
-  cam_t_prior: [0.0, 0.0, 2.5]
+  cam_t_prior: [0.0, 0.0, 0.0]
   cam_reg_weight: 0.0
   cam_warmup_iters: 0
-  l1_weight: 0.5
+  l1_weight: 0.3
   use_alpha_mask: true
-  alpha_threshold: 0.1
-  # Optional face emphasis (disabled by default for stability)
-  keypoints_json: null
+  alpha_threshold: 0.03
+  # Keypoint-guided foreground fitting and face detail emphasis.
+  keypoints_json: outputs/stage1/keypoints.json
   kpt_conf_min: 0.2
-  kpt_box_pad: 0.2
-  use_kpt_bbox_mask: false
-  face_weight: 1.0
-  face_conf_min: 0.3
-  face_box_pad: 0.15
+  kpt_box_pad: 0.12
+  use_kpt_bbox_mask: true
+  face_weight: 2.0
+  face_conf_min: 0.25
+  face_box_pad: 0.18
   bg_rgb: [1.0, 1.0, 1.0]
-  # Use only the last frame (sharpest)
-  frame_select: last
+  # Use the whole temporal sequence for continuity (n_frames<=0 => all frames).
+  frame_select: first
 
   # ---------- Dynamic binding to SMPL mesh sequence ----------
   # Require stage1.export_meshes=true to generate outputs/stage1/smpl_mesh_sequence
@@ -70,6 +71,12 @@ stage2:
   bind_cache_size: 8
   # stage1 exports meshes in Blender coordinates; convert back to camera coords for training
   bind_mesh_to_camera: true
+  bind_inverse_export_upright: true
+  bind_mesh_offset: [0.0, 0.0, 0.0]
+  # Human-only supervision from SMPL silhouette.
+  use_smpl_silhouette_mask: true
+  smpl_mask_dilate_px: 6
+  smpl_alpha_leak_weight: 0.08
 
 render:
   stage2_dir: outputs/stage2
@@ -88,3 +95,5 @@ render:
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
   # stage1 exports meshes in Blender coordinates; convert back to camera coords for rendering
   bind_mesh_to_camera: true
+  bind_inverse_export_upright: true
+  bind_mesh_offset: [0.0, 0.0, 0.0]

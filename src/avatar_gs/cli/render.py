@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -11,8 +13,18 @@ from avatar_gs.utils.log import setup_logger
 from avatar_gs.utils.seed import seed_everything
 
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
-from avatar_gs.gaussian.init_from_smpl import load_obj_vertices
+from avatar_gs.gaussian.init_from_smpl import load_obj_vertices, load_obj_mesh
 from avatar_gs.renderer.gaussian_renderer import render_gaussians_3d
+
+
+MP_POSE_CONNECTIONS = [
+    (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
+    (11, 23), (12, 24), (23, 24),
+    (23, 25), (25, 27), (27, 31), (31, 29),
+    (24, 26), (26, 28), (28, 32), (32, 30),
+    (0, 11), (0, 12),
+]
+MP_BODY_DRAW_IDS = sorted(set([0] + [a for a, _ in MP_POSE_CONNECTIONS] + [b for _, b in MP_POSE_CONNECTIONS]))
 
 
 def read_image_rgb(path: str | Path) -> torch.Tensor:
@@ -54,6 +66,306 @@ def save_rgb(path: str | Path, rgb_chw: torch.Tensor) -> None:
         raise RuntimeError(f"Failed to write image: {path}")
 
 
+def _render_points_debug(
+    g: Gaussian3D,
+    K: torch.Tensor,
+    R: torch.Tensor,
+    t: torch.Tensor,
+    H: int,
+    W: int,
+    bg: tuple[float, float, float],
+    point_radius: int = 2,
+    point_alpha: float = 1.0,
+    use_gaussian_color: bool = True,
+    point_color: tuple[float, float, float] | None = None,
+    surface_only: bool = True,
+    skeleton_segments: list[tuple[np.ndarray, np.ndarray]] | None = None,
+    near_skeleton_px: float = 0.0,
+) -> torch.Tensor:
+    """Project gaussian centers and draw them as circles for binding debugging."""
+    # RGB canvas in [0,1]
+    canvas = np.zeros((H, W, 3), dtype=np.float32)
+    canvas[..., 0] = float(bg[0])
+    canvas[..., 1] = float(bg[1])
+    canvas[..., 2] = float(bg[2])
+
+    xyz = g.xyz.detach().cpu().numpy().astype(np.float32)   # (N,3)
+    K_np = K.detach().cpu().numpy().astype(np.float32)
+    R_np = R.detach().cpu().numpy().astype(np.float32)
+    t_np = t.detach().cpu().numpy().astype(np.float32).reshape(1, 3)
+
+    # Keep the same convention as gsplat path: X_cam = R * X + t
+    Xc = xyz @ R_np.T + t_np
+    z = Xc[:, 2]
+    valid = z > 1e-4
+    if not np.any(valid):
+        return torch.from_numpy(canvas).permute(2, 0, 1).contiguous()
+
+    Xc = Xc[valid]
+    z = z[valid]
+
+    u = K_np[0, 0] * (Xc[:, 0] / z) + K_np[0, 2]
+    v = K_np[1, 1] * (Xc[:, 1] / z) + K_np[1, 2]
+
+    in_img = (u >= 0) & (u < W) & (v >= 0) & (v < H)
+    if not np.any(in_img):
+        return torch.from_numpy(canvas).permute(2, 0, 1).contiguous()
+
+    u = u[in_img]
+    v = v[in_img]
+    z = z[in_img]
+
+    if use_gaussian_color:
+        cols = g.rgb().detach().cpu().numpy().astype(np.float32)[valid][in_img]  # RGB
+    else:
+        if point_color is None:
+            point_color = (1.0, 0.0, 0.0)
+        cols = np.tile(np.asarray(point_color, dtype=np.float32).reshape(1, 3), (u.shape[0], 1))
+
+    # Keep only points near 2D keypoint skeleton if requested.
+    if skeleton_segments is not None and len(skeleton_segments) > 0 and float(near_skeleton_px) > 0.0:
+        P = np.stack([u, v], axis=1).astype(np.float32)
+        min_d2 = np.full((P.shape[0],), np.inf, dtype=np.float32)
+        for A, B in skeleton_segments:
+            AB = B - A
+            denom = float(np.dot(AB, AB) + 1e-8)
+            AP = P - A.reshape(1, 2)
+            t_line = (AP @ AB.reshape(2, 1)).reshape(-1) / denom
+            t_line = np.clip(t_line, 0.0, 1.0)
+            Q = A.reshape(1, 2) + t_line.reshape(-1, 1) * AB.reshape(1, 2)
+            d2 = np.sum((P - Q) ** 2, axis=1)
+            min_d2 = np.minimum(min_d2, d2)
+        keep = min_d2 <= (float(near_skeleton_px) ** 2)
+        if np.any(keep):
+            u = u[keep]
+            v = v[keep]
+            z = z[keep]
+            cols = cols[keep]
+        else:
+            return torch.from_numpy(canvas).permute(2, 0, 1).contiguous()
+
+    # Keep only nearest point for each pixel to remove back-side clutter.
+    if surface_only:
+        xi = np.clip(np.round(u).astype(np.int32), 0, W - 1)
+        yi = np.clip(np.round(v).astype(np.int32), 0, H - 1)
+        key = yi.astype(np.int64) * int(W) + xi.astype(np.int64)
+        # sort by depth asc (near -> far), then keep first occurrence per pixel
+        order_near = np.argsort(z)
+        key_sorted = key[order_near]
+        _, first_idx = np.unique(key_sorted, return_index=True)
+        keep = order_near[first_idx]
+        u = u[keep]
+        v = v[keep]
+        z = z[keep]
+        cols = cols[keep]
+
+    # Draw far-to-near for stable blending
+    order = np.argsort(z)[::-1]
+    u = u[order]
+    v = v[order]
+    cols = cols[order]
+
+    pr = max(1, int(point_radius))
+    a = float(np.clip(point_alpha, 0.0, 1.0))
+    for i in range(u.shape[0]):
+        x = int(round(float(u[i])))
+        y = int(round(float(v[i])))
+        if x < 0 or x >= W or y < 0 or y >= H:
+            continue
+
+        # cv2 wants BGR
+        bgr = (float(cols[i, 2]), float(cols[i, 1]), float(cols[i, 0]))
+        if a >= 0.999:
+            cv2.circle(canvas, (x, y), pr, bgr, thickness=-1, lineType=cv2.LINE_AA)
+        else:
+            x0 = max(0, x - pr)
+            x1 = min(W - 1, x + pr)
+            y0 = max(0, y - pr)
+            y1 = min(H - 1, y + pr)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            patch = canvas[y0 : y1 + 1, x0 : x1 + 1]
+            yy, xx = np.mgrid[y0 : y1 + 1, x0 : x1 + 1]
+            mask = ((xx - x) ** 2 + (yy - y) ** 2) <= (pr * pr)
+            if not np.any(mask):
+                continue
+            patch[mask] = patch[mask] * (1.0 - a) + np.asarray(bgr, dtype=np.float32) * a
+
+    return torch.from_numpy(canvas).permute(2, 0, 1).contiguous()
+
+
+def _overlay_keypoints(
+    rgb_chw: torch.Tensor,
+    keypoints_json: Path,
+    frame_name: str,
+    conf_min: float = 0.2,
+    radius: int = 3,
+    draw_skeleton: bool = True,
+    body_only: bool = True,
+) -> torch.Tensor:
+    import json as _json
+
+    if not keypoints_json.exists():
+        return rgb_chw
+
+    with keypoints_json.open("r", encoding="utf-8") as f:
+        kpts = _json.load(f)
+    arr = kpts.get(frame_name, None)
+    if arr is None:
+        return rgb_chw
+
+    img = (rgb_chw.detach().clamp(0.0, 1.0).permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
+    bgr = img[..., ::-1].copy()
+
+    H, W = bgr.shape[:2]
+    rr = max(1, int(radius))
+    if draw_skeleton:
+        for a, b in MP_POSE_CONNECTIONS:
+            if a >= len(arr) or b >= len(arr):
+                continue
+            pa = arr[a]
+            pb = arr[b]
+            if float(pa[2]) < float(conf_min) or float(pb[2]) < float(conf_min):
+                continue
+            xa = int(round(float(pa[0])))
+            ya = int(round(float(pa[1])))
+            xb = int(round(float(pb[0])))
+            yb = int(round(float(pb[1])))
+            if xa < 0 or xa >= W or ya < 0 or ya >= H:
+                continue
+            if xb < 0 or xb >= W or yb < 0 or yb >= H:
+                continue
+            cv2.line(bgr, (xa, ya), (xb, yb), (0, 180, 0), thickness=2, lineType=cv2.LINE_AA)
+
+    for j, p in enumerate(arr):
+        if body_only and j not in MP_BODY_DRAW_IDS:
+            continue
+        if float(p[2]) < float(conf_min):
+            continue
+        x = int(round(float(p[0])))
+        y = int(round(float(p[1])))
+        if x < 0 or x >= W or y < 0 or y >= H:
+            continue
+        cv2.circle(bgr, (x, y), rr, (0, 255, 0), thickness=-1, lineType=cv2.LINE_AA)
+
+    out_rgb = torch.from_numpy(bgr[..., ::-1].copy()).float() / 255.0
+    return out_rgb.permute(2, 0, 1).contiguous()
+
+
+def _load_frame_keypoints(
+    keypoints_json: Path,
+    frame_name: str,
+    conf_min: float,
+) -> np.ndarray | None:
+    import json as _json
+
+    if not keypoints_json.exists():
+        return None
+    with keypoints_json.open("r", encoding="utf-8") as f:
+        kpts = _json.load(f)
+    arr = kpts.get(frame_name, None)
+    if arr is None:
+        return None
+    arr_np = np.asarray(arr, dtype=np.float32)
+    if arr_np.ndim != 2 or arr_np.shape[1] < 3:
+        return None
+    arr_np[arr_np[:, 2] < float(conf_min), :2] = np.nan
+    return arr_np
+
+
+def _build_skeleton_segments_2d(
+    keypoints_xyc: np.ndarray | None,
+    W: int,
+    H: int,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    if keypoints_xyc is None:
+        return []
+    segs: list[tuple[np.ndarray, np.ndarray]] = []
+    for a, b in MP_POSE_CONNECTIONS:
+        if a >= keypoints_xyc.shape[0] or b >= keypoints_xyc.shape[0]:
+            continue
+        pa = keypoints_xyc[a]
+        pb = keypoints_xyc[b]
+        if not np.isfinite(pa[0]) or not np.isfinite(pa[1]):
+            continue
+        if not np.isfinite(pb[0]) or not np.isfinite(pb[1]):
+            continue
+        xa, ya = float(pa[0]), float(pa[1])
+        xb, yb = float(pb[0]), float(pb[1])
+        if xa < 0 or xa >= W or ya < 0 or ya >= H:
+            continue
+        if xb < 0 or xb >= W or yb < 0 or yb >= H:
+            continue
+        segs.append(
+            (
+                np.asarray([xa, ya], dtype=np.float32),
+                np.asarray([xb, yb], dtype=np.float32),
+            )
+        )
+    return segs
+
+
+def _project_points_numpy(
+    xyz: np.ndarray,
+    K: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    Xc = xyz @ R.T + t.reshape(1, 3)
+    z = Xc[:, 2]
+    valid = z > 1e-6
+    u = np.zeros((xyz.shape[0],), dtype=np.float32)
+    v = np.zeros((xyz.shape[0],), dtype=np.float32)
+    if np.any(valid):
+        Xcv = Xc[valid]
+        zv = z[valid]
+        u[valid] = K[0, 0] * (Xcv[:, 0] / zv) + K[0, 2]
+        v[valid] = K[1, 1] * (Xcv[:, 1] / zv) + K[1, 2]
+    return u, v, valid
+
+
+def _rasterize_mesh_mask(
+    verts: np.ndarray,
+    faces: np.ndarray | None,
+    K: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+    H: int,
+    W: int,
+    dilate_px: int = 0,
+) -> np.ndarray:
+    mask = np.zeros((H, W), dtype=np.uint8)
+    if faces is None or len(faces) == 0 or verts.shape[0] == 0:
+        return mask
+    u, v, valid = _project_points_numpy(verts, K, R, t)
+    if not np.any(valid):
+        return mask
+    uv = np.stack([u, v], axis=1).astype(np.float32)
+    for tri in faces:
+        i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
+        if i0 < 0 or i1 < 0 or i2 < 0:
+            continue
+        if i0 >= len(valid) or i1 >= len(valid) or i2 >= len(valid):
+            continue
+        if not (valid[i0] and valid[i1] and valid[i2]):
+            continue
+        pts = uv[[i0, i1, i2]]
+        if (
+            (pts[:, 0] < -2).all()
+            or (pts[:, 0] > W + 1).all()
+            or (pts[:, 1] < -2).all()
+            or (pts[:, 1] > H + 1).all()
+        ):
+            continue
+        poly = np.round(pts).astype(np.int32).reshape(-1, 1, 2)
+        cv2.fillConvexPoly(mask, poly, 1)
+    if int(dilate_px) > 0:
+        k = int(dilate_px) * 2 + 1
+        kernel = np.ones((k, k), dtype=np.uint8)
+        mask = cv2.dilate(mask, kernel, iterations=1)
+    return mask
+
+
 def _scale_intrinsics(K: torch.Tensor, scale: float) -> torch.Tensor:
     """Scale camera intrinsics for image size change (or FOV scaling)."""
     if scale == 1.0:
@@ -84,7 +396,43 @@ def _select_gaussians(g: Gaussian3D, mask: torch.Tensor) -> Gaussian3D:
         opacity_logit=g.opacity_logit[mask],
         rgb_logit=g.rgb_logit[mask],
         bind_idx=g.bind_idx[mask] if g.bind_idx is not None else None,
+        bind_offset=g.bind_offset[mask] if g.bind_offset is not None else None,
     )
+
+
+def _clone_gaussians(g: Gaussian3D) -> Gaussian3D:
+    return Gaussian3D(
+        xyz=g.xyz.clone(),
+        log_scales=g.log_scales.clone(),
+        quat=g.quat.clone(),
+        opacity_logit=g.opacity_logit.clone(),
+        rgb_logit=g.rgb_logit.clone(),
+        bind_idx=g.bind_idx.clone() if g.bind_idx is not None else None,
+        bind_offset=g.bind_offset.clone() if g.bind_offset is not None else None,
+    )
+
+
+def _apply_vis_override(
+    g: Gaussian3D,
+    opacity_logit: float,
+    scale_mult: float,
+    rgb_override: tuple[float, float, float] | None,
+) -> Gaussian3D:
+    gv = _clone_gaussians(g)
+    gv.opacity_logit = torch.full_like(gv.opacity_logit, float(opacity_logit))
+    if float(scale_mult) > 0.0 and float(scale_mult) != 1.0:
+        gv.log_scales = gv.log_scales + float(math.log(scale_mult))
+    gv.log_scales = gv.log_scales.clamp(min=-8.0, max=-2.0)
+
+    if rgb_override is not None:
+        c = torch.tensor(
+            [rgb_override[0], rgb_override[1], rgb_override[2]],
+            dtype=gv.rgb_logit.dtype,
+            device=gv.rgb_logit.device,
+        ).clamp(1e-3, 1.0 - 1e-3)
+        c_logit = torch.log(c / (1.0 - c)).view(1, 3)
+        gv.rgb_logit = c_logit.expand_as(gv.rgb_logit).contiguous()
+    return gv
 
 
 def _load_keypoints_boxes(
@@ -204,7 +552,8 @@ def main():
       quat=gsd["quat"].to(device),
       opacity_logit=gsd["opacity_logit"].to(device),
       rgb_logit=gsd["rgb_logit"].to(device),
-      bind_idx=gsd.get("bind_idx", None),
+      bind_idx=gsd["bind_idx"].to(device) if ("bind_idx" in gsd and gsd["bind_idx"] is not None) else None,
+      bind_offset=gsd["bind_offset"].to(device) if ("bind_offset" in gsd and gsd["bind_offset"] is not None) else None,
     )
 
     # Intrinsics
@@ -250,13 +599,58 @@ def main():
     bg_scale = float(render_cfg.get("bg_scale", 1.0))
     k_scale = float(render_cfg.get("k_scale", 1.0))
     split_by_bind = bool(render_cfg.get("split_by_bind", False))
+    render_bound_only = bool(render_cfg.get("render_bound_only", False))
+    fg_mask_mode = str(render_cfg.get("fg_mask_mode", "none")).lower()
+    fg_mask_dilate_px = int(render_cfg.get("fg_mask_dilate_px", 0))
+    visualize_bound_gaussians = bool(render_cfg.get("visualize_bound_gaussians", False))
+    vis_opacity_logit = float(render_cfg.get("vis_opacity_logit", 6.0))
+    vis_scale_mult = float(render_cfg.get("vis_scale_mult", 4.0))
+    debug_point_render = bool(render_cfg.get("debug_point_render", False))
+    debug_point_radius = int(render_cfg.get("debug_point_radius", 2))
+    debug_point_alpha = float(render_cfg.get("debug_point_alpha", 1.0))
+    debug_use_gaussian_color = bool(render_cfg.get("debug_use_gaussian_color", True))
+    debug_surface_only = bool(render_cfg.get("debug_surface_only", True))
+    debug_bind_to_google_skeleton = bool(render_cfg.get("debug_bind_to_google_skeleton", False))
+    debug_skeleton_band_px = float(render_cfg.get("debug_skeleton_band_px", 8.0))
+    debug_point_color_raw = render_cfg.get("debug_point_color", None)
+    debug_point_color = None
+    if isinstance(debug_point_color_raw, (list, tuple)) and len(debug_point_color_raw) == 3:
+        debug_point_color = (
+            float(debug_point_color_raw[0]),
+            float(debug_point_color_raw[1]),
+            float(debug_point_color_raw[2]),
+        )
+    debug_overlay_keypoints = bool(render_cfg.get("debug_overlay_keypoints", False))
+    debug_draw_skeleton = bool(render_cfg.get("debug_draw_skeleton", True))
+    debug_overlay_body_only = bool(render_cfg.get("debug_overlay_body_only", True))
+    debug_keypoints_json = render_cfg.get("debug_keypoints_json", None)
+    debug_kpt_conf_min = float(render_cfg.get("debug_kpt_conf_min", 0.2))
+    debug_kpt_radius = int(render_cfg.get("debug_kpt_radius", 3))
+    debug_need_kpts = bool(debug_bind_to_google_skeleton or debug_overlay_keypoints)
+    vis_rgb_raw = render_cfg.get("vis_rgb", None)
+    vis_rgb = None
+    if isinstance(vis_rgb_raw, (list, tuple)) and len(vis_rgb_raw) == 3:
+        vis_rgb = (
+            float(vis_rgb_raw[0]),
+            float(vis_rgb_raw[1]),
+            float(vis_rgb_raw[2]),
+        )
     if fg_scale <= 0.0 or bg_scale <= 0.0:
         raise ValueError(f"fg_scale/bg_scale must be > 0. Got fg_scale={fg_scale}, bg_scale={bg_scale}")
+    if fg_mask_mode not in ("none", "smpl", "mesh"):
+        raise ValueError(f"Unsupported fg_mask_mode: {fg_mask_mode}. Use one of: none|smpl|mesh")
 
     if fg_scale != 1.0 or bg_scale != 1.0:
         logger.info(f"Render scales: fg_scale={fg_scale}, bg_scale={bg_scale}")
     if k_scale != 1.0:
         logger.info(f"Intrinsic scale (FOV): k_scale={k_scale}")
+    if debug_point_render:
+        logger.info(
+            f"Debug point render enabled: radius={debug_point_radius}, alpha={debug_point_alpha}, "
+            f"use_gaussian_color={debug_use_gaussian_color}"
+        )
+        if debug_bind_to_google_skeleton:
+            logger.info(f"Debug skeleton binding enabled: band_px={debug_skeleton_band_px}")
 
     # Optional keypoint bbox mask for foreground/background split
     mask_mode = str(render_cfg.get("mask_mode", "alpha")).lower()
@@ -267,16 +661,52 @@ def main():
         if not kp_json.is_absolute():
             kp_json = project_root / kp_json
 
+    debug_kpt_json_path = None
+    if debug_keypoints_json is not None and str(debug_keypoints_json).strip():
+        debug_kpt_json_path = Path(resolve_path(str(debug_keypoints_json)))
+        if not debug_kpt_json_path.is_absolute():
+            debug_kpt_json_path = project_root / debug_kpt_json_path
+    if debug_need_kpts and debug_kpt_json_path is None:
+        raise ValueError(
+            "debug_bind_to_google_skeleton/debug_overlay_keypoints is enabled, "
+            "but debug_keypoints_json is not set."
+        )
+    if debug_need_kpts and debug_kpt_json_path is not None and not debug_kpt_json_path.exists():
+        raise FileNotFoundError(f"debug_keypoints_json not found: {debug_kpt_json_path}")
+
     # Optional: dynamic binding to SMPL mesh sequence
     bind_mesh_dir = render_cfg.get("bind_mesh_sequence_dir", None)
     bind_seq_npz = render_cfg.get("bind_sequence_npz", None)
     bind_mesh_indices = ckpt.get("bind_mesh_indices", None)
     binding_enabled = bind_mesh_dir is not None and g.bind_idx is not None
+    if fg_mask_mode in ("smpl", "mesh") and not binding_enabled:
+        raise ValueError("fg_mask_mode=smpl requires bind_mesh_sequence_dir and bound gaussians.")
     bind_mesh_to_camera = bool(render_cfg.get("bind_mesh_to_camera", False))
+    bind_inverse_export_upright = bool(render_cfg.get("bind_inverse_export_upright", True))
+    legacy_cam_t_autofix = bool(render_cfg.get("legacy_cam_t_autofix", True))
+    bind_mesh_offset_cfg = render_cfg.get("bind_mesh_offset", [0.0, 0.0, 0.0])
+    if not (isinstance(bind_mesh_offset_cfg, (list, tuple)) and len(bind_mesh_offset_cfg) == 3):
+        raise ValueError("render.bind_mesh_offset must be a 3-value list/tuple, e.g. [0, 0, 0].")
+    bind_mesh_offset_t = torch.tensor(
+        [float(bind_mesh_offset_cfg[0]), float(bind_mesh_offset_cfg[1]), float(bind_mesh_offset_cfg[2])],
+        dtype=torch.float32,
+        device=device,
+    ).view(1, 3)
+    if bind_seq_npz is not None:
+        bind_seq_npz = Path(resolve_path(str(bind_seq_npz)))
+        if not bind_seq_npz.is_absolute():
+            bind_seq_npz = project_root / bind_seq_npz
 
     mesh_cache: dict[int, torch.Tensor] = {}
     mesh_cache_order: list[int] = []
     bind_idx_t = None
+    bind_vertex_offset_t = None
+    bind_faces_np = None
+    exp_upright_rot = np.eye(3, dtype=np.float32)
+    exp_center_xy = np.zeros((2,), dtype=np.float32)
+    exp_floor_z = 0.0
+    exp_has_center_xy = False
+    exp_has_floor = False
     if binding_enabled:
         bind_mesh_dir = Path(resolve_path(str(bind_mesh_dir)))
         if not bind_mesh_dir.is_absolute():
@@ -311,8 +741,52 @@ def main():
             else:
                 bind_mesh_indices = list(range(len(frames)))
 
+        if fg_mask_mode in ("smpl", "mesh"):
+            if len(bind_mesh_indices) == 0:
+                raise RuntimeError("fg_mask_mode=smpl requires non-empty bind_mesh_indices.")
+            first_mesh_idx = int(bind_mesh_indices[0])
+            first_obj = bind_mesh_dir / f"{first_mesh_idx:06d}.obj"
+            if not first_obj.exists():
+                raise FileNotFoundError(f"Mesh frame not found for fg mask: {first_obj}")
+            _, bind_faces_np = load_obj_mesh(first_obj)
+            if bind_faces_np is None or len(bind_faces_np) == 0:
+                raise RuntimeError("fg_mask_mode=smpl requires mesh faces, but loaded mesh has no faces.")
+
+        if bind_mesh_to_camera and bind_inverse_export_upright and bind_seq_npz is not None and bind_seq_npz.exists():
+            seq_meta = np.load(bind_seq_npz, allow_pickle=True)
+            if "export_upright_rot" in seq_meta.files:
+                exp_upright_rot = np.asarray(seq_meta["export_upright_rot"], dtype=np.float32).reshape(3, 3)
+            if "export_center_xy" in seq_meta.files:
+                exp_has_center_xy = bool(int(np.asarray(seq_meta["export_center_xy"]).reshape(-1)[0]))
+            if "export_center_xy_value" in seq_meta.files:
+                exp_center_xy = np.asarray(seq_meta["export_center_xy_value"], dtype=np.float32).reshape(2,)
+            if "export_on_floor" in seq_meta.files:
+                exp_has_floor = bool(int(np.asarray(seq_meta["export_on_floor"]).reshape(-1)[0]))
+            if "export_floor_z" in seq_meta.files:
+                exp_floor_z = float(np.asarray(seq_meta["export_floor_z"], dtype=np.float32).reshape(-1)[0])
+
         bind_idx_t = g.bind_idx.to(device=device, dtype=torch.long)
         bind_mask = bind_idx_t >= 0
+        if (
+            legacy_cam_t_autofix
+            and bind_mesh_to_camera
+            and cam_t is not None
+            and cam_t.numel() > 0
+        ):
+            cam_t_np = cam_t.detach().cpu().numpy()
+            if (
+                np.all(np.abs(cam_t_np[:, 0]) < 1e-6)
+                and np.all(np.abs(cam_t_np[:, 1]) < 1e-6)
+                and np.all(np.abs(cam_t_np[:, 2] - 2.5) < 1e-3)
+            ):
+                logger.warning(
+                    "Detected legacy cam_t=[0,0,2.5] with bind_mesh_to_camera=true; "
+                    "auto-correcting to cam_t=[0,0,0] for alignment."
+                )
+                cam_t = cam_t.clone()
+                cam_t[:, 2] = cam_t[:, 2] - 2.5
+        if g.bind_offset is not None:
+            bind_vertex_offset_t = g.bind_offset.to(device=device, dtype=torch.float32)
 
         def _load_mesh_verts(mesh_idx: int) -> torch.Tensor:
             if mesh_idx in mesh_cache:
@@ -322,10 +796,19 @@ def main():
                 raise FileNotFoundError(f"Mesh frame not found: {obj_path}")
             verts_np = load_obj_vertices(obj_path)
             if bind_mesh_to_camera:
+                if bind_inverse_export_upright:
+                    if exp_has_center_xy:
+                        verts_np[:, 0] += float(exp_center_xy[0])
+                        verts_np[:, 1] += float(exp_center_xy[1])
+                    if exp_has_floor:
+                        verts_np[:, 2] += float(exp_floor_z)
+                    # Inverse of stage1 upright rotation: v_blender_raw = v_export @ U
+                    verts_np = (verts_np @ exp_upright_rot.astype(np.float32))
                 # Inverse of stage1 _camera_to_blender: (x, y, z) = (x_b, -z_b, y_b)
                 import numpy as _np
                 verts_np = _np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(_np.float32)
             verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
+            verts_t = verts_t + bind_mesh_offset_t
             mesh_cache[mesh_idx] = verts_t
             mesh_cache_order.append(mesh_idx)
             if len(mesh_cache_order) > 8:
@@ -353,17 +836,21 @@ def main():
         # Camera for this frame
         if cam_w is None or cam_t is None:
             R = torch.eye(3, device=device, dtype=torch.float32)
-            t = torch.tensor([0.0, 0.0, 2.5], device=device, dtype=torch.float32)
+            t = torch.tensor([0.0, 0.0, 0.0], device=device, dtype=torch.float32)
         else:
             R = axis_angle_to_rotmat(cam_w[i])
             t = cam_t[i]
+        verts_t = None
 
         # Update bound xyz for this frame (dynamic binding)
         if binding_enabled:
             mesh_idx = int(bind_mesh_indices[i])
             verts_t = _load_mesh_verts(mesh_idx)
             if bind_mask.any():
-                g.xyz[bind_mask] = verts_t.index_select(0, bind_idx_t[bind_mask]).detach()
+                xyz_new = verts_t.index_select(0, bind_idx_t[bind_mask])
+                if bind_vertex_offset_t is not None:
+                    xyz_new = xyz_new + bind_vertex_offset_t[bind_mask]
+                g.xyz[bind_mask] = xyz_new.detach()
 
         # Optional: split gaussians by bind_idx
         if split_by_bind and g.bind_idx is not None:
@@ -375,10 +862,66 @@ def main():
             g_fg = g
             g_bg = None
 
+        if render_bound_only:
+            if g.bind_idx is None:
+                raise RuntimeError("render_bound_only=true but bind_idx is missing in checkpoint.")
+            fg_mask = (g.bind_idx >= 0)
+            if not fg_mask.any():
+                raise RuntimeError("render_bound_only=true but no bound gaussians (bind_idx >= 0).")
+            g_fg = _select_gaussians(g, fg_mask)
+            g_bg = None
+
+        if visualize_bound_gaussians:
+            g_fg = _apply_vis_override(
+                g=g_fg,
+                opacity_logit=vis_opacity_logit,
+                scale_mult=vis_scale_mult,
+                rgb_override=vis_rgb,
+            )
+
         # Scale intrinsics for wider/narrower FOV if requested
         K_use = _scale_intrinsics(K, k_scale)
 
-        if fg_scale == 1.0 and bg_scale == 1.0:
+        if debug_point_render:
+            skeleton_segments = None
+            if debug_bind_to_google_skeleton and debug_kpt_json_path is not None:
+                frame_kpts = _load_frame_keypoints(
+                    keypoints_json=debug_kpt_json_path,
+                    frame_name=frames[i],
+                    conf_min=debug_kpt_conf_min,
+                )
+                skeleton_segments = _build_skeleton_segments_2d(
+                    keypoints_xyc=frame_kpts,
+                    W=base_w,
+                    H=base_h,
+                )
+            pred = _render_points_debug(
+                g=g_fg,
+                K=K_use,
+                R=R,
+                t=t,
+                H=base_h,
+                W=base_w,
+                bg=bg,
+                point_radius=debug_point_radius,
+                point_alpha=debug_point_alpha,
+                use_gaussian_color=debug_use_gaussian_color,
+                point_color=debug_point_color,
+                surface_only=debug_surface_only,
+                skeleton_segments=skeleton_segments,
+                near_skeleton_px=debug_skeleton_band_px,
+            )
+            if debug_need_kpts and debug_kpt_json_path is not None:
+                pred = _overlay_keypoints(
+                    rgb_chw=pred,
+                    keypoints_json=debug_kpt_json_path,
+                    frame_name=frames[i],
+                    conf_min=debug_kpt_conf_min,
+                    radius=debug_kpt_radius,
+                    draw_skeleton=debug_draw_skeleton,
+                    body_only=debug_overlay_body_only,
+                )
+        elif fg_scale == 1.0 and bg_scale == 1.0:
             # IMPORTANT: infer output size from gt (do NOT hardcode H/W)
             pred = render_gaussians_3d(
                 g=g_fg,
@@ -433,6 +976,41 @@ def main():
                 pred = fg_rgb * m + bg_rgb * (1.0 - m)
             else:
                 pred = fg_rgb * fg_alpha + bg_rgb * (1.0 - fg_alpha)
+
+        if (
+            fg_mask_mode in ("smpl", "mesh")
+            and binding_enabled
+            and verts_t is not None
+            and bind_faces_np is not None
+        ):
+            mask_np = _rasterize_mesh_mask(
+                verts=verts_t.detach().cpu().numpy(),
+                faces=bind_faces_np,
+                K=K_use.detach().cpu().numpy().astype(np.float32),
+                R=R.detach().cpu().numpy().astype(np.float32),
+                t=t.detach().cpu().numpy().astype(np.float32),
+                H=base_h,
+                W=base_w,
+                dilate_px=int(fg_mask_dilate_px),
+            )
+            fg_mask = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+            if use_gt_bg and bg_gt_chw is not None:
+                bg_fill = bg_gt_chw
+            else:
+                bg_fill = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(pred)
+            pred = pred * fg_mask + bg_fill * (1.0 - fg_mask)
+
+        # Overlay 2D keypoints/skeleton on top for both debug and normal rendering.
+        if (not debug_point_render) and debug_overlay_keypoints and debug_kpt_json_path is not None:
+            pred = _overlay_keypoints(
+                rgb_chw=pred,
+                keypoints_json=debug_kpt_json_path,
+                frame_name=frames[i],
+                conf_min=debug_kpt_conf_min,
+                radius=debug_kpt_radius,
+                draw_skeleton=debug_draw_skeleton,
+                body_only=debug_overlay_body_only,
+            )
 
         out_path = out_dir / f"{i:06d}.png"
         save_rgb(out_path, pred)

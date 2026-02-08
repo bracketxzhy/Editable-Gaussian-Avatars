@@ -8,7 +8,7 @@ import torch
 from tqdm import tqdm
 
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
-from avatar_gs.gaussian.init_from_smpl import load_obj_vertices
+from avatar_gs.gaussian.init_from_smpl import load_obj_vertices, load_obj_mesh
 from avatar_gs.renderer.gaussian_renderer import render_gaussians_3d
 
 
@@ -50,6 +50,77 @@ def axis_angle_to_rotmat(w: torch.Tensor) -> torch.Tensor:
     return R
 
 
+def _project_points_numpy(
+    xyz: np.ndarray,
+    K: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Project 3D points with camera convention X_cam = R * X + t.
+    Returns (u, v, valid_z_mask).
+    """
+    Xc = xyz @ R.T + t.reshape(1, 3)
+    z = Xc[:, 2]
+    valid = z > 1e-6
+    u = np.zeros((xyz.shape[0],), dtype=np.float32)
+    v = np.zeros((xyz.shape[0],), dtype=np.float32)
+    if np.any(valid):
+        Xcv = Xc[valid]
+        zv = z[valid]
+        u[valid] = K[0, 0] * (Xcv[:, 0] / zv) + K[0, 2]
+        v[valid] = K[1, 1] * (Xcv[:, 1] / zv) + K[1, 2]
+    return u, v, valid
+
+
+def _rasterize_mesh_mask(
+    verts: np.ndarray,
+    faces: np.ndarray | None,
+    K: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+    H: int,
+    W: int,
+    dilate_px: int = 0,
+) -> np.ndarray:
+    """
+    Rasterize mesh silhouette to a binary mask (H, W) in {0,1}.
+    """
+    mask = np.zeros((H, W), dtype=np.uint8)
+    if faces is None or len(faces) == 0 or verts.shape[0] == 0:
+        return mask
+
+    u, v, valid = _project_points_numpy(verts, K, R, t)
+    if not np.any(valid):
+        return mask
+
+    uvi = np.stack([u, v], axis=1).astype(np.float32)
+    for tri in faces:
+        i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
+        if i0 < 0 or i1 < 0 or i2 < 0:
+            continue
+        if i0 >= len(valid) or i1 >= len(valid) or i2 >= len(valid):
+            continue
+        if not (valid[i0] and valid[i1] and valid[i2]):
+            continue
+        pts = uvi[[i0, i1, i2]]
+        if (
+            (pts[:, 0] < -2).all()
+            or (pts[:, 0] > W + 1).all()
+            or (pts[:, 1] < -2).all()
+            or (pts[:, 1] > H + 1).all()
+        ):
+            continue
+        poly = np.round(pts).astype(np.int32).reshape(-1, 1, 2)
+        cv2.fillConvexPoly(mask, poly, 1)
+
+    if int(dilate_px) > 0:
+        k = int(dilate_px) * 2 + 1
+        kernel = np.ones((k, k), dtype=np.uint8)
+        mask = cv2.dilate(mask, kernel, iterations=1)
+    return mask
+
+
 def train_gaussians_3d_learnable_camera(
     g: Gaussian3D,
     frames_dir: str | Path,
@@ -68,7 +139,7 @@ def train_gaussians_3d_learnable_camera(
     alpha_threshold: float = 0.15, # mask threshold
     # ---- Camera mode / regularization ----
     camera_mode: str = "learnable",  # learnable | fixed
-    cam_t_prior: tuple[float, float, float] = (0.0, 0.0, 2.5),
+    cam_t_prior: tuple[float, float, float] = (0.0, 0.0, 0.0),
     cam_reg_weight: float = 0.0,
     # ---- Keypoint bbox mask ----
     keypoints_json: str | Path | None = None,
@@ -87,7 +158,14 @@ def train_gaussians_3d_learnable_camera(
     bind_vertex_indices: torch.Tensor | None = None,
     bind_mesh_indices: list[int] | None = None,
     bind_cache_size: int = 8,
+    bind_seq_npz: str | Path | None = None,
     bind_mesh_to_camera: bool = False,
+    bind_inverse_export_upright: bool = True,
+    bind_mesh_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    # ---- SMPL silhouette supervision for bound human gaussians ----
+    use_smpl_silhouette_mask: bool = False,
+    smpl_mask_dilate_px: int = 0,
+    smpl_alpha_leak_weight: float = 0.0,
     # ---- Background behavior for unbound gaussians ----
     bg_grad_scale: float = 1.0,
     bg_opacity_logit_max: float | None = None,
@@ -107,6 +185,7 @@ def train_gaussians_3d_learnable_camera(
     - Add L1 term to reduce MSE-induced blur.
     - Random frame sampling (remove periodic bias).
     - Optional alpha-based masking to avoid fitting background.
+    - Optional SMPL silhouette masking/leak penalty to keep bound gaussians on the body region.
     """
 
     frames_dir = Path(frames_dir)
@@ -124,6 +203,8 @@ def train_gaussians_3d_learnable_camera(
     g = g.to(device)
     # If binding is enabled, we will override xyz per-frame from mesh; do NOT optimize xyz.
     binding_enabled = bind_mesh_dir is not None and bind_vertex_indices is not None
+    if bool(use_smpl_silhouette_mask) and not binding_enabled:
+        raise ValueError("use_smpl_silhouette_mask=true requires bind_mesh_dir + bind_vertex_indices.")
     if binding_enabled:
         g.xyz = g.xyz.detach()  # keep as buffer
     else:
@@ -246,10 +327,22 @@ def train_gaussians_3d_learnable_camera(
     # Binding helpers (lazy-load mesh vertices per frame)
     mesh_cache: dict[int, torch.Tensor] = {}
     mesh_cache_order: list[int] = []
+    smpl_mask_cache: dict[int, torch.Tensor] = {}
     bind_idx_t = None
+    bind_vertex_offset_t = None
+    bind_faces_np = None
+    K_np = K.detach().cpu().numpy().astype(np.float32)
     if binding_enabled:
         bind_idx_t = bind_vertex_indices.to(device=device, dtype=torch.long)
         bind_mask = bind_idx_t >= 0
+        if g.bind_offset is not None:
+            bind_vertex_offset_t = g.bind_offset.to(device=device, dtype=torch.float32)
+        bind_mesh_offset_t = torch.tensor(bind_mesh_offset, dtype=torch.float32, device=device).view(1, 3)
+        exp_upright_rot = np.eye(3, dtype=np.float32)
+        exp_center_xy = np.zeros((2,), dtype=np.float32)
+        exp_floor_z = 0.0
+        exp_has_center_xy = False
+        exp_has_floor = False
         if bind_mesh_indices is None:
             bind_mesh_indices = list(range(len(frames_list)))
         if len(bind_mesh_indices) != len(frames_list):
@@ -257,6 +350,34 @@ def train_gaussians_3d_learnable_camera(
         bind_mesh_dir = Path(bind_mesh_dir)
         if not bind_mesh_dir.exists():
             raise FileNotFoundError(f"bind_mesh_dir not found: {bind_mesh_dir}")
+        if bool(use_smpl_silhouette_mask):
+            if len(bind_mesh_indices) == 0:
+                raise RuntimeError("use_smpl_silhouette_mask=true but bind_mesh_indices is empty.")
+            first_mesh_idx = int(bind_mesh_indices[0])
+            first_obj = bind_mesh_dir / f"{first_mesh_idx:06d}.obj"
+            if not first_obj.exists():
+                raise FileNotFoundError(f"Mesh frame not found for silhouette mask: {first_obj}")
+            _, bind_faces_np = load_obj_mesh(first_obj)
+            if bind_faces_np is None or len(bind_faces_np) == 0:
+                raise RuntimeError(
+                    "use_smpl_silhouette_mask=true but mesh has no faces; "
+                    "cannot build silhouette."
+                )
+
+        if bind_mesh_to_camera and bind_inverse_export_upright and bind_seq_npz is not None:
+            seq_path = Path(bind_seq_npz)
+            if seq_path.exists():
+                seq = np.load(seq_path, allow_pickle=True)
+                if "export_upright_rot" in seq.files:
+                    exp_upright_rot = np.asarray(seq["export_upright_rot"], dtype=np.float32).reshape(3, 3)
+                if "export_center_xy" in seq.files:
+                    exp_has_center_xy = bool(int(np.asarray(seq["export_center_xy"]).reshape(-1)[0]))
+                if "export_center_xy_value" in seq.files:
+                    exp_center_xy = np.asarray(seq["export_center_xy_value"], dtype=np.float32).reshape(2,)
+                if "export_on_floor" in seq.files:
+                    exp_has_floor = bool(int(np.asarray(seq["export_on_floor"]).reshape(-1)[0]))
+                if "export_floor_z" in seq.files:
+                    exp_floor_z = float(np.asarray(seq["export_floor_z"], dtype=np.float32).reshape(-1)[0])
 
         def _load_mesh_verts(mesh_idx: int) -> torch.Tensor:
             if mesh_idx in mesh_cache:
@@ -266,9 +387,18 @@ def train_gaussians_3d_learnable_camera(
                 raise FileNotFoundError(f"Mesh frame not found: {obj_path}")
             verts_np = load_obj_vertices(obj_path)
             if bind_mesh_to_camera:
+                if bind_inverse_export_upright:
+                    if exp_has_center_xy:
+                        verts_np[:, 0] += float(exp_center_xy[0])
+                        verts_np[:, 1] += float(exp_center_xy[1])
+                    if exp_has_floor:
+                        verts_np[:, 2] += float(exp_floor_z)
+                    # Inverse of stage1 upright rotation: v_blender_raw = v_export @ U
+                    verts_np = (verts_np @ exp_upright_rot.astype(np.float32))
                 # Inverse of stage1 _camera_to_blender: (x, y, z) = (x_b, -z_b, y_b)
                 verts_np = np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(np.float32)
             verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
+            verts_t = verts_t + bind_mesh_offset_t
             mesh_cache[mesh_idx] = verts_t
             mesh_cache_order.append(mesh_idx)
             if len(mesh_cache_order) > int(bind_cache_size):
@@ -300,16 +430,42 @@ def train_gaussians_3d_learnable_camera(
             verts_t = _load_mesh_verts(mesh_idx)
             if bind_mask.any():
                 # Update only bound gaussians (bind_idx >= 0)
-                g.xyz[bind_mask] = verts_t.index_select(0, bind_idx_t[bind_mask]).detach()
+                xyz_new = verts_t.index_select(0, bind_idx_t[bind_mask])
+                if bind_vertex_offset_t is not None:
+                    xyz_new = xyz_new + bind_vertex_offset_t[bind_mask]
+                g.xyz[bind_mask] = xyz_new.detach()
+
+        # Optional silhouette mask from bound SMPL mesh.
+        smpl_mask = None
+        if binding_enabled and bool(use_smpl_silhouette_mask) and bind_faces_np is not None:
+            cache_key = int(mesh_idx) if not learn_cam else -1
+            if cache_key >= 0 and cache_key in smpl_mask_cache:
+                smpl_mask = smpl_mask_cache[cache_key]
+            else:
+                mask_np = _rasterize_mesh_mask(
+                    verts=verts_t.detach().cpu().numpy(),
+                    faces=bind_faces_np,
+                    K=K_np,
+                    R=R.detach().cpu().numpy().astype(np.float32),
+                    t=t.detach().cpu().numpy().astype(np.float32),
+                    H=H,
+                    W=W,
+                    dilate_px=int(smpl_mask_dilate_px),
+                )
+                smpl_mask = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                if cache_key >= 0:
+                    smpl_mask_cache[cache_key] = smpl_mask
 
         # Render
-        if use_alpha_mask:
+        need_alpha = bool(use_alpha_mask or float(smpl_alpha_leak_weight) > 0.0)
+        if need_alpha:
             pred_rgb, pred_a = render_gaussians_3d(g, K, R, t, H, W, bg=bg_rgb, return_alpha=True)
             # pred_rgb: (3,H,W), pred_a: (1,H,W)
             # Build a mask to suppress background. Use detached alpha to avoid degenerate solutions.
-            mask = (pred_a.detach() > alpha_threshold).float()  # (1,H,W)
+            mask = (pred_a.detach() > alpha_threshold).float() if bool(use_alpha_mask) else None
         else:
             pred_rgb = render_gaussians_3d(g, K, R, t, H, W, bg=bg_rgb, return_alpha=False)
+            pred_a = None
             mask = None
 
         # Loss: MSE + L1 (reduces blur)
@@ -323,6 +479,8 @@ def train_gaussians_3d_learnable_camera(
             m2d = torch.zeros((1, H, W), device=device)
             m2d[:, int(y0):int(y1) + 1, int(x0):int(x1) + 1] = 1.0
             mask = m2d if mask is None else (mask * m2d)
+        if smpl_mask is not None:
+            mask = smpl_mask if mask is None else (mask * smpl_mask)
 
         # Optional face emphasis (no hard mask, just higher weight)
         weight = None
@@ -344,6 +502,10 @@ def train_gaussians_3d_learnable_camera(
             l1 = l1.mean()
 
         loss = l2 + l1_weight * l1
+        if pred_a is not None and smpl_mask is not None and float(smpl_alpha_leak_weight) > 0.0:
+            outside = (1.0 - smpl_mask).clamp(0.0, 1.0)
+            leak = (pred_a * outside).sum() / (outside.sum() + 1e-6)
+            loss = loss + float(smpl_alpha_leak_weight) * leak
         if frame_loss_weights_t is not None:
             loss = loss * float(frame_loss_weights_t[fi].item())
         if learn_cam and cam_reg_weight > 0:
@@ -424,6 +586,9 @@ def train_gaussians_3d_learnable_camera(
             "frame_loss_weights": frame_loss_weights,
             "bind_mesh_dir": str(bind_mesh_dir) if binding_enabled else None,
             "bind_mesh_indices": bind_mesh_indices if binding_enabled else None,
+            "use_smpl_silhouette_mask": use_smpl_silhouette_mask,
+            "smpl_mask_dilate_px": smpl_mask_dilate_px,
+            "smpl_alpha_leak_weight": smpl_alpha_leak_weight,
             "bg_grad_scale": bg_grad_scale,
             "bg_opacity_logit_max": bg_opacity_logit_max,
             "bg_log_scale_min": bg_log_scale_min,

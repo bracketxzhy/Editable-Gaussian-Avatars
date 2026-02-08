@@ -89,6 +89,65 @@ def _prepare_targets(
     return tgt_t, w_t
 
 
+def _temporal_window_smooth_loss(x: torch.Tensor, window: int, decay: float) -> torch.Tensor:
+    """
+    Pairwise temporal smoothness over +/-k neighbors with decaying weights.
+    x shape: (T, D...)
+    """
+    T = int(x.shape[0])
+    if T <= 1 or int(window) <= 0:
+        return torch.zeros((), dtype=x.dtype, device=x.device)
+    max_k = min(int(window), T - 1)
+    d = float(np.clip(decay, 0.0, 1.0))
+    total = torch.zeros((), dtype=x.dtype, device=x.device)
+    total_w = 0.0
+    for k in range(1, max_k + 1):
+        wk = d ** (k - 1) if d > 0.0 else 1.0
+        total = total + float(wk) * ((x[k:] - x[:-k]) ** 2).mean()
+        total_w += float(wk)
+    if total_w <= 0.0:
+        return torch.zeros((), dtype=x.dtype, device=x.device)
+    return total / float(total_w)
+
+
+def _temporal_accel_loss(x: torch.Tensor) -> torch.Tensor:
+    """Second-order temporal smoothness (discrete acceleration)."""
+    T = int(x.shape[0])
+    if T <= 2:
+        return torch.zeros((), dtype=x.dtype, device=x.device)
+    return ((x[2:] - 2.0 * x[1:-1] + x[:-2]) ** 2).mean()
+
+
+def _export_sequence_motion_files(
+    out_dir: Path,
+    frame_names: list[str],
+    betas_np: np.ndarray,
+    global_orient_np: np.ndarray,
+    body_pose_np: np.ndarray,
+    trans_np: np.ndarray,
+    scale_np: np.ndarray,
+) -> None:
+    """
+    Export explicit motion parameters to a single NPZ file:
+    - global betas (shape)
+    - per-frame theta = [global_orient(3), body_pose(23*3)]
+    """
+    theta_np = np.concatenate([global_orient_np, body_pose_np], axis=1).astype(np.float32)
+    betas_per_frame = np.repeat(betas_np.reshape(1, -1), theta_np.shape[0], axis=0).astype(np.float32)
+
+    np.savez(
+        out_dir / "smpl_motion_params.npz",
+        frame_names=np.asarray(frame_names),
+        betas=betas_np.astype(np.float32),
+        betas_per_frame=betas_per_frame,
+        theta=theta_np,
+        theta_global=global_orient_np.astype(np.float32),
+        theta_body=body_pose_np.astype(np.float32),
+        trans=trans_np.astype(np.float32),
+        scale=scale_np.astype(np.float32),
+    )
+
+
 def _project_joints(joints: torch.Tensor, K: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     # joints: (B,M,3), K: (3,3), scale: (1,)
     X = joints * scale.view(1, 1, 1)
@@ -593,17 +652,32 @@ def fit_smpl_from_keypoints(
             axis=0,
         ).astype(np.float32)
         trans_np = export_tr.detach().cpu().numpy().reshape(-1).astype(np.float32)
+        go_seq = np.repeat(export_go.detach().cpu().numpy().astype(np.float32), use_n, axis=0)
+        bp_seq = np.repeat(export_bp.detach().cpu().numpy().astype(np.float32), use_n, axis=0)
+        tr_seq = np.repeat(export_tr.detach().cpu().numpy().astype(np.float32), use_n, axis=0)
     else:
         pose = np.concatenate(
             [global_orient.detach().cpu().numpy().reshape(-1), body_pose.detach().cpu().numpy().reshape(-1)],
             axis=0,
         ).astype(np.float32)
         trans_np = transl.detach().cpu().numpy().reshape(-1).astype(np.float32)
+        go_seq = np.repeat(global_orient.detach().cpu().numpy().astype(np.float32), use_n, axis=0)
+        bp_seq = np.repeat(body_pose.detach().cpu().numpy().astype(np.float32), use_n, axis=0)
+        tr_seq = np.repeat(transl.detach().cpu().numpy().astype(np.float32), use_n, axis=0)
     betas_np = betas.detach().cpu().numpy().reshape(-1).astype(np.float32)
     scale_np = scale.detach().cpu().numpy().reshape(-1).astype(np.float32)
 
     np.savez(out_dir / "smpl_params.npz", pose=pose, betas=betas_np, trans=trans_np, scale=scale_np)
     np.savez(out_dir / "smpl_fit_frames.npz", frame_names=np.asarray(frame_names))
+    _export_sequence_motion_files(
+        out_dir=out_dir,
+        frame_names=frame_names,
+        betas_np=betas_np,
+        global_orient_np=go_seq,
+        body_pose_np=bp_seq,
+        trans_np=tr_seq,
+        scale_np=scale_np,
+    )
     _export_obj(out_dir / "smpl_mesh.obj", verts, faces)
     return out_dir
 
@@ -622,6 +696,11 @@ def fit_smpl_sequence_from_keypoints(
     temporal_pose_weight: float = 5e-4,
     temporal_orient_weight: float = 1e-3,
     temporal_trans_weight: float = 5e-3,
+    temporal_window: int = 1,
+    temporal_window_decay: float = 0.7,
+    temporal_pose_accel_weight: float = 0.0,
+    temporal_orient_accel_weight: float = 0.0,
+    temporal_trans_accel_weight: float = 0.0,
     optimize_betas: bool = False,
     unfreeze_betas_iter: int = -1,
     betas_l2_weight: float = 5e-2,
@@ -664,6 +743,7 @@ def fit_smpl_sequence_from_keypoints(
     - shared betas/scale
     - per-frame global_orient/body_pose/trans
     - fixed camera intrinsics
+    - temporal continuity over neighboring frames (window + acceleration regularization)
     - by default, body shape is estimated from earlier frames and final pose uses last frame
     """
     out_dir = Path(out_dir)
@@ -810,9 +890,24 @@ def fit_smpl_sequence_from_keypoints(
         loss_temp = torch.zeros((), dtype=torch.float32, device=device)
         if use_n > 1:
             loss_temp = (
-                float(temporal_pose_weight) * ((body_pose[1:] - body_pose[:-1]) ** 2).mean()
-                + float(temporal_orient_weight) * ((global_orient[1:] - global_orient[:-1]) ** 2).mean()
-                + float(temporal_trans_weight) * ((transl[1:] - transl[:-1]) ** 2).mean()
+                float(temporal_pose_weight)
+                * _temporal_window_smooth_loss(
+                    body_pose, window=int(temporal_window), decay=float(temporal_window_decay)
+                )
+                + float(temporal_orient_weight)
+                * _temporal_window_smooth_loss(
+                    global_orient, window=int(temporal_window), decay=float(temporal_window_decay)
+                )
+                + float(temporal_trans_weight)
+                * _temporal_window_smooth_loss(
+                    transl, window=int(temporal_window), decay=float(temporal_window_decay)
+                )
+            )
+            loss_temp = (
+                loss_temp
+                + float(temporal_pose_accel_weight) * _temporal_accel_loss(body_pose)
+                + float(temporal_orient_accel_weight) * _temporal_accel_loss(global_orient)
+                + float(temporal_trans_accel_weight) * _temporal_accel_loss(transl)
             )
 
         loss = loss_kpt + loss_reg + loss_temp + loss_upright + loss_knee + loss_phys_extra
@@ -981,17 +1076,37 @@ def fit_smpl_sequence_from_keypoints(
     betas_np = betas.detach().cpu().numpy().reshape(-1).astype(np.float32)
     trans_np = transl.detach().cpu().numpy().astype(np.float32)
     scale_np = scale.detach().cpu().numpy().reshape(-1).astype(np.float32)
+    theta_np = np.concatenate([global_orient_np, body_pose_np], axis=1).astype(np.float32)
+    betas_per_frame_np = np.repeat(betas_np.reshape(1, -1), use_n, axis=0).astype(np.float32)
 
     np.savez(
         out_dir / "smpl_params_sequence.npz",
         global_orient=global_orient_np,
         body_pose=body_pose_np,
+        theta=theta_np,
+        theta_global=global_orient_np,
+        theta_body=body_pose_np,
         betas=betas_np,
+        betas_per_frame=betas_per_frame_np,
         trans=trans_np,
         scale=scale_np,
         frame_names=np.asarray(frame_names),
         frame_indices=use_idx.astype(np.int32),
         export_frame_index=np.asarray([export_idx], dtype=np.int32),
+        # Export-space metadata for downstream inverse-transform during binding.
+        export_upright_rot=export_upright_rot.astype(np.float32),
+        export_center_xy=np.asarray([1 if bool(export_center_xy) else 0], dtype=np.int32),
+        export_center_xyz=np.asarray([1 if bool(export_center_xyz) else 0], dtype=np.int32),
+        export_on_floor=np.asarray([1 if bool(export_on_floor) else 0], dtype=np.int32),
+        export_center_xy_value=(
+            export_center_xy_val.astype(np.float32)
+            if export_center_xy_val is not None
+            else np.asarray([0.0, 0.0], dtype=np.float32)
+        ),
+        export_floor_z=np.asarray(
+            [float(export_floor) if export_floor is not None else 0.0],
+            dtype=np.float32,
+        ),
     )
 
     if pose_mode in ("tpose", "t-pose", "arms_out", "fixed"):
@@ -1010,6 +1125,15 @@ def fit_smpl_sequence_from_keypoints(
         trans=trans0,
         scale=scale_np,
         export_frame_index=np.asarray([export_idx], dtype=np.int32),
+    )
+    _export_sequence_motion_files(
+        out_dir=out_dir,
+        frame_names=frame_names,
+        betas_np=betas_np,
+        global_orient_np=global_orient_np,
+        body_pose_np=body_pose_np,
+        trans_np=trans_np,
+        scale_np=scale_np,
     )
 
     _export_obj(out_dir / "smpl_mesh.obj", verts0, faces)

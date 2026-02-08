@@ -17,6 +17,8 @@ class Gaussian3D:
     rgb_logit: torch.Tensor
     # (N,) optional binding to mesh vertex indices (for dynamic attachment)
     bind_idx: torch.Tensor | None = None
+    # (N,3) optional static offset from bound vertex (for dense surface sampling)
+    bind_offset: torch.Tensor | None = None
 
     def to(self, device: str):
         return Gaussian3D(
@@ -26,6 +28,7 @@ class Gaussian3D:
             opacity_logit=self.opacity_logit.to(device),
             rgb_logit=self.rgb_logit.to(device),
             bind_idx=self.bind_idx.to(device) if self.bind_idx is not None else None,
+            bind_offset=self.bind_offset.to(device) if self.bind_offset is not None else None,
         )
 
     def state_dict(self):
@@ -38,6 +41,8 @@ class Gaussian3D:
         }
         if self.bind_idx is not None:
             sd["bind_idx"] = self.bind_idx
+        if self.bind_offset is not None:
+            sd["bind_offset"] = self.bind_offset
         return sd
 
     @staticmethod
@@ -49,6 +54,7 @@ class Gaussian3D:
             opacity_logit=sd["opacity_logit"],
             rgb_logit=sd["rgb_logit"],
             bind_idx=sd.get("bind_idx", None),
+            bind_offset=sd.get("bind_offset", None),
         )
 
     def rgb(self):

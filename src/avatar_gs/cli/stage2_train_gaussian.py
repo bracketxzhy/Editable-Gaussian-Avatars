@@ -106,12 +106,15 @@ def main():
         bg_log_scale=float(cfg["stage2"].get("bg_log_scale", -3.5)),
         bg_opacity_logit=float(cfg["stage2"].get("bg_opacity_logit", -1.5)),
         bg_exclude_bbox_pad=float(cfg["stage2"].get("bg_exclude_bbox_pad", 0.0)),
+        sample_on_surface=bool(cfg["stage2"].get("sample_on_surface", True)),
     )
+    logger.info(f"Initialized gaussians: N={int(g.xyz.shape[0])}")
 
     # ---- Optional dynamic binding to SMPL mesh sequence ----
     bind_to_mesh = bool(cfg["stage2"].get("bind_to_mesh", False))
     bind_mesh_dir = None
     bind_mesh_indices = None
+    bind_seq_npz_path = None
     if bind_to_mesh:
         if g.bind_idx is None:
             raise RuntimeError("bind_to_mesh=true but gaussians have no bind_idx.")
@@ -124,6 +127,7 @@ def main():
             )
 
         seq_npz = stage1_dir / "smpl_params_sequence.npz"
+        bind_seq_npz_path = seq_npz
         if not seq_npz.exists():
             raise FileNotFoundError(
                 f"Missing {seq_npz}. Required to map frame names to mesh indices for binding."
@@ -153,6 +157,22 @@ def main():
                     f"Example missing: {missing[0]}"
                 )
 
+    cam_t_prior = tuple(cfg["stage2"].get("cam_t_prior", (0.0, 0.0, 0.0)))
+    if (
+        bind_to_mesh
+        and bool(cfg["stage2"].get("bind_mesh_to_camera", False))
+        and camera_mode.lower() == "fixed"
+        and len(cam_t_prior) == 3
+        and abs(float(cam_t_prior[0])) < 1e-8
+        and abs(float(cam_t_prior[1])) < 1e-8
+        and abs(float(cam_t_prior[2]) - 2.5) < 1e-8
+    ):
+        logger.warning(
+            "cam_t_prior is [0,0,2.5] with bind_mesh_to_camera=true and fixed camera; "
+            "this causes projection shrink/shift. Auto-correcting cam_t_prior to [0,0,0]."
+        )
+        cam_t_prior = (0.0, 0.0, 0.0)
+
     ckpt_path = out_dir / "gaussians3d.pt"
     train_gaussians_3d_learnable_camera(
         g=g,
@@ -169,7 +189,7 @@ def main():
         use_alpha_mask=bool(cfg["stage2"].get("use_alpha_mask", True)),
         alpha_threshold=float(cfg["stage2"].get("alpha_threshold", 0.15)),
         camera_mode=camera_mode,
-        cam_t_prior=tuple(cfg["stage2"].get("cam_t_prior", (0.0, 0.0, 2.5))),
+        cam_t_prior=cam_t_prior,
         cam_reg_weight=cam_reg_weight,
         keypoints_json=cfg["stage2"].get("keypoints_json", str(stage1_dir / "keypoints.json")),
         kpt_conf_min=float(cfg["stage2"].get("kpt_conf_min", 0.2)),
@@ -184,7 +204,13 @@ def main():
         bind_vertex_indices=g.bind_idx,
         bind_mesh_indices=bind_mesh_indices,
         bind_cache_size=int(cfg["stage2"].get("bind_cache_size", 8)),
+        bind_seq_npz=str(bind_seq_npz_path) if bind_seq_npz_path is not None else None,
         bind_mesh_to_camera=bool(cfg["stage2"].get("bind_mesh_to_camera", False)),
+        bind_inverse_export_upright=bool(cfg["stage2"].get("bind_inverse_export_upright", True)),
+        bind_mesh_offset=tuple(cfg["stage2"].get("bind_mesh_offset", (0.0, 0.0, 0.0))),
+        use_smpl_silhouette_mask=bool(cfg["stage2"].get("use_smpl_silhouette_mask", False)),
+        smpl_mask_dilate_px=int(cfg["stage2"].get("smpl_mask_dilate_px", 0)),
+        smpl_alpha_leak_weight=float(cfg["stage2"].get("smpl_alpha_leak_weight", 0.0)),
         bg_grad_scale=float(cfg["stage2"].get("bg_grad_scale", 1.0)),
         bg_opacity_logit_max=cfg["stage2"].get("bg_opacity_logit_max", None),
         bg_log_scale_min=cfg["stage2"].get("bg_log_scale_min", None),

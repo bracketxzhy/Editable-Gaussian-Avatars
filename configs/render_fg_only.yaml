@@ -7,12 +7,32 @@ render:
   out_dir: outputs/renders/fg_only
   frames_dir: data/frames/input
   max_frames: 1
-  bg: [0.0, 0.0, 0.0]
+  bg: [1.0, 1.0, 1.0]
   k_scale: 1.0
   fg_scale: 1.0
   bg_scale: 1.0
-  split_by_bind: true
+  split_by_bind: false
+  render_bound_only: true
+  fg_mask_mode: smpl
+  fg_mask_dilate_px: 6
+  visualize_bound_gaussians: false
+  debug_point_render: false
+  debug_point_radius: 1
+  debug_point_alpha: 0.95
+  debug_use_gaussian_color: false
+  debug_point_color: [0.15, 0.45, 0.95]
+  debug_surface_only: true
+  debug_bind_to_google_skeleton: false
+  debug_skeleton_band_px: 10.0
+  debug_overlay_keypoints: true
+  debug_draw_skeleton: true
+  debug_overlay_body_only: true
+  debug_keypoints_json: outputs/stage1/keypoints.json
+  debug_kpt_conf_min: 0.2
+  debug_kpt_radius: 3
   use_gt_background: false
   bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
   bind_mesh_to_camera: true
+  bind_inverse_export_upright: true
+  bind_mesh_offset: [0.0, 0.0, 0.0]
