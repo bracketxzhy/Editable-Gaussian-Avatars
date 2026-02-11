@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import numpy as np
+import torch
 
 from avatar_gs.utils.cfg import load_yaml, apply_overrides, parse_args_base, save_yaml
 from avatar_gs.utils.io import ensure_dir, read_json
@@ -26,12 +27,34 @@ def main():
 
     stage1_dir = project_root / cfg["stage2"]["stage1_dir"]
     out_dir = ensure_dir(project_root / cfg["stage2"]["out_dir"])
+    stage2_cfg = cfg["stage2"]
 
-    mesh_obj = stage1_dir / "smpl_mesh.obj"
+    if torch.cuda.is_available() and bool(stage2_cfg.get("enable_tf32", True)):
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = bool(stage2_cfg.get("cudnn_benchmark", True))
+
+    init_mesh_cfg = str(stage2_cfg.get("init_mesh_obj", "smpl_mesh_tpose.obj"))
+    mesh_obj = Path(init_mesh_cfg)
+    if not mesh_obj.is_absolute():
+        mesh_obj = stage1_dir / mesh_obj
+    if not mesh_obj.exists():
+        fallback_mesh = None
+        for cand in (stage1_dir / "smpl_mesh_tpose.obj", stage1_dir / "smpl_mesh.obj"):
+            if cand.exists():
+                fallback_mesh = cand
+                break
+        if fallback_mesh is None:
+            raise FileNotFoundError(
+                f"init mesh not found: {mesh_obj}. "
+                f"Checked fallback: {stage1_dir / 'smpl_mesh_tpose.obj'} and {stage1_dir / 'smpl_mesh.obj'}."
+            )
+        mesh_obj = fallback_mesh
+
     cam = read_json(stage1_dir / "cameras.json")
 
     frames_dir = project_root / cfg["data"]["frames_dir"]
-    stage2_cfg = cfg["stage2"]
     n_frames = int(stage2_cfg.get("n_frames", 20))
 
     if "h36m" in cfg.get("data", {}):
@@ -115,6 +138,7 @@ def main():
     bind_mesh_dir = None
     bind_mesh_indices = None
     bind_seq_npz_path = None
+    bind_vertices_npz_path = None
     if bind_to_mesh:
         if g.bind_idx is None:
             raise RuntimeError("bind_to_mesh=true but gaussians have no bind_idx.")
@@ -131,6 +155,14 @@ def main():
         if not seq_npz.exists():
             raise FileNotFoundError(
                 f"Missing {seq_npz}. Required to map frame names to mesh indices for binding."
+            )
+        verts_npz = stage1_dir / "smpl_vertices_sequence.npz"
+        if verts_npz.exists():
+            bind_vertices_npz_path = verts_npz
+            logger.info(f"Using dynamic bind vertices from: {bind_vertices_npz_path}")
+        else:
+            logger.warning(
+                f"Missing {verts_npz}; binding will fall back to OBJ sequence only."
             )
         seq = np.load(seq_npz, allow_pickle=True)
         seq_names = [str(x) for x in seq["frame_names"].tolist()]
@@ -156,6 +188,42 @@ def main():
                     f"Binding failed: {len(missing)} frames not found in smpl_params_sequence.npz. "
                     f"Example missing: {missing[0]}"
                 )
+
+        if bind_vertices_npz_path is not None:
+            vseq = np.load(bind_vertices_npz_path, allow_pickle=True)
+            if "verts_cam" in vseq.files:
+                n_seq = int(np.asarray(vseq["verts_cam"]).shape[0])
+                avail_set = set(range(n_seq))
+                fallback_idx = max(n_seq - 1, 0)
+                missing_seq = [mi for mi in bind_mesh_indices if mi not in avail_set]
+                if len(missing_seq) > 0:
+                    logger.warning(
+                        "Some bind indices are out of range in smpl_vertices_sequence; "
+                        f"falling back to frame {fallback_idx} for {len(missing_seq)} frames."
+                    )
+                    bind_mesh_indices = [mi if mi in avail_set else fallback_idx for mi in bind_mesh_indices]
+            else:
+                logger.warning(
+                    f"{bind_vertices_npz_path} has no verts_cam; fallback to OBJ availability checks."
+                )
+                bind_vertices_npz_path = None
+        if bind_vertices_npz_path is None:
+            mesh_files = []
+            for p in bind_mesh_dir.glob("*.obj"):
+                stem = p.stem
+                if stem.isdigit():
+                    mesh_files.append(int(stem))
+            if len(mesh_files) == 0:
+                raise FileNotFoundError(f"No numeric OBJ meshes found in {bind_mesh_dir}")
+            avail_set = set(mesh_files)
+            fallback_idx = max(mesh_files)
+            missing_mesh = [mi for mi in bind_mesh_indices if mi not in avail_set]
+            if len(missing_mesh) > 0:
+                logger.warning(
+                    "Some bind mesh indices are missing from smpl_mesh_sequence; "
+                    f"falling back to mesh {fallback_idx:06d}.obj for {len(missing_mesh)} frames."
+                )
+                bind_mesh_indices = [mi if mi in avail_set else fallback_idx for mi in bind_mesh_indices]
 
     cam_t_prior = tuple(cfg["stage2"].get("cam_t_prior", (0.0, 0.0, 0.0)))
     if (
@@ -200,17 +268,26 @@ def main():
         face_box_pad=float(cfg["stage2"].get("face_box_pad", 0.2)),
         frame_weights=frame_weights,
         frame_loss_weights=frame_loss_weights,
+        temporal_ref_window=int(cfg["stage2"].get("temporal_ref_window", 0)),
+        temporal_ref_decay=float(cfg["stage2"].get("temporal_ref_decay", 0.85)),
+        temporal_ref_anchor=str(cfg["stage2"].get("temporal_ref_anchor", "sample")),
         bind_mesh_dir=bind_mesh_dir,
         bind_vertex_indices=g.bind_idx,
         bind_mesh_indices=bind_mesh_indices,
         bind_cache_size=int(cfg["stage2"].get("bind_cache_size", 8)),
         bind_seq_npz=str(bind_seq_npz_path) if bind_seq_npz_path is not None else None,
+        bind_vertices_npz=str(bind_vertices_npz_path) if bind_vertices_npz_path is not None else None,
         bind_mesh_to_camera=bool(cfg["stage2"].get("bind_mesh_to_camera", False)),
         bind_inverse_export_upright=bool(cfg["stage2"].get("bind_inverse_export_upright", True)),
         bind_mesh_offset=tuple(cfg["stage2"].get("bind_mesh_offset", (0.0, 0.0, 0.0))),
         use_smpl_silhouette_mask=bool(cfg["stage2"].get("use_smpl_silhouette_mask", False)),
         smpl_mask_dilate_px=int(cfg["stage2"].get("smpl_mask_dilate_px", 0)),
+        smpl_mask_erode_px=int(cfg["stage2"].get("smpl_mask_erode_px", 0)),
+        smpl_color_mask_erode_px=int(cfg["stage2"].get("smpl_color_mask_erode_px", 0)),
         smpl_alpha_leak_weight=float(cfg["stage2"].get("smpl_alpha_leak_weight", 0.0)),
+        smpl_mask_override_alpha=bool(cfg["stage2"].get("smpl_mask_override_alpha", True)),
+        smpl_mask_precompute=bool(cfg["stage2"].get("smpl_mask_precompute", True)),
+        smpl_mask_precompute_max_frames=int(cfg["stage2"].get("smpl_mask_precompute_max_frames", 64)),
         bg_grad_scale=float(cfg["stage2"].get("bg_grad_scale", 1.0)),
         bg_opacity_logit_max=cfg["stage2"].get("bg_opacity_logit_max", None),
         bg_log_scale_min=cfg["stage2"].get("bg_log_scale_min", None),

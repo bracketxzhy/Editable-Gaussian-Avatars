@@ -25,67 +25,181 @@ mediapipe:
   # For video sequences, tracking mode is usually more stable.
   static_image_mode: false
   model_complexity: 2
-  min_detection_confidence: 0.6
+  # For tiny person in a large scene, lower threshold helps coarse detection.
+  min_detection_confidence: 0.45
   min_tracking_confidence: 0.6
+  enable_segmentation: true
+  segmentation_threshold: 0.5
+  # LHM-style two-stage person crop (coarse full-frame -> refined local crop).
+  two_stage_crop: true
+  two_stage_crop_scale: 2.4
+  two_stage_min_size_px: 224
+  two_stageD_min_visibility: 0.05
+  two_stage_use_prev_bbox: true
+  two_stage_center_on_mask: true
+  two_stage_crop_stable_momentum: 0.65
+  # Extra landmarks for SMPL-X hand refinement.
+  enable_hand_landmarks: true
+  hand_max_num_hands: 2
+  hand_model_complexity: 1
+  hand_min_detection_confidence: 0.35
+  hand_min_tracking_confidence: 0.45
 
 stage1:
   out_dir: outputs/stage1
   smpl_model_path: assets
-  smpl_model_type: smpl
-  smpl_gender: neutral
+  smpl_model_type: smplx
+  smpl_gender: auto
+  smpl_num_betas: 10
+  auto_gender: true
+  auto_gender_candidates: [female, male, neutral]
+  auto_gender_probe_frames: 32
+  auto_gender_probe_iters: 80
+  auto_gender_probe_lr: 0.02
+  # Conservative policy: use male/female only when evidence is clear; otherwise fallback neutral.
+  auto_gender_confident_only: true
+  auto_gender_min_rel_gain_vs_neutral: 0.015
+  auto_gender_min_rel_margin_vs_second: 0.005
+  auto_gender_min_abs_gap_vs_neutral: 0.0
+  enable_tf32: true
+  cudnn_benchmark: true
   # sequence: shared shape + per-frame pose/trans; static: one body for all frames
   fit_mode: sequence
   fit_frames: -1
   fit_iters: 12000
   fit_lr: 0.008
+  # Auto-adapt intrinsics from actual frame size before fitting.
+  auto_camera_from_frames: true
+  auto_camera_center: true
+  auto_camera_scale_focal: true
+  # LHM-style robust reprojection: GMoF + person-scale normalization.
+  keypoint_loss_type: gmof
+  keypoint_gmof_sigma_px: 100.0
+  keypoint_conf_thresh: 0.015
+  keypoint_bbox_norm: true
+  keypoint_bbox_norm_min_px: 96.0
+  keypoint_smooth:
+    enable: true
+    method: one_euro
+    fps: 30
+    min_cutoff: 1.0
+    beta: 0.3
+    gaussian_kernel_size: 7
+    gaussian_sigma: 1.5
+  init_translation_ls: true
+  loss_schedule: balanced_sequence_v1
+  # Coarse global initialization (global_orient/transl/scale) before full fitting.
+  global_init_iters: 600
   frame_batch: 40
-  temporal_pose_weight: 0.001
-  temporal_orient_weight: 0.002
-  temporal_trans_weight: 0.008
+  temporal_pose_weight: 0.0006
+  temporal_orient_weight: 0.0012
+  temporal_trans_weight: 0.0045
   temporal_window: 3
   temporal_window_decay: 0.75
-  temporal_pose_accel_weight: 0.0005
-  temporal_orient_accel_weight: 0.0008
-  temporal_trans_accel_weight: 0.001
+  temporal_pose_accel_weight: 0.00025
+  temporal_orient_accel_weight: 0.0004
+  temporal_trans_accel_weight: 0.0006
+  # Monocular depth-order prior from MediaPipe landmark z to reduce 3D ambiguity.
+  monocular_depth_weight: 0.035
+  monocular_depth_pair_margin: 0.008
+  monocular_depth_auto_sign: true
+  # Learn a global focal multiplier to reduce camera mismatch from unknown intrinsics.
+  optimize_focal_scale: true
+  focal_scale_l2_weight: 0.002
+  focal_scale_min: 0.65
+  focal_scale_max: 1.6
+  # Use stronger depth prior in last-frame refine; -1 means same as monocular_depth_weight.
+  last_frame_depth_weight: 0.045
+  # MediaPipe world-landmark priors (3D pseudo supervision) for better monocular depth disambiguation.
+  world_depth_weight: 0.03
+  world_depth_pair_margin: 0.01
+  world_depth_auto_sign: true
+  world_min_visibility: 0.25
+  world_pair_distance_weight: 0.06
+  last_frame_world_depth_weight: 0.04
+  last_frame_world_pair_weight: 0.08
+  # Lightweight silhouette prior improves contour alignment without over-driving edges.
+  silhouette_loss_weight: 0.0012
+  silhouette_loss_final_ratio: 1.5
+  silhouette_dist_clip_px: 24.0
+  silhouette_sample_verts: 2500
+  silhouette_side_view_boost: 1.0
+  # Weak bbox alignment from segmentation to stabilize body extent in monocular fitting.
+  silhouette_bbox_weight: 0.008
+  last_frame_silhouette_weight: 0.0
+  last_frame_silhouette_bbox_weight: 0.012
+  # Limb-chain reprojection prior (direction + relative length), inspired by robust monocular fitting.
+  limb_vector_weight: 0.08
+  limb_vector_len_weight: 0.25
+  last_frame_limb_vector_weight: 0.1
+  # Disable hard angle prior by default; keep only lightweight physical soft priors.
+  pose_angle_prior_weight: 0.0
+  # SMPL-X extra DOFs: soft optimization (no hard constraints).
+  optimize_hand_pose: true
+  optimize_face_pose: true
+  optimize_expression: false
+  hand_pose_reg_weight: 0.00025
+  face_pose_reg_weight: 0.0003
+  expression_reg_weight: 0.001
+  hand_pose_temporal_weight: 0.0006
+  face_pose_temporal_weight: 0.0005
+  # Keep monocular global scale near neutral to reduce leg-length drift.
+  scale_l2_weight: 0.005
   # Estimate shape from history frames with strong regularization.
   optimize_betas: true
-  unfreeze_betas_iter: -1
-  betas_l2_weight: 0.2
-  betas_abs_max: 2.5
+  # Freeze betas in early iterations; first stabilize pose/trans then solve shape.
+  unfreeze_betas_iter: 3000
+  betas_l2_weight: 0.18
+  betas_l2_final_ratio: 1.0
+  betas_abs_max: 1.6
   # Use previous frames to estimate body shape, then use final frame for final pose.
   shape_from_previous_frames: true
   final_pose_from_last_frame: true
-  last_frame_refine_iters: 300
+  last_frame_refine_iters: 0
+  # Last-frame refine also anchors to previous frames with decaying influence.
+  last_frame_temporal_window: 5
+  last_frame_temporal_decay: 0.82
+  last_frame_temporal_pose_weight: 0.0007
+  last_frame_temporal_orient_weight: 0.0012
+  last_frame_temporal_trans_weight: 0.003
+  # Boost upper-body keypoint fitting in final-frame refine (critical for hand/arm pose).
+  last_frame_upper_body_boost: 1.15
+  # Export frame index: -1 means last fitted frame; set >=0 to export any target frame.
+  export_frame_index: -1
   # Output pose override: last_frame | fit | tpose (arms out)
-  export_pose_mode: tpose
+  export_pose_mode: last_frame
+  # Export mesh as canonical T-pose while keeping motion params as fitted.
+  export_mesh_tpose: true
+  # Use T-pose as export-space reference to avoid pose-induced tilt in exported meshes.
+  export_transform_reference: last_frame
   # Physical priors
-  upright_prior_weight: 0.02
-  knee_hinge_weight: 0.003
-  knee_direction_weight: 0.012
+  upright_prior_weight: 0.006
+  knee_hinge_weight: 0.0004
+  knee_direction_weight: 0.0006
   knee_hinge_axis: 1
-  knee_min_flex: 0.1
-  left_knee_flex_sign: 1.0
+  knee_min_flex: 0.05
+  left_knee_flex_sign: -1.0
   right_knee_flex_sign: -1.0
   auto_knee_sign: false
-  knee_sign_update_every: 100
-  enforce_knee_hard: false
-  enforce_right_knee_only: false
-  knee_zero_non_hinge_axes: false
-  ankle_twist_weight: 0.004
-  back_stability_weight: 0.01
-  enforce_strict_upright: false
-  upright_tilt_max: 0.0
-  enforce_spine_hard: false
-  spine_tilt_max: 0.15
+  knee_sign_update_every: 80
+  ankle_twist_weight: 0.0003
+  back_stability_weight: 0.0015
   # Export alignment for Blender
   enforce_export_upright: true
   export_ensure_head_up: true
-  export_center_xy: false
+  export_head_up_margin: 0.08
+  export_center_xy: true
   export_center_xyz: false
-  export_center_mode: centroid
-  export_on_floor: false
+  export_center_mode: pelvis
+  export_on_floor: true
   full_batch_every: 80
   # Export mesh smoothing (visual)
-  export_smooth_iters: 12
+  export_smooth_iters: 8
   export_smooth_alpha: 0.15
   export_meshes: true
+  # Legacy OBJ outputs (smpl_mesh.obj/smpl_mesh_last.obj/smpl_mesh_selected.obj).
+  export_legacy_mesh_objs: false
+  # Which sequence frames to export as OBJ. Supports negative index, e.g. -1 is last frame.
+  export_mesh_sequence_indices: [-1]
+  # Backward-compatible flag; ignored when export_mesh_sequence_indices is non-empty.
+  export_mesh_sequence_last_only: false

@@ -18,9 +18,12 @@ data:
 stage2:
   stage1_dir: outputs/stage1
   out_dir: outputs/stage2
+  init_mesh_obj: smpl_mesh_tpose.obj
+  enable_tf32: true
+  cudnn_benchmark: true
 
   # ---------- Stage2 training schedule (Stage A: stabilize) ----------
-  n_frames: -1
+  n_frames: 8
   n_gaussians: 120000
   sample_on_surface: true
   # Extra background gaussians (unbound)
@@ -37,9 +40,9 @@ stage2:
   bg_log_scale_min: -3.5
   bg_log_scale_max: -2.0
   # Foreground constraints: allow enough opacity while keeping splats small
-  fg_opacity_logit_max: 4.0
+  fg_opacity_logit_max: 3.2
   fg_log_scale_min: -6.5
-  fg_log_scale_max: -4.2
+  fg_log_scale_max: -4.6
   iters: 50000
 
   # Learning rates
@@ -56,13 +59,18 @@ stage2:
   keypoints_json: outputs/stage1/keypoints.json
   kpt_conf_min: 0.2
   kpt_box_pad: 0.12
-  use_kpt_bbox_mask: true
-  face_weight: 2.0
+  use_kpt_bbox_mask: false
+  face_weight: 1.4
   face_conf_min: 0.25
   face_box_pad: 0.18
   bg_rgb: [1.0, 1.0, 1.0]
-  # Use the whole temporal sequence for continuity (n_frames<=0 => all frames).
-  frame_select: first
+  # Use the last 5 frames: current frame + previous 4-frame temporal reference.
+  frame_select: last_k
+  # Temporal reference for current frame:
+  # each iteration anchors on the last frame, and adds previous frames with exponential decay.
+  temporal_ref_anchor: last
+  temporal_ref_window: 4
+  temporal_ref_decay: 0.86
 
   # ---------- Dynamic binding to SMPL mesh sequence ----------
   # Require stage1.export_meshes=true to generate outputs/stage1/smpl_mesh_sequence
@@ -75,13 +83,21 @@ stage2:
   bind_mesh_offset: [0.0, 0.0, 0.0]
   # Human-only supervision from SMPL silhouette.
   use_smpl_silhouette_mask: true
-  smpl_mask_dilate_px: 6
-  smpl_alpha_leak_weight: 0.08
+  smpl_mask_dilate_px: 0
+  smpl_mask_erode_px: 2
+  # Inner-mask color supervision: avoid boundary color leakage but keep head/torso details.
+  smpl_color_mask_erode_px: 2
+  smpl_alpha_leak_weight: 0.4
+  smpl_mask_override_alpha: true
+  smpl_mask_precompute: true
+  smpl_mask_precompute_max_frames: 64
 
 render:
   stage2_dir: outputs/stage2
-  out_dir: outputs/renders
+  out_dir: outputs/renders/fg_only
+  clear_out_dir_pngs: true
   frames_dir: data/frames/input
+  frame_select: last
   max_frames: 1
   bg: [1.0, 1.0, 1.0]
   # Larger view range (smaller K -> wider FOV)
@@ -89,8 +105,21 @@ render:
   # Foreground high-res, background low-res
   fg_scale: 1.0
   bg_scale: 1.0
-  split_by_bind: true
-  use_gt_background: true
+  split_by_bind: false
+  render_bound_only: true
+  bound_alpha_threshold: 0.28
+  bound_opacity_min: 0.05
+  fg_mask_mode: smpl
+  fg_mask_dilate_px: 0
+  fg_mask_erode_px: 2
+  overlay_smpl_skeleton: true
+  smpl_skeleton_source: theta
+  smpl_skeleton_npz: outputs/stage1/smpl_skeleton_sequence.npz
+  smpl_joints_npz: outputs/stage1/smpl_joints_sequence.npz
+  smpl_skeleton_color_bgr: [0, 255, 0]
+  smpl_skeleton_line_thickness: 2
+  smpl_skeleton_joint_radius: 3
+  use_gt_background: false
   bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
   # stage1 exports meshes in Blender coordinates; convert back to camera coords for rendering

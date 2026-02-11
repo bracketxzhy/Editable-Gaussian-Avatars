@@ -28,11 +28,8 @@ env/
 *.conda
 *.env
 
-# ---- Data / outputs (do not commit) ----
-data/videos/
-data/frames/
-data/masks/
-data/cameras/
+# ---- Data / outputs----
+data/
 outputs/
 
 # ---- Logs ----
@@ -60,3 +57,9 @@ outputs/logs/
 *.cache
 *.zip
 
+LHM-main/
+
+CAR-master/
+
+Liao 等 - 2023 - High-Fidelity Clothed Avatar Reconstruction from a Single Image.pdf
+Qiu 等 - 2025 - LHM Large Animatable Human Reconstruction Model from a Single Image in Seconds.pdf

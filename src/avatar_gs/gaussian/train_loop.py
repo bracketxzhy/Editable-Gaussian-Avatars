@@ -5,6 +5,7 @@ import json
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
@@ -82,6 +83,7 @@ def _rasterize_mesh_mask(
     H: int,
     W: int,
     dilate_px: int = 0,
+    erode_px: int = 0,
 ) -> np.ndarray:
     """
     Rasterize mesh silhouette to a binary mask (H, W) in {0,1}.
@@ -118,7 +120,26 @@ def _rasterize_mesh_mask(
         k = int(dilate_px) * 2 + 1
         kernel = np.ones((k, k), dtype=np.uint8)
         mask = cv2.dilate(mask, kernel, iterations=1)
+    if int(erode_px) > 0:
+        k = int(erode_px) * 2 + 1
+        kernel = np.ones((k, k), dtype=np.uint8)
+        mask = cv2.erode(mask, kernel, iterations=1)
     return mask
+
+
+def _erode_binary_mask_torch(mask: torch.Tensor, erode_px: int) -> torch.Tensor:
+    """
+    Erode a binary-like mask tensor (1,H,W) using max-pool based morphology on GPU.
+    """
+    if int(erode_px) <= 0:
+        return mask
+    if mask.ndim != 3:
+        raise ValueError(f"mask must be (1,H,W), got {mask.shape}")
+    k = int(erode_px) * 2 + 1
+    inv = (1.0 - mask).clamp(0.0, 1.0).unsqueeze(0)  # (1,1,H,W)
+    dil_inv = F.max_pool2d(inv, kernel_size=k, stride=1, padding=int(erode_px))
+    out = 1.0 - dil_inv.squeeze(0)
+    return out.clamp(0.0, 1.0)
 
 
 def train_gaussians_3d_learnable_camera(
@@ -153,19 +174,29 @@ def train_gaussians_3d_learnable_camera(
     # ---- Frame sampling / weighting ----
     frame_weights: list[float] | None = None,
     frame_loss_weights: list[float] | None = None,
+    # ---- Temporal reference for current frame ----
+    temporal_ref_window: int = 0,
+    temporal_ref_decay: float = 0.85,
+    temporal_ref_anchor: str = "sample",  # sample | last
     # ---- Dynamic binding to SMPL mesh sequence ----
     bind_mesh_dir: str | Path | None = None,
     bind_vertex_indices: torch.Tensor | None = None,
     bind_mesh_indices: list[int] | None = None,
     bind_cache_size: int = 8,
     bind_seq_npz: str | Path | None = None,
+    bind_vertices_npz: str | Path | None = None,
     bind_mesh_to_camera: bool = False,
     bind_inverse_export_upright: bool = True,
     bind_mesh_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
     # ---- SMPL silhouette supervision for bound human gaussians ----
     use_smpl_silhouette_mask: bool = False,
     smpl_mask_dilate_px: int = 0,
+    smpl_mask_erode_px: int = 0,
+    smpl_color_mask_erode_px: int = 0,
     smpl_alpha_leak_weight: float = 0.0,
+    smpl_mask_override_alpha: bool = True,
+    smpl_mask_precompute: bool = True,
+    smpl_mask_precompute_max_frames: int = 64,
     # ---- Background behavior for unbound gaussians ----
     bg_grad_scale: float = 1.0,
     bg_opacity_logit_max: float | None = None,
@@ -186,6 +217,7 @@ def train_gaussians_3d_learnable_camera(
     - Random frame sampling (remove periodic bias).
     - Optional alpha-based masking to avoid fitting background.
     - Optional SMPL silhouette masking/leak penalty to keep bound gaussians on the body region.
+    - For fixed camera, optional precompute of silhouette masks to reduce per-iteration CPU work.
     """
 
     frames_dir = Path(frames_dir)
@@ -205,6 +237,11 @@ def train_gaussians_3d_learnable_camera(
     binding_enabled = bind_mesh_dir is not None and bind_vertex_indices is not None
     if bool(use_smpl_silhouette_mask) and not binding_enabled:
         raise ValueError("use_smpl_silhouette_mask=true requires bind_mesh_dir + bind_vertex_indices.")
+    if int(smpl_mask_dilate_px) < 0 or int(smpl_mask_erode_px) < 0 or int(smpl_color_mask_erode_px) < 0:
+        raise ValueError(
+            "smpl_mask_dilate_px/smpl_mask_erode_px/smpl_color_mask_erode_px must be >= 0. "
+            f"Got {smpl_mask_dilate_px}/{smpl_mask_erode_px}/{smpl_color_mask_erode_px}"
+        )
     if binding_enabled:
         g.xyz = g.xyz.detach()  # keep as buffer
     else:
@@ -216,6 +253,18 @@ def train_gaussians_3d_learnable_camera(
 
     # Camera per-frame (axis-angle + translation)
     nF = len(frames_list)
+    ref_window = int(temporal_ref_window)
+    if ref_window < 0:
+        raise ValueError(f"temporal_ref_window must be >= 0. Got {temporal_ref_window}")
+    ref_decay = float(temporal_ref_decay)
+    if ref_window > 0 and (ref_decay <= 0.0 or ref_decay > 1.0):
+        raise ValueError(
+            f"temporal_ref_decay must be in (0,1] when temporal_ref_window>0. Got {temporal_ref_decay}"
+        )
+    ref_anchor = str(temporal_ref_anchor).lower()
+    if ref_anchor not in ("sample", "last"):
+        raise ValueError(f"temporal_ref_anchor must be sample|last. Got {temporal_ref_anchor}")
+
     cam_t_init = torch.tensor([cam_t_prior], device=device).float().view(1, 3)
     cam_w = torch.zeros((nF, 3), device=device)
     cam_t = cam_t_init.repeat(nF, 1)
@@ -347,13 +396,64 @@ def train_gaussians_3d_learnable_camera(
             bind_mesh_indices = list(range(len(frames_list)))
         if len(bind_mesh_indices) != len(frames_list):
             raise ValueError("bind_mesh_indices must align with frames_list length.")
+        verts_seq_np = None
+        verts_seq_ids_set: set[int] = set()
+        verts_seq_fallback_idx = 0
+        if bind_vertices_npz is not None:
+            vseq_path = Path(bind_vertices_npz)
+            if vseq_path.exists():
+                vseq = np.load(vseq_path, allow_pickle=True)
+                if "verts_cam" in vseq.files:
+                    verts_seq_np = np.asarray(vseq["verts_cam"], dtype=np.float32)
+                    if verts_seq_np.ndim != 3 or verts_seq_np.shape[-1] != 3:
+                        raise RuntimeError(
+                            f"Bad verts_cam shape in {vseq_path}: {verts_seq_np.shape}"
+                        )
+                    verts_seq_ids_set = set(range(int(verts_seq_np.shape[0])))
+                    verts_seq_fallback_idx = int(max(int(verts_seq_np.shape[0]) - 1, 0))
+                    print(f"Binding uses dynamic vertices from {vseq_path}")
+                else:
+                    print(f"Warning: {vseq_path} missing verts_cam; fallback to OBJ sequence binding.")
+            else:
+                print(f"Warning: bind_vertices_npz not found: {vseq_path}. Fallback to OBJ sequence binding.")
         bind_mesh_dir = Path(bind_mesh_dir)
         if not bind_mesh_dir.exists():
             raise FileNotFoundError(f"bind_mesh_dir not found: {bind_mesh_dir}")
+        mesh_ids = []
+        for p in bind_mesh_dir.glob("*.obj"):
+            stem = p.stem
+            if stem.isdigit():
+                mesh_ids.append(int(stem))
+        if len(mesh_ids) == 0:
+            raise FileNotFoundError(f"No numeric OBJ meshes found in bind_mesh_dir: {bind_mesh_dir}")
+        mesh_ids_set = set(mesh_ids)
+        fallback_mesh_idx = int(max(mesh_ids))
+        if verts_seq_np is not None:
+            missing_seq_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in verts_seq_ids_set]
+            if len(missing_seq_ids) > 0:
+                print(
+                    "Warning: some bind indices are missing in verts sequence; "
+                    f"fallback to frame {verts_seq_fallback_idx} for {len(missing_seq_ids)} frames."
+                )
+                bind_mesh_indices = [
+                    int(mi) if int(mi) in verts_seq_ids_set else verts_seq_fallback_idx
+                    for mi in bind_mesh_indices
+                ]
+        else:
+            missing_mesh_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in mesh_ids_set]
+            if len(missing_mesh_ids) > 0:
+                print(
+                    "Warning: some bind mesh indices are missing; "
+                    f"fallback to mesh {fallback_mesh_idx:06d}.obj for {len(missing_mesh_ids)} frames."
+                )
+                bind_mesh_indices = [
+                    int(mi) if int(mi) in mesh_ids_set else fallback_mesh_idx
+                    for mi in bind_mesh_indices
+                ]
         if bool(use_smpl_silhouette_mask):
             if len(bind_mesh_indices) == 0:
                 raise RuntimeError("use_smpl_silhouette_mask=true but bind_mesh_indices is empty.")
-            first_mesh_idx = int(bind_mesh_indices[0])
+            first_mesh_idx = int(bind_mesh_indices[0]) if int(bind_mesh_indices[0]) in mesh_ids_set else fallback_mesh_idx
             first_obj = bind_mesh_dir / f"{first_mesh_idx:06d}.obj"
             if not first_obj.exists():
                 raise FileNotFoundError(f"Mesh frame not found for silhouette mask: {first_obj}")
@@ -380,9 +480,28 @@ def train_gaussians_3d_learnable_camera(
                     exp_floor_z = float(np.asarray(seq["export_floor_z"], dtype=np.float32).reshape(-1)[0])
 
         def _load_mesh_verts(mesh_idx: int) -> torch.Tensor:
-            if mesh_idx in mesh_cache:
-                return mesh_cache[mesh_idx]
-            obj_path = bind_mesh_dir / f"{mesh_idx:06d}.obj"
+            if verts_seq_np is not None:
+                mesh_idx_use = int(mesh_idx)
+                if mesh_idx_use not in verts_seq_ids_set:
+                    mesh_idx_use = verts_seq_fallback_idx
+                if mesh_idx_use in mesh_cache:
+                    return mesh_cache[mesh_idx_use]
+                verts_np = verts_seq_np[mesh_idx_use]
+                verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
+                verts_t = verts_t + bind_mesh_offset_t
+                mesh_cache[mesh_idx_use] = verts_t
+                mesh_cache_order.append(mesh_idx_use)
+                if len(mesh_cache_order) > int(bind_cache_size):
+                    old = mesh_cache_order.pop(0)
+                    mesh_cache.pop(old, None)
+                return verts_t
+
+            mesh_idx_use = int(mesh_idx)
+            if mesh_idx_use not in mesh_ids_set:
+                mesh_idx_use = fallback_mesh_idx
+            if mesh_idx_use in mesh_cache:
+                return mesh_cache[mesh_idx_use]
+            obj_path = bind_mesh_dir / f"{mesh_idx_use:06d}.obj"
             if not obj_path.exists():
                 raise FileNotFoundError(f"Mesh frame not found: {obj_path}")
             verts_np = load_obj_vertices(obj_path)
@@ -399,12 +518,40 @@ def train_gaussians_3d_learnable_camera(
                 verts_np = np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(np.float32)
             verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
             verts_t = verts_t + bind_mesh_offset_t
-            mesh_cache[mesh_idx] = verts_t
-            mesh_cache_order.append(mesh_idx)
+            mesh_cache[mesh_idx_use] = verts_t
+            mesh_cache_order.append(mesh_idx_use)
             if len(mesh_cache_order) > int(bind_cache_size):
                 old = mesh_cache_order.pop(0)
                 mesh_cache.pop(old, None)
             return verts_t
+
+        if (
+            bool(use_smpl_silhouette_mask)
+            and bind_faces_np is not None
+            and (not learn_cam)
+            and bool(smpl_mask_precompute)
+            and int(smpl_mask_precompute_max_frames) > 0
+            and len(bind_mesh_indices) <= int(smpl_mask_precompute_max_frames)
+        ):
+            cam_r0 = axis_angle_to_rotmat(cam_w[0]).detach().cpu().numpy().astype(np.float32)
+            cam_t0 = cam_t[0].detach().cpu().numpy().astype(np.float32)
+            unique_mesh = sorted(set(int(mi) for mi in bind_mesh_indices))
+            for mesh_idx_pc in unique_mesh:
+                verts_pc = _load_mesh_verts(mesh_idx_pc)
+                mask_np = _rasterize_mesh_mask(
+                    verts=verts_pc.detach().cpu().numpy(),
+                    faces=bind_faces_np,
+                    K=K_np,
+                    R=cam_r0,
+                    t=cam_t0,
+                    H=H,
+                    W=W,
+                    dilate_px=int(smpl_mask_dilate_px),
+                    erode_px=int(smpl_mask_erode_px),
+                )
+                smpl_mask_cache[mesh_idx_pc] = (
+                    torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                )
 
     for it in tqdm(range(iters), desc="Stage2 3DGS (learnable camera)"):
         opt.zero_grad(set_to_none=True)
@@ -413,107 +560,140 @@ def train_gaussians_3d_learnable_camera(
         if learn_cam and it == cam_warmup_iters:
             _set_cam_trainable(True)
 
-        # Sample a random frame index (better than it % nF)
-        if frame_weights_t is None:
+        # Select anchor frame (current frame to optimize).
+        if ref_anchor == "last":
+            fi = nF - 1
+        elif frame_weights_t is None:
             fi = int(torch.randint(low=0, high=nF, size=(1,), generator=rng).item())
         else:
             fi = int(torch.multinomial(frame_weights_t, 1, replacement=True, generator=rng).item())
-        gt = gts[fi]  # (3,H,W)
 
-        # Camera pose
-        R = axis_angle_to_rotmat(cam_w[fi])
-        t = cam_t[fi]
+        # Build temporal reference set: current frame + previous frames with decay.
+        if ref_window > 0:
+            start = max(0, fi - ref_window)
+            ctx_indices = list(range(start, fi + 1))
+            raw_w = np.asarray([ref_decay ** (fi - fj) for fj in ctx_indices], dtype=np.float32)
+            raw_w = raw_w / float(raw_w.sum() + 1e-8)
+            ctx_weights = raw_w.tolist()
+        else:
+            ctx_indices = [fi]
+            ctx_weights = [1.0]
 
-        # Update bound xyz for this frame (dynamic binding)
-        if binding_enabled:
-            mesh_idx = int(bind_mesh_indices[fi])
-            verts_t = _load_mesh_verts(mesh_idx)
-            if bind_mask.any():
-                # Update only bound gaussians (bind_idx >= 0)
-                xyz_new = verts_t.index_select(0, bind_idx_t[bind_mask])
-                if bind_vertex_offset_t is not None:
-                    xyz_new = xyz_new + bind_vertex_offset_t[bind_mask]
-                g.xyz[bind_mask] = xyz_new.detach()
+        loss_value = 0.0
+        for fj, wj in zip(ctx_indices, ctx_weights):
+            gt = gts[fj]  # (3,H,W)
 
-        # Optional silhouette mask from bound SMPL mesh.
-        smpl_mask = None
-        if binding_enabled and bool(use_smpl_silhouette_mask) and bind_faces_np is not None:
-            cache_key = int(mesh_idx) if not learn_cam else -1
-            if cache_key >= 0 and cache_key in smpl_mask_cache:
-                smpl_mask = smpl_mask_cache[cache_key]
+            # Camera pose for this reference frame
+            R = axis_angle_to_rotmat(cam_w[fj])
+            t = cam_t[fj]
+
+            # Update bound xyz for this reference frame (dynamic binding)
+            mesh_idx = None
+            verts_t = None
+            if binding_enabled:
+                mesh_idx = int(bind_mesh_indices[fj])
+                verts_t = _load_mesh_verts(mesh_idx)
+                if bind_mask.any():
+                    xyz_new = verts_t.index_select(0, bind_idx_t[bind_mask])
+                    if bind_vertex_offset_t is not None:
+                        xyz_new = xyz_new + bind_vertex_offset_t[bind_mask]
+                    g.xyz[bind_mask] = xyz_new.detach()
+
+            # Optional silhouette mask from bound SMPL mesh.
+            smpl_mask = None
+            if binding_enabled and bool(use_smpl_silhouette_mask) and bind_faces_np is not None:
+                cache_key = int(mesh_idx) if (mesh_idx is not None and not learn_cam) else -1
+                if cache_key >= 0 and cache_key in smpl_mask_cache:
+                    smpl_mask = smpl_mask_cache[cache_key]
+                else:
+                    if verts_t is None:
+                        raise RuntimeError("Silhouette mask requires bound verts, but verts_t is None.")
+                    mask_np = _rasterize_mesh_mask(
+                        verts=verts_t.detach().cpu().numpy(),
+                        faces=bind_faces_np,
+                        K=K_np,
+                        R=R.detach().cpu().numpy().astype(np.float32),
+                        t=t.detach().cpu().numpy().astype(np.float32),
+                        H=H,
+                        W=W,
+                        dilate_px=int(smpl_mask_dilate_px),
+                        erode_px=int(smpl_mask_erode_px),
+                    )
+                    smpl_mask = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                    if cache_key >= 0:
+                        smpl_mask_cache[cache_key] = smpl_mask
+
+            # Render
+            need_alpha = bool(use_alpha_mask or float(smpl_alpha_leak_weight) > 0.0)
+            if need_alpha:
+                pred_rgb, pred_a = render_gaussians_3d(g, K, R, t, H, W, bg=bg_rgb, return_alpha=True)
+                mask = (pred_a.detach() > alpha_threshold).float() if bool(use_alpha_mask) else None
             else:
-                mask_np = _rasterize_mesh_mask(
-                    verts=verts_t.detach().cpu().numpy(),
-                    faces=bind_faces_np,
-                    K=K_np,
-                    R=R.detach().cpu().numpy().astype(np.float32),
-                    t=t.detach().cpu().numpy().astype(np.float32),
-                    H=H,
-                    W=W,
-                    dilate_px=int(smpl_mask_dilate_px),
-                )
-                smpl_mask = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
-                if cache_key >= 0:
-                    smpl_mask_cache[cache_key] = smpl_mask
+                pred_rgb = render_gaussians_3d(g, K, R, t, H, W, bg=bg_rgb, return_alpha=False)
+                pred_a = None
+                mask = None
 
-        # Render
-        need_alpha = bool(use_alpha_mask or float(smpl_alpha_leak_weight) > 0.0)
-        if need_alpha:
-            pred_rgb, pred_a = render_gaussians_3d(g, K, R, t, H, W, bg=bg_rgb, return_alpha=True)
-            # pred_rgb: (3,H,W), pred_a: (1,H,W)
-            # Build a mask to suppress background. Use detached alpha to avoid degenerate solutions.
-            mask = (pred_a.detach() > alpha_threshold).float() if bool(use_alpha_mask) else None
-        else:
-            pred_rgb = render_gaussians_3d(g, K, R, t, H, W, bg=bg_rgb, return_alpha=False)
-            pred_a = None
-            mask = None
+            # Loss: MSE + L1
+            diff = pred_rgb - gt
+            l2 = (diff * diff)
+            l1 = diff.abs()
 
-        # Loss: MSE + L1 (reduces blur)
-        diff = pred_rgb - gt
-        l2 = (diff * diff)
-        l1 = diff.abs()
+            if use_kpt_bbox_mask and kpt_boxes is not None and kpt_boxes[fj] is not None:
+                x0, y0, x1, y1 = kpt_boxes[fj]
+                m2d = torch.zeros((1, H, W), device=device)
+                m2d[:, int(y0):int(y1) + 1, int(x0):int(x1) + 1] = 1.0
+                mask = m2d if mask is None else (mask * m2d)
+            if smpl_mask is not None:
+                smpl_mask_for_color = smpl_mask
+                if int(smpl_color_mask_erode_px) > 0:
+                    smpl_mask_for_color = _erode_binary_mask_torch(
+                        smpl_mask_for_color, int(smpl_color_mask_erode_px)
+                    )
+                if bool(smpl_mask_override_alpha):
+                    mask = (
+                        smpl_mask_for_color
+                        if (mask is None or not use_kpt_bbox_mask)
+                        else (mask * smpl_mask_for_color)
+                    )
+                else:
+                    mask = smpl_mask_for_color if mask is None else (mask * smpl_mask_for_color)
 
-        # Optional keypoint bbox mask
-        if use_kpt_bbox_mask and kpt_boxes is not None and kpt_boxes[fi] is not None:
-            x0, y0, x1, y1 = kpt_boxes[fi]
-            m2d = torch.zeros((1, H, W), device=device)
-            m2d[:, int(y0):int(y1) + 1, int(x0):int(x1) + 1] = 1.0
-            mask = m2d if mask is None else (mask * m2d)
-        if smpl_mask is not None:
-            mask = smpl_mask if mask is None else (mask * smpl_mask)
+            # Optional face emphasis (no hard mask, just higher weight)
+            weight = None
+            if face_boxes is not None and face_boxes[fj] is not None and float(face_weight) > 1.0:
+                fx0, fy0, fx1, fy1 = face_boxes[fj]
+                w2d = torch.ones((1, H, W), device=device)
+                w2d[:, int(fy0):int(fy1) + 1, int(fx0):int(fx1) + 1] = float(face_weight)
+                weight = w2d
 
-        # Optional face emphasis (no hard mask, just higher weight)
-        weight = None
-        if face_boxes is not None and face_boxes[fi] is not None and float(face_weight) > 1.0:
-            fx0, fy0, fx1, fy1 = face_boxes[fi]
-            w2d = torch.ones((1, H, W), device=device)
-            w2d[:, int(fy0):int(fy1) + 1, int(fx0):int(fx1) + 1] = float(face_weight)
-            weight = w2d
+            # Combine mask + weight into one weight map
+            if mask is not None:
+                weight = mask if weight is None else (weight * mask)
+            if weight is not None:
+                w = weight.expand_as(pred_rgb)
+                l2 = (l2 * w).sum() / (w.sum() + 1e-6)
+                l1 = (l1 * w).sum() / (w.sum() + 1e-6)
+            else:
+                l2 = l2.mean()
+                l1 = l1.mean()
 
-        # Combine mask + weight into one weight map
-        if mask is not None:
-            weight = mask if weight is None else (weight * mask)
-        if weight is not None:
-            w = weight.expand_as(pred_rgb)
-            l2 = (l2 * w).sum() / (w.sum() + 1e-6)
-            l1 = (l1 * w).sum() / (w.sum() + 1e-6)
-        else:
-            l2 = l2.mean()
-            l1 = l1.mean()
+            frame_loss = l2 + l1_weight * l1
+            if pred_a is not None and smpl_mask is not None and float(smpl_alpha_leak_weight) > 0.0:
+                outside = (1.0 - smpl_mask).clamp(0.0, 1.0)
+                leak = (pred_a * outside).sum() / (outside.sum() + 1e-6)
+                frame_loss = frame_loss + float(smpl_alpha_leak_weight) * leak
+            if frame_loss_weights_t is not None:
+                frame_loss = frame_loss * float(frame_loss_weights_t[fj].item())
+            frame_loss = float(wj) * frame_loss
+            loss_value += float(frame_loss.detach().cpu())
+            frame_loss.backward()
 
-        loss = l2 + l1_weight * l1
-        if pred_a is not None and smpl_mask is not None and float(smpl_alpha_leak_weight) > 0.0:
-            outside = (1.0 - smpl_mask).clamp(0.0, 1.0)
-            leak = (pred_a * outside).sum() / (outside.sum() + 1e-6)
-            loss = loss + float(smpl_alpha_leak_weight) * leak
-        if frame_loss_weights_t is not None:
-            loss = loss * float(frame_loss_weights_t[fi].item())
         if learn_cam and cam_reg_weight > 0:
             # Keep camera near prior (prevents drift)
             reg = (cam_w ** 2).mean() + ((cam_t - cam_t_init) ** 2).mean()
-            loss = loss + float(cam_reg_weight) * reg
-
-        loss.backward()
+            reg_loss = float(cam_reg_weight) * reg
+            loss_value += float(reg_loss.detach().cpu())
+            reg_loss.backward()
         # If we want background to be low-precision, down-scale its gradients.
         if binding_enabled and bg_grad_scale < 1.0:
             bg_mask = ~bind_mask
@@ -584,11 +764,20 @@ def train_gaussians_3d_learnable_camera(
             "face_box_pad": face_box_pad,
             "frame_weights": frame_weights,
             "frame_loss_weights": frame_loss_weights,
+            "temporal_ref_window": temporal_ref_window,
+            "temporal_ref_decay": temporal_ref_decay,
+            "temporal_ref_anchor": temporal_ref_anchor,
             "bind_mesh_dir": str(bind_mesh_dir) if binding_enabled else None,
             "bind_mesh_indices": bind_mesh_indices if binding_enabled else None,
+            "bind_vertices_npz": str(bind_vertices_npz) if (binding_enabled and bind_vertices_npz is not None) else None,
             "use_smpl_silhouette_mask": use_smpl_silhouette_mask,
             "smpl_mask_dilate_px": smpl_mask_dilate_px,
+            "smpl_mask_erode_px": smpl_mask_erode_px,
+            "smpl_color_mask_erode_px": smpl_color_mask_erode_px,
             "smpl_alpha_leak_weight": smpl_alpha_leak_weight,
+            "smpl_mask_override_alpha": smpl_mask_override_alpha,
+            "smpl_mask_precompute": smpl_mask_precompute,
+            "smpl_mask_precompute_max_frames": smpl_mask_precompute_max_frames,
             "bg_grad_scale": bg_grad_scale,
             "bg_opacity_logit_max": bg_opacity_logit_max,
             "bg_log_scale_min": bg_log_scale_min,

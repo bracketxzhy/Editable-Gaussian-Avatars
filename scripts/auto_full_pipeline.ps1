@@ -116,7 +116,7 @@ import json
 
 ckpt = torch.load(r"outputs/stage2/gaussians3d.pt", map_location="cpu")
 frame = ckpt["frames"][0]
-pred = cv2.imread(r"outputs/renders/000000.png", cv2.IMREAD_COLOR)
+pred = cv2.imread(r"outputs/renders/fg_only/000000.png", cv2.IMREAD_COLOR)
 gt = cv2.imread(os.path.join(r"data/frames/input", frame), cv2.IMREAD_COLOR)
 if pred is None or gt is None:
     print(json.dumps({"ok": False, "error": "missing_pred_or_gt"}, ensure_ascii=False))
@@ -227,16 +227,16 @@ print(json.dumps({
         $bestPsnr = $psnr
         $bestRound = $round
         $bestCkptBytes = [System.IO.File]::ReadAllBytes((Join-Path $RepoRoot "outputs/stage2/gaussians3d.pt"))
-        $bestRenderBytes = [System.IO.File]::ReadAllBytes((Join-Path $RepoRoot "outputs/renders/000000.png"))
+        $bestRenderBytes = [System.IO.File]::ReadAllBytes((Join-Path $RepoRoot "outputs/renders/fg_only/000000.png"))
         Log "Round $round becomes best."
     }
 }
 
 if ($bestRound -ge 1 -and $null -ne $bestCkptBytes -and $null -ne $bestRenderBytes) {
     [System.IO.File]::WriteAllBytes((Join-Path $RepoRoot "outputs/stage2/gaussians3d.pt"), $bestCkptBytes)
-    [System.IO.File]::WriteAllBytes((Join-Path $RepoRoot "outputs/renders/000000.png"), $bestRenderBytes)
+    [System.IO.File]::WriteAllBytes((Join-Path $RepoRoot "outputs/renders/fg_only/000000.png"), $bestRenderBytes)
 }
 
 Log "All rounds completed. BestRound=$bestRound BestPSNR=$bestPsnr"
 Log "BestScore=$bestScore"
-Log "Artifacts kept with original names: outputs/stage2/gaussians3d.pt and outputs/renders/000000.png"
+Log "Artifacts kept with original names: outputs/stage2/gaussians3d.pt and outputs/renders/fg_only/000000.png"

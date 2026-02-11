@@ -1,11 +1,51 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
 import torch
 import gsplat  # pip package "gsplat"
 
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
+
+
+def _attach_cached_gsplat_cuda_extension() -> None:
+    """
+    Windows workaround:
+    - If `gsplat` package does not expose `gsplat.csrc`, gsplat falls back to
+      JIT compile in `gsplat.cuda._backend`, which requires `cl.exe`.
+    - Reuse already-built torch extension (`gsplat_cuda.pyd`) from
+      torch_extensions cache when available, avoiding recompile.
+    """
+    if getattr(gsplat, "csrc", None) is not None:
+        return
+
+    try:
+        from torch.utils.cpp_extension import _get_build_directory, _import_module_from_library
+    except Exception:
+        return
+
+    try:
+        build_dir = Path(_get_build_directory("gsplat_cuda", verbose=False))
+    except Exception:
+        return
+
+    if not build_dir.exists():
+        return
+    if not ((build_dir / "gsplat_cuda.pyd").exists() or (build_dir / "gsplat_cuda.so").exists()):
+        return
+
+    try:
+        mod = _import_module_from_library("gsplat_cuda", str(build_dir), True)
+    except Exception:
+        return
+
+    sys.modules.setdefault("gsplat.csrc", mod)
+    setattr(gsplat, "csrc", mod)
+
+
+_attach_cached_gsplat_cuda_extension()
 
 
 def _ensure_hwc_background(

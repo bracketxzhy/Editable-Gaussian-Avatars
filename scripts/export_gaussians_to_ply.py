@@ -191,7 +191,15 @@ def main():
     # Resolve xyz (bound or static)
     if args.bind_mesh_dir is not None and g.bind_idx is not None:
         mesh_idx = _resolve_mesh_index(ckpt, int(args.frame_idx), args.bind_seq)
-        obj_path = args.bind_mesh_dir / f"{mesh_idx:06d}.obj"
+        mesh_ids = []
+        for p in args.bind_mesh_dir.glob("*.obj"):
+            if p.stem.isdigit():
+                mesh_ids.append(int(p.stem))
+        if len(mesh_ids) == 0:
+            raise FileNotFoundError(f"No numeric OBJ meshes found in {args.bind_mesh_dir}")
+        if int(mesh_idx) not in set(mesh_ids):
+            mesh_idx = int(max(mesh_ids))
+        obj_path = args.bind_mesh_dir / f"{int(mesh_idx):06d}.obj"
         if not obj_path.exists():
             raise FileNotFoundError(f"Mesh frame not found: {obj_path}")
         verts = load_obj_vertices(obj_path)

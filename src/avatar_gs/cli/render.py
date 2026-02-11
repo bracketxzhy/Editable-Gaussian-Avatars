@@ -25,6 +25,14 @@ MP_POSE_CONNECTIONS = [
     (0, 11), (0, 12),
 ]
 MP_BODY_DRAW_IDS = sorted(set([0] + [a for a, _ in MP_POSE_CONNECTIONS] + [b for _, b in MP_POSE_CONNECTIONS]))
+SMPL_SKELETON_CONNECTIONS = [
+    (0, 1), (0, 2), (0, 3),
+    (3, 6), (6, 9), (9, 12), (12, 15),
+    (12, 16), (16, 18), (18, 20),
+    (12, 17), (17, 19), (19, 21),
+    (1, 4), (4, 7), (7, 10),
+    (2, 5), (5, 8), (8, 11),
+]
 
 
 def read_image_rgb(path: str | Path) -> torch.Tensor:
@@ -305,6 +313,112 @@ def _build_skeleton_segments_2d(
     return segs
 
 
+def _build_parent_connections(joint_parents: np.ndarray | None, joint_count: int) -> list[tuple[int, int]]:
+    if joint_parents is None:
+        return []
+    p = np.asarray(joint_parents, dtype=np.int32).reshape(-1)
+    n = int(min(int(joint_count), int(p.shape[0])))
+    edges: list[tuple[int, int]] = []
+    for j in range(n):
+        par = int(p[j])
+        if par < 0 or par >= n or par == j:
+            continue
+        edges.append((par, j))
+    return edges
+
+
+def _load_smpl_skeleton_map(
+    npz_path: Path,
+    prefer_theta: bool = True,
+) -> tuple[dict[str, np.ndarray], list[tuple[int, int]], str]:
+    if not npz_path.exists():
+        raise FileNotFoundError(f"SMPL skeleton sequence not found: {npz_path}")
+    seq = np.load(npz_path, allow_pickle=True)
+    if "frame_names" not in seq.files:
+        raise RuntimeError(f"{npz_path} missing frame_names")
+
+    has_theta = "joints_cam_theta" in seq.files
+    has_joints = "joints_cam" in seq.files
+    if not has_theta and not has_joints:
+        raise RuntimeError(f"{npz_path} missing joints_cam_theta/joints_cam")
+
+    joints_key = "joints_cam_theta" if (prefer_theta and has_theta) else ("joints_cam" if has_joints else "joints_cam_theta")
+    frame_names = [str(x) for x in seq["frame_names"].tolist()]
+    joints_cam = np.asarray(seq[joints_key], dtype=np.float32)
+    if joints_cam.ndim != 3 or joints_cam.shape[0] != len(frame_names) or joints_cam.shape[2] != 3:
+        raise RuntimeError(f"Bad joints shape in {npz_path}: {joints_cam.shape}")
+
+    joint_parents = np.asarray(seq["joint_parents"], dtype=np.int32) if "joint_parents" in seq.files else None
+    connections = _build_parent_connections(joint_parents=joint_parents, joint_count=int(joints_cam.shape[1]))
+    if len(connections) == 0:
+        connections = list(SMPL_SKELETON_CONNECTIONS)
+    return {fn: joints_cam[i] for i, fn in enumerate(frame_names)}, connections, joints_key
+
+
+def _overlay_smpl_skeleton(
+    rgb_chw: torch.Tensor,
+    joints_cam: np.ndarray | None,
+    K: torch.Tensor,
+    R: torch.Tensor,
+    t: torch.Tensor,
+    connections: list[tuple[int, int]] | None = None,
+    color_bgr: tuple[int, int, int] = (0, 255, 0),
+    thickness: int = 2,
+    radius: int = 3,
+) -> torch.Tensor:
+    if joints_cam is None:
+        return rgb_chw
+    if joints_cam.ndim != 2 or joints_cam.shape[1] != 3:
+        return rgb_chw
+
+    img = (rgb_chw.detach().clamp(0.0, 1.0).permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
+    bgr = img[..., ::-1].copy()
+    H, W = bgr.shape[:2]
+
+    K_np = K.detach().cpu().numpy().astype(np.float32)
+    R_np = R.detach().cpu().numpy().astype(np.float32)
+    t_np = t.detach().cpu().numpy().astype(np.float32).reshape(1, 3)
+    Xc = joints_cam.astype(np.float32) @ R_np.T + t_np
+    z = Xc[:, 2]
+    valid = z > 1e-6
+    u = np.zeros((joints_cam.shape[0],), dtype=np.float32)
+    v = np.zeros((joints_cam.shape[0],), dtype=np.float32)
+    if np.any(valid):
+        Xcv = Xc[valid]
+        zv = z[valid]
+        u[valid] = K_np[0, 0] * (Xcv[:, 0] / zv) + K_np[0, 2]
+        v[valid] = K_np[1, 1] * (Xcv[:, 1] / zv) + K_np[1, 2]
+
+    rr = max(1, int(radius))
+    th = max(1, int(thickness))
+    draw_connections = connections if (connections is not None and len(connections) > 0) else SMPL_SKELETON_CONNECTIONS
+    for a, b in draw_connections:
+        if a >= len(u) or b >= len(u):
+            continue
+        if not (valid[a] and valid[b]):
+            continue
+        xa = int(round(float(u[a])))
+        ya = int(round(float(v[a])))
+        xb = int(round(float(u[b])))
+        yb = int(round(float(v[b])))
+        if xa < 0 or xa >= W or ya < 0 or ya >= H:
+            continue
+        if xb < 0 or xb >= W or yb < 0 or yb >= H:
+            continue
+        cv2.line(bgr, (xa, ya), (xb, yb), color_bgr, thickness=th, lineType=cv2.LINE_AA)
+    for j in range(len(u)):
+        if not valid[j]:
+            continue
+        x = int(round(float(u[j])))
+        y = int(round(float(v[j])))
+        if x < 0 or x >= W or y < 0 or y >= H:
+            continue
+        cv2.circle(bgr, (x, y), rr, color_bgr, thickness=-1, lineType=cv2.LINE_AA)
+
+    out_rgb = torch.from_numpy(bgr[..., ::-1].copy()).float() / 255.0
+    return out_rgb.permute(2, 0, 1).contiguous()
+
+
 def _project_points_numpy(
     xyz: np.ndarray,
     K: np.ndarray,
@@ -333,6 +447,7 @@ def _rasterize_mesh_mask(
     H: int,
     W: int,
     dilate_px: int = 0,
+    erode_px: int = 0,
 ) -> np.ndarray:
     mask = np.zeros((H, W), dtype=np.uint8)
     if faces is None or len(faces) == 0 or verts.shape[0] == 0:
@@ -363,6 +478,10 @@ def _rasterize_mesh_mask(
         k = int(dilate_px) * 2 + 1
         kernel = np.ones((k, k), dtype=np.uint8)
         mask = cv2.dilate(mask, kernel, iterations=1)
+    if int(erode_px) > 0:
+        k = int(erode_px) * 2 + 1
+        kernel = np.ones((k, k), dtype=np.uint8)
+        mask = cv2.erode(mask, kernel, iterations=1)
     return mask
 
 
@@ -515,6 +634,19 @@ def main():
     render_cfg = cfg["render"]
     stage2_dir = project_root / Path(render_cfg.get("stage2_dir", "outputs/stage2"))
     out_dir = ensure_dir(project_root / Path(render_cfg.get("out_dir", "outputs/renders")))
+    if bool(render_cfg.get("clear_out_dir_pngs", False)):
+        removed = 0
+        for old in out_dir.glob("*.png"):
+            old.unlink()
+            removed += 1
+        for old in out_dir.glob("*.jpg"):
+            old.unlink()
+            removed += 1
+        for old in out_dir.glob("*.jpeg"):
+            old.unlink()
+            removed += 1
+        if removed > 0:
+            logger.info(f"Cleared {removed} existing render image(s) in {out_dir}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -557,17 +689,19 @@ def main():
     )
 
     # Intrinsics
-    K = torch.tensor(ckpt["K"], dtype=torch.float32, device=device).view(3, 3)
+    K = torch.as_tensor(ckpt["K"], dtype=torch.float32, device=device).view(3, 3)
 
     # Cameras and frames
     frames = ckpt.get("frames", None)
     if frames is None or len(frames) == 0:
         raise KeyError("Checkpoint missing 'frames'. Cannot render without frame list.")
+    frames = [str(x) for x in frames]
+    total_frames = len(frames)
 
     cam_w = ckpt.get("cam_w", None)
     cam_t = ckpt.get("cam_t", None)
-    cam_w = torch.tensor(cam_w, dtype=torch.float32, device=device) if cam_w is not None else None
-    cam_t = torch.tensor(cam_t, dtype=torch.float32, device=device) if cam_t is not None else None
+    cam_w = torch.as_tensor(cam_w, dtype=torch.float32, device=device) if cam_w is not None else None
+    cam_t = torch.as_tensor(cam_t, dtype=torch.float32, device=device) if cam_t is not None else None
 
     # frames_dir: optional in config, otherwise default to data/frames/input
     frames_dir = render_cfg.get("frames_dir", None)
@@ -581,9 +715,39 @@ def main():
     if not frames_dir.exists():
         raise FileNotFoundError(f"frames_dir not found: {frames_dir}")
 
-    # How many frames to render
+    # Frame selection
+    frame_select = str(render_cfg.get("frame_select", "first")).lower()
+    selected_idx = list(range(total_frames))
+    if frame_select == "last":
+        selected_idx = [total_frames - 1]
+    elif frame_select == "indices":
+        indices_cfg = render_cfg.get("frame_indices", [])
+        if not isinstance(indices_cfg, (list, tuple)) or len(indices_cfg) == 0:
+            raise ValueError("render.frame_select=indices but render.frame_indices is empty.")
+        selected_idx = []
+        for idx in indices_cfg:
+            i = int(idx)
+            if i < 0:
+                i = total_frames + i
+            if i < 0 or i >= total_frames:
+                raise IndexError(f"render.frame_indices has out-of-range index: {idx}")
+            selected_idx.append(i)
+    elif frame_select != "first":
+        raise ValueError(f"Unsupported render.frame_select: {frame_select}. Use first|last|indices")
+
+    # max_frames still applies after frame_select
     max_frames = int(render_cfg.get("max_frames", -1))
-    to_render = len(frames) if max_frames <= 0 else min(len(frames), max_frames)
+    if max_frames > 0:
+        selected_idx = selected_idx[:max_frames]
+    if len(selected_idx) == 0:
+        raise RuntimeError("No frames selected for rendering.")
+
+    frames = [frames[i] for i in selected_idx]
+    if cam_w is not None:
+        cam_w = cam_w[selected_idx]
+    if cam_t is not None:
+        cam_t = cam_t[selected_idx]
+    to_render = len(frames)
 
     # Background (default white)
     bg = render_cfg.get("bg", [1.0, 1.0, 1.0])
@@ -593,15 +757,22 @@ def main():
         bg = (1.0, 1.0, 1.0)
 
     logger.info(f"Frames dir: {frames_dir}")
-    logger.info(f"Will render: {to_render} frames; bg={bg}")
+    logger.info(f"Frame select: {frame_select}; selected={to_render}/{total_frames}; bg={bg}")
+    if to_render <= 5:
+        logger.info(f"Selected frame names: {frames}")
+    else:
+        logger.info(f"Selected frame range: first={frames[0]}, last={frames[-1]}")
 
     fg_scale = float(render_cfg.get("fg_scale", 1.0))
     bg_scale = float(render_cfg.get("bg_scale", 1.0))
     k_scale = float(render_cfg.get("k_scale", 1.0))
     split_by_bind = bool(render_cfg.get("split_by_bind", False))
     render_bound_only = bool(render_cfg.get("render_bound_only", False))
+    bound_alpha_threshold = float(render_cfg.get("bound_alpha_threshold", 0.0))
+    bound_opacity_min = float(render_cfg.get("bound_opacity_min", 0.0))
     fg_mask_mode = str(render_cfg.get("fg_mask_mode", "none")).lower()
     fg_mask_dilate_px = int(render_cfg.get("fg_mask_dilate_px", 0))
+    fg_mask_erode_px = int(render_cfg.get("fg_mask_erode_px", 0))
     visualize_bound_gaussians = bool(render_cfg.get("visualize_bound_gaussians", False))
     vis_opacity_logit = float(render_cfg.get("vis_opacity_logit", 6.0))
     vis_scale_mult = float(render_cfg.get("vis_scale_mult", 4.0))
@@ -623,6 +794,30 @@ def main():
     debug_overlay_keypoints = bool(render_cfg.get("debug_overlay_keypoints", False))
     debug_draw_skeleton = bool(render_cfg.get("debug_draw_skeleton", True))
     debug_overlay_body_only = bool(render_cfg.get("debug_overlay_body_only", True))
+    overlay_smpl_skeleton = bool(
+        render_cfg.get("overlay_smpl_skeleton", render_cfg.get("debug_overlay_smpl_skeleton", False))
+    )
+    smpl_skeleton_source = str(render_cfg.get("smpl_skeleton_source", "theta")).strip().lower()
+    if smpl_skeleton_source not in ("theta", "joints"):
+        raise ValueError(
+            f"render.smpl_skeleton_source must be one of: theta|joints. Got: {smpl_skeleton_source}"
+        )
+    smpl_skeleton_npz_cfg = render_cfg.get("smpl_skeleton_npz", None)
+    smpl_joints_npz_cfg = render_cfg.get("smpl_joints_npz", render_cfg.get("debug_smpl_joints_npz", None))
+    smpl_line_thickness = int(
+        render_cfg.get("smpl_skeleton_line_thickness", render_cfg.get("debug_smpl_line_thickness", 2))
+    )
+    smpl_joint_radius = int(
+        render_cfg.get("smpl_skeleton_joint_radius", render_cfg.get("debug_smpl_joint_radius", 3))
+    )
+    smpl_color_raw = render_cfg.get("smpl_skeleton_color_bgr", render_cfg.get("debug_smpl_color_bgr", [0, 255, 0]))
+    if not (isinstance(smpl_color_raw, (list, tuple)) and len(smpl_color_raw) == 3):
+        smpl_color_raw = [0, 255, 0]
+    smpl_color_bgr = (
+        int(smpl_color_raw[0]),
+        int(smpl_color_raw[1]),
+        int(smpl_color_raw[2]),
+    )
     debug_keypoints_json = render_cfg.get("debug_keypoints_json", None)
     debug_kpt_conf_min = float(render_cfg.get("debug_kpt_conf_min", 0.2))
     debug_kpt_radius = int(render_cfg.get("debug_kpt_radius", 3))
@@ -637,8 +832,21 @@ def main():
         )
     if fg_scale <= 0.0 or bg_scale <= 0.0:
         raise ValueError(f"fg_scale/bg_scale must be > 0. Got fg_scale={fg_scale}, bg_scale={bg_scale}")
+    if bound_alpha_threshold < 0.0 or bound_alpha_threshold >= 1.0:
+        raise ValueError(
+            f"render.bound_alpha_threshold must be in [0,1). Got {bound_alpha_threshold}"
+        )
+    if bound_opacity_min < 0.0 or bound_opacity_min >= 1.0:
+        raise ValueError(
+            f"render.bound_opacity_min must be in [0,1). Got {bound_opacity_min}"
+        )
     if fg_mask_mode not in ("none", "smpl", "mesh"):
         raise ValueError(f"Unsupported fg_mask_mode: {fg_mask_mode}. Use one of: none|smpl|mesh")
+    if fg_mask_dilate_px < 0 or fg_mask_erode_px < 0:
+        raise ValueError(
+            f"render.fg_mask_dilate_px/render.fg_mask_erode_px must be >=0. "
+            f"Got {fg_mask_dilate_px}/{fg_mask_erode_px}"
+        )
 
     if fg_scale != 1.0 or bg_scale != 1.0:
         logger.info(f"Render scales: fg_scale={fg_scale}, bg_scale={bg_scale}")
@@ -673,11 +881,43 @@ def main():
         )
     if debug_need_kpts and debug_kpt_json_path is not None and not debug_kpt_json_path.exists():
         raise FileNotFoundError(f"debug_keypoints_json not found: {debug_kpt_json_path}")
+    smpl_joints_map = None
+    smpl_skeleton_connections = list(SMPL_SKELETON_CONNECTIONS)
+    if overlay_smpl_skeleton:
+        if smpl_skeleton_npz_cfg is None or not str(smpl_skeleton_npz_cfg).strip():
+            if smpl_skeleton_source == "theta":
+                smpl_skeleton_npz_cfg = "outputs/stage1/smpl_skeleton_sequence.npz"
+            elif smpl_joints_npz_cfg is not None and str(smpl_joints_npz_cfg).strip():
+                smpl_skeleton_npz_cfg = smpl_joints_npz_cfg
+            else:
+                smpl_skeleton_npz_cfg = "outputs/stage1/smpl_joints_sequence.npz"
+        smpl_skeleton_path = Path(resolve_path(str(smpl_skeleton_npz_cfg)))
+        if not smpl_skeleton_path.is_absolute():
+            smpl_skeleton_path = project_root / smpl_skeleton_path
+        smpl_joints_map, smpl_skeleton_connections, loaded_joint_key = _load_smpl_skeleton_map(
+            smpl_skeleton_path,
+            prefer_theta=bool(smpl_skeleton_source == "theta"),
+        )
+        logger.info(
+            f"Loaded SMPL skeleton sequence: {smpl_skeleton_path} "
+            f"(source={loaded_joint_key}, edges={len(smpl_skeleton_connections)})"
+        )
 
     # Optional: dynamic binding to SMPL mesh sequence
     bind_mesh_dir = render_cfg.get("bind_mesh_sequence_dir", None)
     bind_seq_npz = render_cfg.get("bind_sequence_npz", None)
+    bind_vertices_npz = render_cfg.get("bind_vertices_npz", ckpt.get("bind_vertices_npz", None))
     bind_mesh_indices = ckpt.get("bind_mesh_indices", None)
+    if bind_mesh_indices is not None:
+        bind_mesh_indices = [int(x) for x in bind_mesh_indices]
+        if len(bind_mesh_indices) == total_frames:
+            bind_mesh_indices = [bind_mesh_indices[i] for i in selected_idx]
+        elif len(bind_mesh_indices) != to_render:
+            logger.warning(
+                "bind_mesh_indices length does not match selected frames; "
+                "will remap by frame names from bind_sequence_npz."
+            )
+            bind_mesh_indices = None
     binding_enabled = bind_mesh_dir is not None and g.bind_idx is not None
     if fg_mask_mode in ("smpl", "mesh") and not binding_enabled:
         raise ValueError("fg_mask_mode=smpl requires bind_mesh_sequence_dir and bound gaussians.")
@@ -696,6 +936,14 @@ def main():
         bind_seq_npz = Path(resolve_path(str(bind_seq_npz)))
         if not bind_seq_npz.is_absolute():
             bind_seq_npz = project_root / bind_seq_npz
+    if bind_vertices_npz is not None:
+        bind_vertices_npz = Path(resolve_path(str(bind_vertices_npz)))
+        if not bind_vertices_npz.is_absolute():
+            bind_vertices_npz = project_root / bind_vertices_npz
+    if bind_vertices_npz is None and binding_enabled:
+        cand_vseq = project_root / Path("outputs/stage1/smpl_vertices_sequence.npz")
+        if cand_vseq.exists():
+            bind_vertices_npz = cand_vseq
 
     mesh_cache: dict[int, torch.Tensor] = {}
     mesh_cache_order: list[int] = []
@@ -741,10 +989,61 @@ def main():
             else:
                 bind_mesh_indices = list(range(len(frames)))
 
+        verts_seq_np = None
+        verts_seq_ids_set: set[int] = set()
+        verts_seq_fallback_idx = 0
+        if bind_vertices_npz is not None and bind_vertices_npz.exists():
+            vseq = np.load(bind_vertices_npz, allow_pickle=True)
+            if "verts_cam" in vseq.files:
+                verts_seq_np = np.asarray(vseq["verts_cam"], dtype=np.float32)
+                if verts_seq_np.ndim != 3 or verts_seq_np.shape[-1] != 3:
+                    raise RuntimeError(
+                        f"Bad verts_cam shape in {bind_vertices_npz}: {verts_seq_np.shape}"
+                    )
+                verts_seq_ids_set = set(range(int(verts_seq_np.shape[0])))
+                verts_seq_fallback_idx = int(max(int(verts_seq_np.shape[0]) - 1, 0))
+                logger.info(f"Using dynamic bind vertices from {bind_vertices_npz}")
+            else:
+                logger.warning(
+                    f"{bind_vertices_npz} missing verts_cam; fallback to OBJ sequence binding."
+                )
+
+        mesh_ids = []
+        for p in bind_mesh_dir.glob("*.obj"):
+            stem = p.stem
+            if stem.isdigit():
+                mesh_ids.append(int(stem))
+        if len(mesh_ids) == 0:
+            raise FileNotFoundError(f"No numeric OBJ meshes found in {bind_mesh_dir}")
+        mesh_ids_set = set(mesh_ids)
+        fallback_mesh_idx = int(max(mesh_ids))
+        if verts_seq_np is not None:
+            missing_seq_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in verts_seq_ids_set]
+            if len(missing_seq_ids) > 0:
+                logger.warning(
+                    "Some bind indices are missing in bind_vertices_npz; "
+                    f"fallback to frame {verts_seq_fallback_idx} for {len(missing_seq_ids)} frames."
+                )
+                bind_mesh_indices = [
+                    int(mi) if int(mi) in verts_seq_ids_set else verts_seq_fallback_idx
+                    for mi in bind_mesh_indices
+                ]
+        else:
+            missing_mesh_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in mesh_ids_set]
+            if len(missing_mesh_ids) > 0:
+                logger.warning(
+                    "Some bind mesh indices are missing from bind_mesh_sequence_dir; "
+                    f"fallback to mesh {fallback_mesh_idx:06d}.obj for {len(missing_mesh_ids)} frames."
+                )
+                bind_mesh_indices = [
+                    int(mi) if int(mi) in mesh_ids_set else fallback_mesh_idx
+                    for mi in bind_mesh_indices
+                ]
+
         if fg_mask_mode in ("smpl", "mesh"):
             if len(bind_mesh_indices) == 0:
                 raise RuntimeError("fg_mask_mode=smpl requires non-empty bind_mesh_indices.")
-            first_mesh_idx = int(bind_mesh_indices[0])
+            first_mesh_idx = int(bind_mesh_indices[0]) if int(bind_mesh_indices[0]) in mesh_ids_set else fallback_mesh_idx
             first_obj = bind_mesh_dir / f"{first_mesh_idx:06d}.obj"
             if not first_obj.exists():
                 raise FileNotFoundError(f"Mesh frame not found for fg mask: {first_obj}")
@@ -789,9 +1088,28 @@ def main():
             bind_vertex_offset_t = g.bind_offset.to(device=device, dtype=torch.float32)
 
         def _load_mesh_verts(mesh_idx: int) -> torch.Tensor:
-            if mesh_idx in mesh_cache:
-                return mesh_cache[mesh_idx]
-            obj_path = bind_mesh_dir / f"{mesh_idx:06d}.obj"
+            if verts_seq_np is not None:
+                mesh_idx_use = int(mesh_idx)
+                if mesh_idx_use not in verts_seq_ids_set:
+                    mesh_idx_use = verts_seq_fallback_idx
+                if mesh_idx_use in mesh_cache:
+                    return mesh_cache[mesh_idx_use]
+                verts_np = verts_seq_np[mesh_idx_use]
+                verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
+                verts_t = verts_t + bind_mesh_offset_t
+                mesh_cache[mesh_idx_use] = verts_t
+                mesh_cache_order.append(mesh_idx_use)
+                if len(mesh_cache_order) > 8:
+                    old = mesh_cache_order.pop(0)
+                    mesh_cache.pop(old, None)
+                return verts_t
+
+            mesh_idx_use = int(mesh_idx)
+            if mesh_idx_use not in mesh_ids_set:
+                mesh_idx_use = fallback_mesh_idx
+            if mesh_idx_use in mesh_cache:
+                return mesh_cache[mesh_idx_use]
+            obj_path = bind_mesh_dir / f"{mesh_idx_use:06d}.obj"
             if not obj_path.exists():
                 raise FileNotFoundError(f"Mesh frame not found: {obj_path}")
             verts_np = load_obj_vertices(obj_path)
@@ -809,8 +1127,8 @@ def main():
                 verts_np = _np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(_np.float32)
             verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
             verts_t = verts_t + bind_mesh_offset_t
-            mesh_cache[mesh_idx] = verts_t
-            mesh_cache_order.append(mesh_idx)
+            mesh_cache[mesh_idx_use] = verts_t
+            mesh_cache_order.append(mesh_idx_use)
             if len(mesh_cache_order) > 8:
                 old = mesh_cache_order.pop(0)
                 mesh_cache.pop(old, None)
@@ -870,6 +1188,16 @@ def main():
                 raise RuntimeError("render_bound_only=true but no bound gaussians (bind_idx >= 0).")
             g_fg = _select_gaussians(g, fg_mask)
             g_bg = None
+            if bound_opacity_min > 0.0:
+                opa = torch.sigmoid(g_fg.opacity_logit).squeeze(-1)
+                keep = opa >= float(bound_opacity_min)
+                if keep.any():
+                    g_fg = _select_gaussians(g_fg, keep)
+                else:
+                    raise RuntimeError(
+                        "render_bound_only with bound_opacity_min removed all gaussians. "
+                        "Lower render.bound_opacity_min."
+                    )
 
         if visualize_bound_gaussians:
             g_fg = _apply_vis_override(
@@ -922,17 +1250,35 @@ def main():
                     body_only=debug_overlay_body_only,
                 )
         elif fg_scale == 1.0 and bg_scale == 1.0:
-            # IMPORTANT: infer output size from gt (do NOT hardcode H/W)
-            pred = render_gaussians_3d(
-                g=g_fg,
-                K=K_use,
-                R=R,
-                t=t,
-                H=None,
-                W=None,
-                bg=bg_gt_hwc if use_gt_bg else bg,
-                ref_image=gt,  # << output size == gt size
-            )
+            if render_bound_only and bound_alpha_threshold > 0.0:
+                fg_rgb, fg_alpha = render_gaussians_3d(
+                    g=g_fg,
+                    K=K_use,
+                    R=R,
+                    t=t,
+                    H=base_h,
+                    W=base_w,
+                    bg=None,
+                    return_alpha=True,
+                )
+                hard_m = (fg_alpha > float(bound_alpha_threshold)).float()
+                if use_gt_bg and bg_gt_chw is not None:
+                    bg_fill = bg_gt_chw
+                else:
+                    bg_fill = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(fg_rgb)
+                pred = fg_rgb * hard_m + bg_fill * (1.0 - hard_m)
+            else:
+                # IMPORTANT: infer output size from gt (do NOT hardcode H/W)
+                pred = render_gaussians_3d(
+                    g=g_fg,
+                    K=K_use,
+                    R=R,
+                    t=t,
+                    H=None,
+                    W=None,
+                    bg=bg_gt_hwc if use_gt_bg else bg,
+                    ref_image=gt,  # << output size == gt size
+                )
         else:
             # Foreground: higher scale, keep alpha for compositing
             fg_h = max(1, int(round(base_h * fg_scale)))
@@ -969,7 +1315,10 @@ def main():
                 )
                 bg_rgb = _resize_chw(bg_rgb, base_h, base_w)
 
-            if mask_mode == "kpt" and kpt_boxes is not None and kpt_boxes[i] is not None:
+            if render_bound_only and bound_alpha_threshold > 0.0:
+                hard_m = (fg_alpha > float(bound_alpha_threshold)).float()
+                pred = fg_rgb * hard_m + bg_rgb * (1.0 - hard_m)
+            elif mask_mode == "kpt" and kpt_boxes is not None and kpt_boxes[i] is not None:
                 x0, y0, x1, y1 = kpt_boxes[i]
                 m = torch.zeros((1, base_h, base_w), device=device)
                 m[:, int(y0):int(y1) + 1, int(x0):int(x1) + 1] = 1.0
@@ -992,6 +1341,7 @@ def main():
                 H=base_h,
                 W=base_w,
                 dilate_px=int(fg_mask_dilate_px),
+                erode_px=int(fg_mask_erode_px),
             )
             fg_mask = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
             if use_gt_bg and bg_gt_chw is not None:
@@ -1010,6 +1360,18 @@ def main():
                 radius=debug_kpt_radius,
                 draw_skeleton=debug_draw_skeleton,
                 body_only=debug_overlay_body_only,
+            )
+        if overlay_smpl_skeleton and smpl_joints_map is not None:
+            pred = _overlay_smpl_skeleton(
+                rgb_chw=pred,
+                joints_cam=smpl_joints_map.get(frames[i], None),
+                K=K_use,
+                R=R,
+                t=t,
+                connections=smpl_skeleton_connections,
+                color_bgr=smpl_color_bgr,
+                thickness=smpl_line_thickness,
+                radius=smpl_joint_radius,
             )
 
         out_path = out_dir / f"{i:06d}.png"
