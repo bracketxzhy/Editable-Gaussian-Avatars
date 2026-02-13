@@ -50,7 +50,7 @@ outputs/logs/
 *.mov
 *.mkv
 *.pkl
-
+*.tar
 
 # ---- Temporary ----
 *.tmp
@@ -60,6 +60,9 @@ outputs/logs/
 LHM-main/
 
 CAR-master/
+gaussian-mesh-splatting/
+PyMAF-X-smplx/
+WHAM-main/
 
 Liao 等 - 2023 - High-Fidelity Clothed Avatar Reconstruction from a Single Image.pdf
 Qiu 等 - 2025 - LHM Large Animatable Human Reconstruction Model from a Single Image in Seconds.pdf

@@ -23,19 +23,19 @@ stage2:
   cudnn_benchmark: true
 
   # ---------- Stage2 training schedule (Stage A: stabilize) ----------
-  n_frames: 8
+  n_frames: 16
   n_gaussians: 120000
   sample_on_surface: true
   # Extra background gaussians (unbound)
-  n_gaussians_bg: 0
+  n_gaussians_bg: 30000
   bg_extent: [4.0, 4.0, 1.0]
   bg_center_z: 2.5
   bg_log_scale: -3.5
-  bg_opacity_logit: -4.0
+  bg_opacity_logit: -3.0
   # Keep background away from the body to reduce ghosting
   bg_exclude_bbox_pad: 0.2
   # Low-precision background (unused when n_gaussians_bg=0)
-  bg_grad_scale: 0.2
+  bg_grad_scale: 1.0
   bg_opacity_logit_max: -3.5
   bg_log_scale_min: -3.5
   bg_log_scale_max: -2.0
@@ -53,48 +53,102 @@ stage2:
   cam_reg_weight: 0.0
   cam_warmup_iters: 0
   l1_weight: 0.3
-  use_alpha_mask: true
+  use_alpha_mask: false
   alpha_threshold: 0.03
   # Keypoint-guided foreground fitting and face detail emphasis.
   keypoints_json: outputs/stage1/keypoints.json
   kpt_conf_min: 0.2
   kpt_box_pad: 0.12
   use_kpt_bbox_mask: false
-  face_weight: 1.4
-  face_conf_min: 0.25
-  face_box_pad: 0.18
+  face_weight: 1.8
+  face_conf_min: 0.35
+  face_box_pad: 0.10
+  face_use_ears: false
   bg_rgb: [1.0, 1.0, 1.0]
-  # Use the last 5 frames: current frame + previous 4-frame temporal reference.
-  frame_select: last_k
-  # Temporal reference for current frame:
-  # each iteration anchors on the last frame, and adds previous frames with exponential decay.
-  temporal_ref_anchor: last
-  temporal_ref_window: 4
+  # Dataset-agnostic coverage: sample frames uniformly across the full sequence.
+  frame_select: uniform_k
+  # Use per-frame optimization without forcing last-frame anchoring.
+  temporal_ref_anchor: sample
+  temporal_ref_window: 0
   temporal_ref_decay: 0.86
 
   # ---------- Dynamic binding to SMPL mesh sequence ----------
   # Require stage1.export_meshes=true to generate outputs/stage1/smpl_mesh_sequence
   bind_to_mesh: true
   bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
-  bind_cache_size: 8
-  # stage1 exports meshes in Blender coordinates; convert back to camera coords for training
+  bind_cache_size: 32
+  # auto: detect mesh OBJ coordinate space from stage1 metadata.
+  bind_mesh_obj_space: auto
+  bind_align_quat_to_mesh_normals: true
+  bind_quat_normal_blend: 1.0
+  bind_surface_aniso_weight: 0.002
+  bind_surface_aniso_margin: 0.15
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset: [0.0, 0.0, 0.0]
+  # Extra rigid alignment (R,t) applied on top of SMPL verts.
+  # Does NOT change SMPL pose/betas/trans parameters.
+  bind_rigid_align:
+    enable: true
+    auto: true
+    pre_stage2: true
+    person_masks_npz: outputs/stage1/person_masks.npz
+    sample_frames: 8
+    eval_downsample: 0.5
+    outside_weight: 2.0
+    levels: 3
+    iters_per_level: 2
+    rot_step_deg: 3.0
+    trans_step: [0.04, 0.04, 0.06]
+    max_rot_deg: 20.0
+    max_trans: [0.35, 0.35, 0.45]
+  binding:
+    mode: games_face
+    hybrid_weight: 0.0
+    eps_normal: 0.001
+    curv_conf_tau: 0.2
+    curv_degen_tau: 0.0001
+    temporal_frame: true
+    scale_clamp_min: 0.0005
+    scale_clamp_max: 0.25
+    max_temporal_angle_deg: 75.0
+    temporal_alpha: 0.35
+    debug_assertions: false
   # Human-only supervision from SMPL silhouette.
   use_smpl_silhouette_mask: true
   smpl_mask_dilate_px: 0
-  smpl_mask_erode_px: 2
+  smpl_mask_erode_px: 3
   # Inner-mask color supervision: avoid boundary color leakage but keep head/torso details.
-  smpl_color_mask_erode_px: 2
-  smpl_alpha_leak_weight: 0.4
-  smpl_mask_override_alpha: true
+  smpl_color_mask_erode_px: 3
+  smpl_alpha_leak_weight: 0.55
+  smpl_mask_override_alpha: false
   smpl_mask_precompute: true
   smpl_mask_precompute_max_frames: 64
+  # Dataset-agnostic person/background separation (not tied to green-screen assumptions).
+  use_person_mask: false
+  person_masks_npz: outputs/stage1/person_masks.npz
+  person_mask_dilate_px: 1
+  person_mask_erode_px: 1
+  person_mask_fuse_mode: intersect
+  separate_fg_bg_training: true
+  fg_region_weight: 1.35
+  bg_region_weight: 1.0
+  # Speed-up with safety: stop when loss plateaus.
+  early_stop_enable: true
+  early_stop_patience: 6000
+  early_stop_min_delta: 0.00001
+  early_stop_warmup_iters: 8000
 
 render:
   stage2_dir: outputs/stage2
-  out_dir: outputs/renders/fg_only
+  out_dir: outputs/renders
+  save_main_image: false
+  save_real_image: true
+  real_out_subdir: real
+  save_fg_nobg_skeleton: true
+  fg_nobg_out_subdir: fg_only
+  render_tpose_image: true
+  tpose_out_subdir: t-pose
   clear_out_dir_pngs: true
   frames_dir: data/frames/input
   frame_select: last
@@ -106,12 +160,14 @@ render:
   fg_scale: 1.0
   bg_scale: 1.0
   split_by_bind: false
-  render_bound_only: true
+  render_bound_only: false
+  fg_only_render_bound_only: true
+  tpose_render_bound_only: true
   bound_alpha_threshold: 0.28
   bound_opacity_min: 0.05
   fg_mask_mode: smpl
   fg_mask_dilate_px: 0
-  fg_mask_erode_px: 2
+  fg_mask_erode_px: 3
   overlay_smpl_skeleton: true
   smpl_skeleton_source: theta
   smpl_skeleton_npz: outputs/stage1/smpl_skeleton_sequence.npz
@@ -122,7 +178,10 @@ render:
   use_gt_background: false
   bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
-  # stage1 exports meshes in Blender coordinates; convert back to camera coords for rendering
+  bind_mesh_obj_space: auto
+  tpose_mesh_obj_space: auto
+  bind_align_quat_to_mesh_normals: true
+  bind_quat_normal_blend: 1.0
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset: [0.0, 0.0, 0.0]

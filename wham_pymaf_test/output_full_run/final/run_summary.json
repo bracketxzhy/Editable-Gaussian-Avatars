@@ -1,0 +1,22 @@
+{
+  "frames_dir": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\data\\frames\\input",
+  "assets_dir": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\assets",
+  "wham_output_dir": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\wham",
+  "pymaf_output_dir": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\pymaf\\selected_frames",
+  "final_output_dir": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\final",
+  "last_frame_name": "000756.jpg",
+  "last_frame_obj": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\final\\last_frame_smplx.obj",
+  "last_frame_overlay_image": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\final\\last_frame_gt_model_contours.png",
+  "last_frame_gt_mask": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\final\\last_frame_gt_mask.png",
+  "last_frame_model_mask": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\final\\last_frame_model_mask.png",
+  "model_type": "smplx",
+  "wham_checkpoints": {
+    "wham": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\runtime\\wham_runtime_assets\\checkpoints\\wham_vit_bedlam_w_3dpw.pth.tar",
+    "vitpose": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\runtime\\wham_runtime_assets\\checkpoints\\vitpose-h-multi-coco.pth",
+    "yolo": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\runtime\\wham_runtime_assets\\checkpoints\\yolov8x.pt",
+    "hmr2a": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\wham_pymaf_test\\output_full_run\\runtime\\wham_runtime_assets\\checkpoints\\hmr2a.ckpt"
+  },
+  "pymaf_checkpoint": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\assets\\checkpoints\\PyMAF-X_model_checkpoint_v1.1.pt",
+  "pymaf_data_root": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\assets\\pymafx_data\\data",
+  "pymaf_smpl_dir": "D:\\project\\Projects_by_zhy\\Editable Gaussian Avatars\\assets\\pymafx_data\\data\\smpl"
+}

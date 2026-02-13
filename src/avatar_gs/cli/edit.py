@@ -99,6 +99,9 @@ def _apply_simple_edit(g: Gaussian3D, cfg: Dict[str, Any]) -> Gaussian3D:
         rgb_logit=rgb_logit,
         bind_idx=g.bind_idx,
         bind_offset=g.bind_offset,
+        bind_face_idx=g.bind_face_idx,
+        bind_bary=g.bind_bary,
+        bind_hybrid_w=g.bind_hybrid_w,
     )
 
 

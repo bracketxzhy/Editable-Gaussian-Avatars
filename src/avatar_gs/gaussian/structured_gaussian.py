@@ -19,6 +19,12 @@ class Gaussian3D:
     bind_idx: torch.Tensor | None = None
     # (N,3) optional static offset from bound vertex (for dense surface sampling)
     bind_offset: torch.Tensor | None = None
+    # (N,) optional bound face index for face-pinned binding
+    bind_face_idx: torch.Tensor | None = None
+    # (N,3) optional barycentric coordinates on bound face
+    bind_bary: torch.Tensor | None = None
+    # (N,1) optional per-gaussian hybrid blend weight in [0,1]
+    bind_hybrid_w: torch.Tensor | None = None
 
     def to(self, device: str):
         return Gaussian3D(
@@ -29,6 +35,9 @@ class Gaussian3D:
             rgb_logit=self.rgb_logit.to(device),
             bind_idx=self.bind_idx.to(device) if self.bind_idx is not None else None,
             bind_offset=self.bind_offset.to(device) if self.bind_offset is not None else None,
+            bind_face_idx=self.bind_face_idx.to(device) if self.bind_face_idx is not None else None,
+            bind_bary=self.bind_bary.to(device) if self.bind_bary is not None else None,
+            bind_hybrid_w=self.bind_hybrid_w.to(device) if self.bind_hybrid_w is not None else None,
         )
 
     def state_dict(self):
@@ -43,6 +52,12 @@ class Gaussian3D:
             sd["bind_idx"] = self.bind_idx
         if self.bind_offset is not None:
             sd["bind_offset"] = self.bind_offset
+        if self.bind_face_idx is not None:
+            sd["bind_face_idx"] = self.bind_face_idx
+        if self.bind_bary is not None:
+            sd["bind_bary"] = self.bind_bary
+        if self.bind_hybrid_w is not None:
+            sd["bind_hybrid_w"] = self.bind_hybrid_w
         return sd
 
     @staticmethod
@@ -55,6 +70,9 @@ class Gaussian3D:
             rgb_logit=sd["rgb_logit"],
             bind_idx=sd.get("bind_idx", None),
             bind_offset=sd.get("bind_offset", None),
+            bind_face_idx=sd.get("bind_face_idx", None),
+            bind_bary=sd.get("bind_bary", None),
+            bind_hybrid_w=sd.get("bind_hybrid_w", None),
         )
 
     def rgb(self):

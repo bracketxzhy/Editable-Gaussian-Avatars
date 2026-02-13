@@ -53,7 +53,7 @@ def _sample_points_on_surface(
     faces: np.ndarray,
     n_samples: int,
     rng: np.random.Generator,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     tri = verts[faces]  # (F,3,3)
     e1 = tri[:, 1, :] - tri[:, 0, :]
     e2 = tri[:, 2, :] - tri[:, 0, :]
@@ -64,9 +64,12 @@ def _sample_points_on_surface(
         idx = rng.choice(verts.shape[0], size=n_samples, replace=True).astype(np.int64)
         pts = verts[idx].astype(np.float32)
         off = np.zeros_like(pts, dtype=np.float32)
-        return pts, idx, off
+        face_idx = -np.ones((n_samples,), dtype=np.int64)
+        bary = np.zeros((n_samples, 3), dtype=np.float32)
+        return pts, idx, off, face_idx, bary
 
     faces_v = faces[valid]
+    face_ids_v = np.nonzero(valid)[0].astype(np.int64)
     area_v = area[valid]
     probs = area_v / area_v.sum()
     pick = rng.choice(faces_v.shape[0], size=n_samples, replace=True, p=probs)
@@ -90,7 +93,9 @@ def _sample_points_on_surface(
     anchor_local = np.argmax(w, axis=1)  # choose strongest vertex as anchor
     anchor_idx = tri_idx[np.arange(n_samples), anchor_local].astype(np.int64)
     off = (pts - verts[anchor_idx]).astype(np.float32)
-    return pts, anchor_idx, off
+    face_idx = face_ids_v[pick].astype(np.int64)
+    bary = np.stack([w0, w1, w2], axis=1).astype(np.float32)
+    return pts, anchor_idx, off, face_idx, bary
 
 
 def init_gaussians_from_mesh_3d(
@@ -111,7 +116,7 @@ def init_gaussians_from_mesh_3d(
         raise ValueError(f"n_keep must be > 0. Got {n_keep}")
 
     if bool(sample_on_surface) and F_all is not None and len(F_all) > 0:
-        V_fg, idx_fg, off_fg = _sample_points_on_surface(
+        V_fg, idx_fg, off_fg, face_fg, bary_fg = _sample_points_on_surface(
             verts=V_all,
             faces=F_all,
             n_samples=int(n_keep),
@@ -122,10 +127,14 @@ def init_gaussians_from_mesh_3d(
         idx_fg = rng.choice(V_all.shape[0], size=int(n_keep), replace=replace).astype(np.int64)
         V_fg = V_all[idx_fg].astype(np.float32)
         off_fg = np.zeros_like(V_fg, dtype=np.float32)
+        face_fg = -np.ones((int(n_keep),), dtype=np.int64)
+        bary_fg = np.zeros((int(n_keep), 3), dtype=np.float32)
 
     V = V_fg
     idx = idx_fg
     bind_offset = off_fg
+    bind_face_idx = face_fg
+    bind_bary = bary_fg
 
     # Background gaussians (unbound)
     if int(n_bg) > 0:
@@ -174,11 +183,17 @@ def init_gaussians_from_mesh_3d(
         idx = np.concatenate([idx, idx_bg], axis=0)
         off_bg = np.zeros((int(n_bg), 3), dtype=np.float32)
         bind_offset = np.concatenate([bind_offset, off_bg], axis=0)
+        face_bg = -np.ones((int(n_bg),), dtype=np.int64)
+        bary_bg = np.zeros((int(n_bg), 3), dtype=np.float32)
+        bind_face_idx = np.concatenate([bind_face_idx, face_bg], axis=0)
+        bind_bary = np.concatenate([bind_bary, bary_bg], axis=0)
 
     N = V.shape[0]
     xyz = torch.from_numpy(V)  # (N,3)
     bind_idx = torch.from_numpy(np.asarray(idx, dtype=np.int64))
     bind_offset_t = torch.from_numpy(np.asarray(bind_offset, dtype=np.float32))
+    bind_face_idx_t = torch.from_numpy(np.asarray(bind_face_idx, dtype=np.int64))
+    bind_bary_t = torch.from_numpy(np.asarray(bind_bary, dtype=np.float32))
 
     log_scales = torch.full((N, 3), float(np.log(0.01)), dtype=torch.float32)
     if int(n_bg) > 0:
@@ -200,4 +215,6 @@ def init_gaussians_from_mesh_3d(
         rgb_logit=rgb_logit,
         bind_idx=bind_idx,
         bind_offset=bind_offset_t,
+        bind_face_idx=bind_face_idx_t,
+        bind_bary=bind_bary_t,
     )

@@ -14,6 +14,17 @@ from avatar_gs.utils.seed import seed_everything
 
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
 from avatar_gs.gaussian.init_from_smpl import load_obj_vertices, load_obj_mesh
+from avatar_gs.gaussian.binding import (
+    BindingFrameData,
+    build_binding_frame_data,
+    build_vertex_adjacency,
+    parse_binding_mode_config,
+    update_gaussians_with_binding,
+)
+from avatar_gs.gaussian.rigid_align import (
+    apply_rigid_transform_np,
+    normalize_rigid_align_config,
+)
 from avatar_gs.renderer.gaussian_renderer import render_gaussians_3d
 
 
@@ -72,6 +83,64 @@ def save_rgb(path: str | Path, rgb_chw: torch.Tensor) -> None:
     ok = cv2.imwrite(str(path), bgr)
     if not ok:
         raise RuntimeError(f"Failed to write image: {path}")
+
+
+def _clear_image_files(dir_path: Path) -> int:
+    removed = 0
+    if not dir_path.exists():
+        return removed
+    for ext in ("*.png", "*.jpg", "*.jpeg"):
+        for old in dir_path.glob(ext):
+            old.unlink()
+            removed += 1
+    return removed
+
+
+def _compute_vertex_normals_np(verts: np.ndarray, faces: np.ndarray | None) -> np.ndarray:
+    if faces is None or len(faces) == 0:
+        return np.zeros_like(verts, dtype=np.float32)
+    v = np.asarray(verts, dtype=np.float32)
+    f = np.asarray(faces, dtype=np.int64)
+    n = np.zeros_like(v, dtype=np.float32)
+    tri = v[f]  # (F,3,3)
+    e1 = tri[:, 1, :] - tri[:, 0, :]
+    e2 = tri[:, 2, :] - tri[:, 0, :]
+    fn = np.cross(e1, e2).astype(np.float32)  # area-weighted normal
+    for k in range(3):
+        np.add.at(n, f[:, k], fn)
+    norm = np.linalg.norm(n, axis=1, keepdims=True)
+    norm = np.clip(norm, 1e-8, None)
+    n = n / norm
+    return n.astype(np.float32)
+
+
+def _quat_from_normals_torch(normals: torch.Tensor) -> torch.Tensor:
+    """
+    Build quaternion that rotates local +Z axis to target normal.
+    Input: normals (N,3), output: quat (N,4) in (w,x,y,z).
+    """
+    if normals.ndim != 2 or normals.shape[1] != 3:
+        raise ValueError(f"normals must be (N,3), got {normals.shape}")
+    n = F.normalize(normals, dim=1, eps=1e-8)
+    z = torch.zeros_like(n)
+    z[:, 2] = 1.0
+    dot = (z * n).sum(dim=1, keepdim=True).clamp(-1.0, 1.0)
+    cross = torch.cross(z, n, dim=1)
+    s = torch.sqrt((1.0 + dot).clamp(min=1e-8) * 2.0)
+    q = torch.zeros((n.shape[0], 4), dtype=n.dtype, device=n.device)
+    q[:, 0] = 0.5 * s[:, 0]
+    q[:, 1:] = cross / s.clamp(min=1e-8)
+
+    # Handle opposite direction (+Z -> -Z).
+    opp = (dot[:, 0] < -0.9999)
+    if bool(opp.any()):
+        q[opp, 0] = 0.0
+        q[opp, 1] = 1.0
+        q[opp, 2] = 0.0
+        q[opp, 3] = 0.0
+
+    q = F.normalize(q, dim=1, eps=1e-8)
+    return q
 
 
 def _render_points_debug(
@@ -516,6 +585,9 @@ def _select_gaussians(g: Gaussian3D, mask: torch.Tensor) -> Gaussian3D:
         rgb_logit=g.rgb_logit[mask],
         bind_idx=g.bind_idx[mask] if g.bind_idx is not None else None,
         bind_offset=g.bind_offset[mask] if g.bind_offset is not None else None,
+        bind_face_idx=g.bind_face_idx[mask] if g.bind_face_idx is not None else None,
+        bind_bary=g.bind_bary[mask] if g.bind_bary is not None else None,
+        bind_hybrid_w=g.bind_hybrid_w[mask] if g.bind_hybrid_w is not None else None,
     )
 
 
@@ -528,6 +600,9 @@ def _clone_gaussians(g: Gaussian3D) -> Gaussian3D:
         rgb_logit=g.rgb_logit.clone(),
         bind_idx=g.bind_idx.clone() if g.bind_idx is not None else None,
         bind_offset=g.bind_offset.clone() if g.bind_offset is not None else None,
+        bind_face_idx=g.bind_face_idx.clone() if g.bind_face_idx is not None else None,
+        bind_bary=g.bind_bary.clone() if g.bind_bary is not None else None,
+        bind_hybrid_w=g.bind_hybrid_w.clone() if g.bind_hybrid_w is not None else None,
     )
 
 
@@ -618,6 +693,20 @@ def _resolve_stage2_ckpt(stage2_dir: Path) -> Path:
     raise FileNotFoundError(f"No checkpoint (*.pt) found under: {stage2_dir}")
 
 
+def _resolve_pick_index(mode: str, n: int, index: int = -1) -> int:
+    if n <= 0:
+        return 0
+    m = str(mode or "last").strip().lower()
+    if m == "first":
+        return 0
+    if m == "index":
+        i = int(index)
+        if i < 0:
+            i = n + i
+        return int(np.clip(i, 0, n - 1))
+    return n - 1
+
+
 def main():
     parser = parse_args_base("Render images from Stage2 gaussian checkpoint")
     args = parser.parse_args()
@@ -634,19 +723,29 @@ def main():
     render_cfg = cfg["render"]
     stage2_dir = project_root / Path(render_cfg.get("stage2_dir", "outputs/stage2"))
     out_dir = ensure_dir(project_root / Path(render_cfg.get("out_dir", "outputs/renders")))
+    save_main_image = bool(render_cfg.get("save_main_image", False))
+    save_real_image = bool(render_cfg.get("save_real_image", True))
+    save_fg_nobg_skeleton = bool(render_cfg.get("save_fg_nobg_skeleton", True))
+    render_tpose_image = bool(render_cfg.get("render_tpose_image", True))
+    real_out_dir = ensure_dir(out_dir / Path(render_cfg.get("real_out_subdir", "real")))
+    fg_nobg_out_dir = ensure_dir(out_dir / Path(render_cfg.get("fg_nobg_out_subdir", "fg_only")))
+    tpose_out_subdir = str(render_cfg.get("tpose_out_subdir", "t-pose"))
+    tpose_out_cfg = render_cfg.get("tpose_out_dir", None)
+    if tpose_out_cfg is None or not str(tpose_out_cfg).strip():
+        tpose_out_dir = ensure_dir(out_dir / Path(tpose_out_subdir))
+    else:
+        tpose_out_dir = Path(resolve_path(str(tpose_out_cfg)))
+        if not tpose_out_dir.is_absolute():
+            tpose_out_dir = project_root / tpose_out_dir
+        tpose_out_dir = ensure_dir(tpose_out_dir)
     if bool(render_cfg.get("clear_out_dir_pngs", False)):
         removed = 0
-        for old in out_dir.glob("*.png"):
-            old.unlink()
-            removed += 1
-        for old in out_dir.glob("*.jpg"):
-            old.unlink()
-            removed += 1
-        for old in out_dir.glob("*.jpeg"):
-            old.unlink()
-            removed += 1
+        removed += _clear_image_files(out_dir)
+        removed += _clear_image_files(real_out_dir)
+        removed += _clear_image_files(fg_nobg_out_dir)
+        removed += _clear_image_files(tpose_out_dir)
         if removed > 0:
-            logger.info(f"Cleared {removed} existing render image(s) in {out_dir}")
+            logger.info(f"Cleared {removed} existing render image(s) in output folders")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -686,6 +785,9 @@ def main():
       rgb_logit=gsd["rgb_logit"].to(device),
       bind_idx=gsd["bind_idx"].to(device) if ("bind_idx" in gsd and gsd["bind_idx"] is not None) else None,
       bind_offset=gsd["bind_offset"].to(device) if ("bind_offset" in gsd and gsd["bind_offset"] is not None) else None,
+      bind_face_idx=gsd["bind_face_idx"].to(device) if ("bind_face_idx" in gsd and gsd["bind_face_idx"] is not None) else None,
+      bind_bary=gsd["bind_bary"].to(device) if ("bind_bary" in gsd and gsd["bind_bary"] is not None) else None,
+      bind_hybrid_w=gsd["bind_hybrid_w"].to(device) if ("bind_hybrid_w" in gsd and gsd["bind_hybrid_w"] is not None) else None,
     )
 
     # Intrinsics
@@ -722,6 +824,8 @@ def main():
         selected_idx = [total_frames - 1]
     elif frame_select == "indices":
         indices_cfg = render_cfg.get("frame_indices", [])
+        if isinstance(indices_cfg, (int, np.integer, float, np.floating, str)):
+            indices_cfg = [indices_cfg]
         if not isinstance(indices_cfg, (list, tuple)) or len(indices_cfg) == 0:
             raise ValueError("render.frame_select=indices but render.frame_indices is empty.")
         selected_idx = []
@@ -762,12 +866,18 @@ def main():
         logger.info(f"Selected frame names: {frames}")
     else:
         logger.info(f"Selected frame range: first={frames[0]}, last={frames[-1]}")
+    logger.info(
+        f"Render outputs: main={save_main_image}, real={save_real_image}, "
+        f"fg_only={save_fg_nobg_skeleton}, tpose={render_tpose_image}"
+    )
 
     fg_scale = float(render_cfg.get("fg_scale", 1.0))
     bg_scale = float(render_cfg.get("bg_scale", 1.0))
     k_scale = float(render_cfg.get("k_scale", 1.0))
     split_by_bind = bool(render_cfg.get("split_by_bind", False))
     render_bound_only = bool(render_cfg.get("render_bound_only", False))
+    fg_only_render_bound_only = bool(render_cfg.get("fg_only_render_bound_only", True))
+    tpose_render_bound_only = bool(render_cfg.get("tpose_render_bound_only", True))
     bound_alpha_threshold = float(render_cfg.get("bound_alpha_threshold", 0.0))
     bound_opacity_min = float(render_cfg.get("bound_opacity_min", 0.0))
     fg_mask_mode = str(render_cfg.get("fg_mask_mode", "none")).lower()
@@ -847,6 +957,10 @@ def main():
             f"render.fg_mask_dilate_px/render.fg_mask_erode_px must be >=0. "
             f"Got {fg_mask_dilate_px}/{fg_mask_erode_px}"
         )
+    logger.info(
+        f"Bind-only flags: real={render_bound_only}, fg_only={fg_only_render_bound_only}, "
+        f"tpose={tpose_render_bound_only}"
+    )
 
     if fg_scale != 1.0 or bg_scale != 1.0:
         logger.info(f"Render scales: fg_scale={fg_scale}, bg_scale={bg_scale}")
@@ -904,10 +1018,17 @@ def main():
         )
 
     # Optional: dynamic binding to SMPL mesh sequence
+    bind_to_mesh = bool(render_cfg.get("bind_to_mesh", True))
     bind_mesh_dir = render_cfg.get("bind_mesh_sequence_dir", None)
-    bind_seq_npz = render_cfg.get("bind_sequence_npz", None)
+    bind_seq_npz = render_cfg.get("bind_sequence_npz", ckpt.get("bind_sequence_npz", None))
     bind_vertices_npz = render_cfg.get("bind_vertices_npz", ckpt.get("bind_vertices_npz", None))
+    strict_binding_topology = bool(render_cfg.get("strict_binding_topology", True))
     bind_mesh_indices = ckpt.get("bind_mesh_indices", None)
+    if not bind_to_mesh:
+        bind_mesh_dir = None
+        bind_seq_npz = None
+        bind_vertices_npz = None
+        bind_mesh_indices = None
     if bind_mesh_indices is not None:
         bind_mesh_indices = [int(x) for x in bind_mesh_indices]
         if len(bind_mesh_indices) == total_frames:
@@ -918,11 +1039,30 @@ def main():
                 "will remap by frame names from bind_sequence_npz."
             )
             bind_mesh_indices = None
-    binding_enabled = bind_mesh_dir is not None and g.bind_idx is not None
+    binding_enabled = bind_to_mesh and bind_mesh_dir is not None and g.bind_idx is not None
     if fg_mask_mode in ("smpl", "mesh") and not binding_enabled:
         raise ValueError("fg_mask_mode=smpl requires bind_mesh_sequence_dir and bound gaussians.")
     bind_mesh_to_camera = bool(render_cfg.get("bind_mesh_to_camera", False))
     bind_inverse_export_upright = bool(render_cfg.get("bind_inverse_export_upright", True))
+    bind_mesh_obj_space_mode = str(render_cfg.get("bind_mesh_obj_space", "auto")).strip().lower()
+    if bind_mesh_obj_space_mode not in ("auto", "camera", "blender"):
+        raise ValueError(
+            f"render.bind_mesh_obj_space must be auto|camera|blender. Got: {bind_mesh_obj_space_mode}"
+        )
+    tpose_mesh_obj_space_mode = str(
+        render_cfg.get("tpose_mesh_obj_space", bind_mesh_obj_space_mode)
+    ).strip().lower()
+    if tpose_mesh_obj_space_mode not in ("auto", "camera", "blender"):
+        raise ValueError(
+            f"render.tpose_mesh_obj_space must be auto|camera|blender. Got: {tpose_mesh_obj_space_mode}"
+        )
+    mesh_obj_in_camera_space = bool(bind_mesh_obj_space_mode == "camera")
+    tpose_mesh_obj_in_camera_space = bool(tpose_mesh_obj_space_mode == "camera")
+    bind_align_quat_to_mesh_normals = bool(render_cfg.get("bind_align_quat_to_mesh_normals", True))
+    bind_quat_normal_blend = float(np.clip(render_cfg.get("bind_quat_normal_blend", 1.0), 0.0, 1.0))
+    binding_cfg_dict = render_cfg.get("binding", ckpt.get("binding", None))
+    default_bind_mode = "games_face" if (g.bind_face_idx is not None and g.bind_bary is not None) else "legacy"
+    binding_cfg = parse_binding_mode_config(binding_cfg_dict, default_mode=default_bind_mode)
     legacy_cam_t_autofix = bool(render_cfg.get("legacy_cam_t_autofix", True))
     bind_mesh_offset_cfg = render_cfg.get("bind_mesh_offset", [0.0, 0.0, 0.0])
     if not (isinstance(bind_mesh_offset_cfg, (list, tuple)) and len(bind_mesh_offset_cfg) == 3):
@@ -932,6 +1072,32 @@ def main():
         dtype=torch.float32,
         device=device,
     ).view(1, 3)
+    bind_mesh_offset_np = bind_mesh_offset_t.detach().cpu().numpy().reshape(1, 3).astype(np.float32)
+    bind_rigid_align_cfg_raw = render_cfg.get("bind_rigid_align", ckpt.get("bind_rigid_align", None))
+    bind_rigid_align_cfg = normalize_rigid_align_config(bind_rigid_align_cfg_raw, default_enabled=False)
+    bind_rigid_align_apply_cfg = (
+        {
+            "enabled": True,
+            "rx_deg": float(bind_rigid_align_cfg.get("rx_deg", 0.0)),
+            "ry_deg": float(bind_rigid_align_cfg.get("ry_deg", 0.0)),
+            "rz_deg": float(bind_rigid_align_cfg.get("rz_deg", 0.0)),
+            "tx": float(bind_rigid_align_cfg.get("tx", 0.0)),
+            "ty": float(bind_rigid_align_cfg.get("ty", 0.0)),
+            "tz": float(bind_rigid_align_cfg.get("tz", 0.0)),
+        }
+        if bind_rigid_align_cfg is not None and bool(bind_rigid_align_cfg.get("enabled", False))
+        else None
+    )
+    if bind_rigid_align_apply_cfg is not None:
+        logger.info(
+            "Bind rigid align enabled: "
+            f"rot=({bind_rigid_align_apply_cfg['rx_deg']:.3f},"
+            f"{bind_rigid_align_apply_cfg['ry_deg']:.3f},"
+            f"{bind_rigid_align_apply_cfg['rz_deg']:.3f})deg, "
+            f"trans=({bind_rigid_align_apply_cfg['tx']:.4f},"
+            f"{bind_rigid_align_apply_cfg['ty']:.4f},"
+            f"{bind_rigid_align_apply_cfg['tz']:.4f})"
+        )
     if bind_seq_npz is not None:
         bind_seq_npz = Path(resolve_path(str(bind_seq_npz)))
         if not bind_seq_npz.is_absolute():
@@ -944,17 +1110,29 @@ def main():
         cand_vseq = project_root / Path("outputs/stage1/smpl_vertices_sequence.npz")
         if cand_vseq.exists():
             bind_vertices_npz = cand_vseq
+    if bind_rigid_align_apply_cfg is not None and (not binding_enabled):
+        logger.warning("bind_rigid_align is enabled but binding is disabled; ignoring rigid align.")
+        bind_rigid_align_apply_cfg = None
 
     mesh_cache: dict[int, torch.Tensor] = {}
+    mesh_normal_cache: dict[int, torch.Tensor] = {}
+    mesh_np_cache: dict[int, np.ndarray] = {}
+    mesh_binding_cache: dict[int, BindingFrameData] = {}
     mesh_cache_order: list[int] = []
     bind_idx_t = None
     bind_vertex_offset_t = None
+    bind_face_idx_t = None
+    bind_bary_t = None
     bind_faces_np = None
+    bind_adjacency: list[np.ndarray] | None = None
+    prev_vertex_dirs: torch.Tensor | None = None
     exp_upright_rot = np.eye(3, dtype=np.float32)
     exp_center_xy = np.zeros((2,), dtype=np.float32)
     exp_floor_z = 0.0
     exp_has_center_xy = False
     exp_has_floor = False
+    tpose_verts_cam_np: np.ndarray | None = None
+    tpose_joints_cam_np: np.ndarray | None = None
     if binding_enabled:
         bind_mesh_dir = Path(resolve_path(str(bind_mesh_dir)))
         if not bind_mesh_dir.is_absolute():
@@ -1040,7 +1218,11 @@ def main():
                     for mi in bind_mesh_indices
                 ]
 
-        if fg_mask_mode in ("smpl", "mesh"):
+        if (
+            fg_mask_mode in ("smpl", "mesh")
+            or bool(bind_align_quat_to_mesh_normals)
+            or str(binding_cfg.mode).lower() in ("games_face", "hybrid")
+        ):
             if len(bind_mesh_indices) == 0:
                 raise RuntimeError("fg_mask_mode=smpl requires non-empty bind_mesh_indices.")
             first_mesh_idx = int(bind_mesh_indices[0]) if int(bind_mesh_indices[0]) in mesh_ids_set else fallback_mesh_idx
@@ -1049,23 +1231,72 @@ def main():
                 raise FileNotFoundError(f"Mesh frame not found for fg mask: {first_obj}")
             _, bind_faces_np = load_obj_mesh(first_obj)
             if bind_faces_np is None or len(bind_faces_np) == 0:
-                raise RuntimeError("fg_mask_mode=smpl requires mesh faces, but loaded mesh has no faces.")
+                if fg_mask_mode in ("smpl", "mesh"):
+                    raise RuntimeError("fg_mask_mode=smpl requires mesh faces, but loaded mesh has no faces.")
+                if str(binding_cfg.mode).lower() == "games_face":
+                    raise RuntimeError("binding.mode=games_face requires mesh faces, but loaded mesh has no faces.")
+                bind_faces_np = None
 
-        if bind_mesh_to_camera and bind_inverse_export_upright and bind_seq_npz is not None and bind_seq_npz.exists():
+        if bind_seq_npz is not None and bind_seq_npz.exists():
             seq_meta = np.load(bind_seq_npz, allow_pickle=True)
-            if "export_upright_rot" in seq_meta.files:
-                exp_upright_rot = np.asarray(seq_meta["export_upright_rot"], dtype=np.float32).reshape(3, 3)
-            if "export_center_xy" in seq_meta.files:
-                exp_has_center_xy = bool(int(np.asarray(seq_meta["export_center_xy"]).reshape(-1)[0]))
-            if "export_center_xy_value" in seq_meta.files:
-                exp_center_xy = np.asarray(seq_meta["export_center_xy_value"], dtype=np.float32).reshape(2,)
-            if "export_on_floor" in seq_meta.files:
-                exp_has_floor = bool(int(np.asarray(seq_meta["export_on_floor"]).reshape(-1)[0]))
-            if "export_floor_z" in seq_meta.files:
-                exp_floor_z = float(np.asarray(seq_meta["export_floor_z"], dtype=np.float32).reshape(-1)[0])
+            fit_strategy_hint = None
+            if "fit_strategy" in seq_meta.files:
+                fs_arr = np.asarray(seq_meta["fit_strategy"]).reshape(-1)
+                if fs_arr.size > 0:
+                    fit_strategy_hint = str(fs_arr[0]).strip().lower()
+            if bind_mesh_obj_space_mode == "auto" and fit_strategy_hint in ("stage1_motion_prior", "vibe"):
+                mesh_obj_in_camera_space = True
+            elif bind_mesh_obj_space_mode == "blender":
+                mesh_obj_in_camera_space = False
+            if tpose_mesh_obj_space_mode == "auto" and fit_strategy_hint in ("stage1_motion_prior", "vibe"):
+                tpose_mesh_obj_in_camera_space = True
+            elif tpose_mesh_obj_space_mode == "blender":
+                tpose_mesh_obj_in_camera_space = False
+            if "verts_tpose_cam" in seq_meta.files:
+                tpose_verts_cam_np = np.asarray(seq_meta["verts_tpose_cam"], dtype=np.float32)
+                if tpose_verts_cam_np.ndim != 2 or tpose_verts_cam_np.shape[1] != 3:
+                    logger.warning(
+                        f"Ignore malformed verts_tpose_cam in {bind_seq_npz}: {tpose_verts_cam_np.shape}"
+                    )
+                    tpose_verts_cam_np = None
+                else:
+                    logger.info(
+                        f"Loaded camera-space T-pose verts from {bind_seq_npz} "
+                        f"(V={int(tpose_verts_cam_np.shape[0])})"
+                    )
+            if "joints_tpose_cam" in seq_meta.files:
+                tpose_joints_cam_np = np.asarray(seq_meta["joints_tpose_cam"], dtype=np.float32)
+                if tpose_joints_cam_np.ndim == 3 and tpose_joints_cam_np.shape[0] == 1:
+                    tpose_joints_cam_np = tpose_joints_cam_np[0]
+                if tpose_joints_cam_np.ndim != 2 or tpose_joints_cam_np.shape[1] != 3:
+                    logger.warning(
+                        f"Ignore malformed joints_tpose_cam in {bind_seq_npz}: {tpose_joints_cam_np.shape}"
+                    )
+                    tpose_joints_cam_np = None
+                else:
+                    logger.info(
+                        f"Loaded camera-space T-pose joints from {bind_seq_npz} "
+                        f"(J={int(tpose_joints_cam_np.shape[0])})"
+                    )
+
+            if bind_mesh_to_camera and bind_inverse_export_upright:
+                if "export_upright_rot" in seq_meta.files:
+                    exp_upright_rot = np.asarray(seq_meta["export_upright_rot"], dtype=np.float32).reshape(3, 3)
+                if "export_center_xy" in seq_meta.files:
+                    exp_has_center_xy = bool(int(np.asarray(seq_meta["export_center_xy"]).reshape(-1)[0]))
+                if "export_center_xy_value" in seq_meta.files:
+                    exp_center_xy = np.asarray(seq_meta["export_center_xy_value"], dtype=np.float32).reshape(2,)
+                if "export_on_floor" in seq_meta.files:
+                    exp_has_floor = bool(int(np.asarray(seq_meta["export_on_floor"]).reshape(-1)[0]))
+                if "export_floor_z" in seq_meta.files:
+                    exp_floor_z = float(np.asarray(seq_meta["export_floor_z"], dtype=np.float32).reshape(-1)[0])
 
         bind_idx_t = g.bind_idx.to(device=device, dtype=torch.long)
         bind_mask = bind_idx_t >= 0
+        if g.bind_face_idx is not None:
+            bind_face_idx_t = g.bind_face_idx.to(device=device, dtype=torch.long)
+        if g.bind_bary is not None:
+            bind_bary_t = g.bind_bary.to(device=device, dtype=torch.float32)
         if (
             legacy_cam_t_autofix
             and bind_mesh_to_camera
@@ -1087,33 +1318,66 @@ def main():
         if g.bind_offset is not None:
             bind_vertex_offset_t = g.bind_offset.to(device=device, dtype=torch.float32)
 
-        def _load_mesh_verts(mesh_idx: int) -> torch.Tensor:
+        def _faces_compatible_with_verts(verts_np: np.ndarray, context: str) -> bool:
+            if bind_faces_np is None:
+                return True
+            vmax = int(np.max(bind_faces_np))
+            n_v = int(np.asarray(verts_np).shape[0])
+            if vmax < n_v:
+                return True
+            msg = (
+                f"Binding topology mismatch at {context}: mesh faces reference vertex {vmax}, "
+                f"but current verts only have {n_v} vertices."
+            )
+            if strict_binding_topology:
+                raise RuntimeError(
+                    msg + " Regenerate binding assets (faces/verts/tpose) from the same mesh topology."
+                )
+            logger.warning(msg + " Non-strict mode will skip face-dependent operations.")
+            return False
+
+        def _load_mesh_verts(mesh_idx: int) -> tuple[torch.Tensor, torch.Tensor | None, int]:
             if verts_seq_np is not None:
                 mesh_idx_use = int(mesh_idx)
                 if mesh_idx_use not in verts_seq_ids_set:
                     mesh_idx_use = verts_seq_fallback_idx
                 if mesh_idx_use in mesh_cache:
-                    return mesh_cache[mesh_idx_use]
-                verts_np = verts_seq_np[mesh_idx_use]
+                    return mesh_cache[mesh_idx_use], mesh_normal_cache.get(mesh_idx_use, None), mesh_idx_use
+                verts_np = np.asarray(verts_seq_np[mesh_idx_use], dtype=np.float32)
+                if bind_rigid_align_apply_cfg is not None:
+                    verts_np = apply_rigid_transform_np(verts_np, bind_rigid_align_apply_cfg)
+                verts_np = verts_np + bind_mesh_offset_np
                 verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
-                verts_t = verts_t + bind_mesh_offset_t
                 mesh_cache[mesh_idx_use] = verts_t
+                mesh_np_cache[mesh_idx_use] = np.asarray(verts_np, dtype=np.float32)
+                normals_t = None
+                if (
+                    bool(bind_align_quat_to_mesh_normals)
+                    and bind_faces_np is not None
+                    and _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}")
+                ):
+                    normals_np = _compute_vertex_normals_np(verts_np, bind_faces_np)
+                    normals_t = torch.from_numpy(normals_np).to(device=device, dtype=torch.float32)
+                    mesh_normal_cache[mesh_idx_use] = normals_t
                 mesh_cache_order.append(mesh_idx_use)
                 if len(mesh_cache_order) > 8:
                     old = mesh_cache_order.pop(0)
                     mesh_cache.pop(old, None)
-                return verts_t
+                    mesh_normal_cache.pop(old, None)
+                    mesh_np_cache.pop(old, None)
+                    mesh_binding_cache.pop(old, None)
+                return verts_t, normals_t, mesh_idx_use
 
             mesh_idx_use = int(mesh_idx)
             if mesh_idx_use not in mesh_ids_set:
                 mesh_idx_use = fallback_mesh_idx
             if mesh_idx_use in mesh_cache:
-                return mesh_cache[mesh_idx_use]
+                return mesh_cache[mesh_idx_use], mesh_normal_cache.get(mesh_idx_use, None), mesh_idx_use
             obj_path = bind_mesh_dir / f"{mesh_idx_use:06d}.obj"
             if not obj_path.exists():
                 raise FileNotFoundError(f"Mesh frame not found: {obj_path}")
             verts_np = load_obj_vertices(obj_path)
-            if bind_mesh_to_camera:
+            if bind_mesh_to_camera and (not bool(mesh_obj_in_camera_space)):
                 if bind_inverse_export_upright:
                     if exp_has_center_xy:
                         verts_np[:, 0] += float(exp_center_xy[0])
@@ -1125,15 +1389,65 @@ def main():
                 # Inverse of stage1 _camera_to_blender: (x, y, z) = (x_b, -z_b, y_b)
                 import numpy as _np
                 verts_np = _np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(_np.float32)
+            if bind_rigid_align_apply_cfg is not None:
+                verts_np = apply_rigid_transform_np(verts_np, bind_rigid_align_apply_cfg)
+            verts_np = np.asarray(verts_np, dtype=np.float32) + bind_mesh_offset_np
             verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
-            verts_t = verts_t + bind_mesh_offset_t
             mesh_cache[mesh_idx_use] = verts_t
+            mesh_np_cache[mesh_idx_use] = np.asarray(verts_np, dtype=np.float32)
+            normals_t = None
+            if (
+                bool(bind_align_quat_to_mesh_normals)
+                and bind_faces_np is not None
+                and _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}")
+            ):
+                normals_np = _compute_vertex_normals_np(verts_np, bind_faces_np)
+                normals_t = torch.from_numpy(normals_np).to(device=device, dtype=torch.float32)
+                mesh_normal_cache[mesh_idx_use] = normals_t
             mesh_cache_order.append(mesh_idx_use)
             if len(mesh_cache_order) > 8:
                 old = mesh_cache_order.pop(0)
                 mesh_cache.pop(old, None)
-            return verts_t
+                mesh_normal_cache.pop(old, None)
+                mesh_np_cache.pop(old, None)
+                mesh_binding_cache.pop(old, None)
+            return verts_t, normals_t, mesh_idx_use
 
+        def _load_binding_frame(mesh_idx_use: int) -> BindingFrameData:
+            if mesh_idx_use in mesh_binding_cache:
+                return mesh_binding_cache[mesh_idx_use]
+            if mesh_idx_use not in mesh_np_cache:
+                raise RuntimeError(f"Mesh verts cache miss for binding frame: {mesh_idx_use}")
+            verts_np = mesh_np_cache[mesh_idx_use]
+            faces_use = bind_faces_np
+            if faces_use is not None and (not _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}")):
+                if str(binding_cfg.mode).lower() in ("games_face", "hybrid"):
+                    raise RuntimeError(
+                        "binding.mode requires mesh faces, but current verts/faces topology is inconsistent."
+                    )
+                faces_use = None
+            nonlocal bind_adjacency
+            if faces_use is not None:
+                if bind_adjacency is None or len(bind_adjacency) != int(verts_np.shape[0]):
+                    bind_adjacency = build_vertex_adjacency(int(verts_np.shape[0]), faces_use)
+            frame = build_binding_frame_data(
+                verts_np=verts_np,
+                faces_np=faces_use,
+                adjacency=bind_adjacency,
+                cfg=binding_cfg,
+                device=device,
+            )
+            mesh_binding_cache[mesh_idx_use] = frame
+            return frame
+
+    tpose_pick_mode = str(render_cfg.get("tpose_frame_source", "last")).strip().lower()
+    tpose_pick_idx = _resolve_pick_index(
+        mode=tpose_pick_mode,
+        n=to_render,
+        index=int(render_cfg.get("tpose_frame_index", -1)),
+    )
+    tpose_ctx: dict[str, object] | None = None
+    invalid_bind_warned = False
     for i in range(to_render):
         frame_path = frames_dir / frames[i]
         gt = read_image_rgb(frame_path).to(device)  # (3,H,W)
@@ -1159,16 +1473,99 @@ def main():
             R = axis_angle_to_rotmat(cam_w[i])
             t = cam_t[i]
         verts_t = None
+        normals_t = None
+        bind_mask_curr = bind_mask if binding_enabled else None
 
         # Update bound xyz for this frame (dynamic binding)
         if binding_enabled:
             mesh_idx = int(bind_mesh_indices[i])
-            verts_t = _load_mesh_verts(mesh_idx)
+            verts_t, normals_t, mesh_idx_use = _load_mesh_verts(mesh_idx)
             if bind_mask.any():
-                xyz_new = verts_t.index_select(0, bind_idx_t[bind_mask])
-                if bind_vertex_offset_t is not None:
-                    xyz_new = xyz_new + bind_vertex_offset_t[bind_mask]
-                g.xyz[bind_mask] = xyz_new.detach()
+                if str(binding_cfg.mode).lower() == "legacy":
+                    bind_idx_use = bind_idx_t[bind_mask]
+                    valid_local = bind_idx_use < int(verts_t.shape[0])
+                    if bool(valid_local.all()):
+                        xyz_new = verts_t.index_select(0, bind_idx_use)
+                        if bind_vertex_offset_t is not None:
+                            xyz_new = xyz_new + bind_vertex_offset_t[bind_mask]
+                        g.xyz[bind_mask] = xyz_new.detach()
+                        if bool(bind_align_quat_to_mesh_normals) and normals_t is not None and bind_quat_normal_blend > 0.0:
+                            q_target = _quat_from_normals_torch(normals_t.index_select(0, bind_idx_use))
+                            with torch.no_grad():
+                                if bind_quat_normal_blend >= 0.999:
+                                    g.quat[bind_mask] = q_target
+                                else:
+                                    q_old = g.quat[bind_mask]
+                                    q_mix = (1.0 - bind_quat_normal_blend) * q_old + bind_quat_normal_blend * q_target
+                                    g.quat[bind_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
+                    else:
+                        # Keep rendering robust when stage2 checkpoint bind topology and
+                        # stage1 mesh topology differ (e.g., old checkpoint + new stage1).
+                        valid_mask = bind_mask.clone()
+                        valid_mask[bind_mask] = valid_local
+                        bind_mask_curr = valid_mask
+                        if not bool(valid_mask.any()):
+                            raise RuntimeError(
+                                "All bind indices are out of range for current mesh topology. "
+                                "Please retrain stage2 after rerunning stage1."
+                            )
+                        bad_n = int((~valid_local).sum().item())
+                        if strict_binding_topology:
+                            raise RuntimeError(
+                                "Detected out-of-range bind indices during render "
+                                f"({bad_n} invalid). Strict mode is enabled; "
+                                "regenerate consistent binding assets and retrain stage2."
+                            )
+                        if not invalid_bind_warned:
+                            logger.warning(
+                                "Detected %d out-of-range bind indices for current mesh; "
+                                "skipping them for rendering. Retrain stage2 to fully align topology.",
+                                bad_n,
+                            )
+                            invalid_bind_warned = True
+                        valid_idx = bind_idx_t[valid_mask]
+                        xyz_new = verts_t.index_select(0, valid_idx)
+                        if bind_vertex_offset_t is not None:
+                            xyz_new = xyz_new + bind_vertex_offset_t[valid_mask]
+                        g.xyz[valid_mask] = xyz_new.detach()
+                        if bool(bind_align_quat_to_mesh_normals) and normals_t is not None and bind_quat_normal_blend > 0.0:
+                            q_target = _quat_from_normals_torch(normals_t.index_select(0, valid_idx))
+                            with torch.no_grad():
+                                if bind_quat_normal_blend >= 0.999:
+                                    g.quat[valid_mask] = q_target
+                                else:
+                                    q_old = g.quat[valid_mask]
+                                    q_mix = (1.0 - bind_quat_normal_blend) * q_old + bind_quat_normal_blend * q_target
+                                    g.quat[valid_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
+                else:
+                    frame_data = _load_binding_frame(mesh_idx_use)
+                    prev_vertex_dirs, bind_mask_curr = update_gaussians_with_binding(
+                        g=g,
+                        frame=frame_data,
+                        bind_mask=bind_mask,
+                        bind_vertex_idx=bind_idx_t,
+                        bind_vertex_offset=bind_vertex_offset_t,
+                        bind_face_idx=bind_face_idx_t,
+                        bind_bary=bind_bary_t,
+                        cfg=binding_cfg,
+                        quat_blend=bind_quat_normal_blend,
+                        prev_vertex_dirs=prev_vertex_dirs,
+                    )
+                    if bind_mask_curr is not None and not bool(bind_mask_curr.all()) and not invalid_bind_warned:
+                        bad_n = int((bind_mask & (~bind_mask_curr)).sum().item())
+                        if bad_n > 0:
+                            if strict_binding_topology:
+                                raise RuntimeError(
+                                    "Detected invalid bindings for current topology "
+                                    f"({bad_n} invalid). Strict mode is enabled; "
+                                    "regenerate consistent binding assets and retrain stage2."
+                                )
+                            logger.warning(
+                                "Detected %d invalid bindings for current mesh topology; "
+                                "skipping those gaussians.",
+                                bad_n,
+                            )
+                            invalid_bind_warned = True
 
         # Optional: split gaussians by bind_idx
         if split_by_bind and g.bind_idx is not None:
@@ -1350,38 +1747,332 @@ def main():
                 bg_fill = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(pred)
             pred = pred * fg_mask + bg_fill * (1.0 - fg_mask)
 
-        # Overlay 2D keypoints/skeleton on top for both debug and normal rendering.
-        if (not debug_point_render) and debug_overlay_keypoints and debug_kpt_json_path is not None:
-            pred = _overlay_keypoints(
-                rgb_chw=pred,
-                keypoints_json=debug_kpt_json_path,
-                frame_name=frames[i],
-                conf_min=debug_kpt_conf_min,
-                radius=debug_kpt_radius,
-                draw_skeleton=debug_draw_skeleton,
-                body_only=debug_overlay_body_only,
-            )
-        if overlay_smpl_skeleton and smpl_joints_map is not None:
-            pred = _overlay_smpl_skeleton(
-                rgb_chw=pred,
-                joints_cam=smpl_joints_map.get(frames[i], None),
+        frame_out_name = f"{Path(frames[i]).stem}.png"
+        pred_real = pred
+
+        if save_main_image:
+            pred_main = pred_real
+            if (not debug_point_render) and debug_overlay_keypoints and debug_kpt_json_path is not None:
+                pred_main = _overlay_keypoints(
+                    rgb_chw=pred_main,
+                    keypoints_json=debug_kpt_json_path,
+                    frame_name=frames[i],
+                    conf_min=debug_kpt_conf_min,
+                    radius=debug_kpt_radius,
+                    draw_skeleton=debug_draw_skeleton,
+                    body_only=debug_overlay_body_only,
+                )
+            if overlay_smpl_skeleton and smpl_joints_map is not None:
+                joints_vis = smpl_joints_map.get(frames[i], None)
+                if joints_vis is not None and bind_rigid_align_apply_cfg is not None:
+                    joints_vis = apply_rigid_transform_np(
+                        np.asarray(joints_vis, dtype=np.float32),
+                        bind_rigid_align_apply_cfg,
+                    )
+                pred_main = _overlay_smpl_skeleton(
+                    rgb_chw=pred_main,
+                    joints_cam=joints_vis,
+                    K=K_use,
+                    R=R,
+                    t=t,
+                    connections=smpl_skeleton_connections,
+                    color_bgr=smpl_color_bgr,
+                    thickness=smpl_line_thickness,
+                    radius=smpl_joint_radius,
+                )
+            save_rgb(out_dir / frame_out_name, pred_main)
+
+        if save_real_image:
+            save_rgb(real_out_dir / frame_out_name, pred_real)
+        if save_fg_nobg_skeleton:
+            g_fg_only = g_fg
+            if fg_only_render_bound_only:
+                if g.bind_idx is None:
+                    raise RuntimeError("fg_only_render_bound_only=true but bind_idx is missing in checkpoint.")
+                fg_only_mask = bind_mask_curr if bind_mask_curr is not None else (g.bind_idx >= 0)
+                if not bool(fg_only_mask.any()):
+                    raise RuntimeError(
+                        "fg_only_render_bound_only=true but no valid bound gaussians for this frame."
+                    )
+                g_fg_only = _select_gaussians(g, fg_only_mask)
+                if bound_opacity_min > 0.0:
+                    opa_fg_only = torch.sigmoid(g_fg_only.opacity_logit).squeeze(-1)
+                    keep_fg_only = opa_fg_only >= float(bound_opacity_min)
+                    if keep_fg_only.any():
+                        g_fg_only = _select_gaussians(g_fg_only, keep_fg_only)
+                    else:
+                        raise RuntimeError(
+                            "fg_only render with bound_opacity_min removed all bound gaussians. "
+                            "Lower render.bound_opacity_min."
+                        )
+            fg_nobg_rgb, fg_nobg_alpha = render_gaussians_3d(
+                g=g_fg_only,
                 K=K_use,
                 R=R,
                 t=t,
-                connections=smpl_skeleton_connections,
-                color_bgr=smpl_color_bgr,
-                thickness=smpl_line_thickness,
-                radius=smpl_joint_radius,
+                H=base_h,
+                W=base_w,
+                bg=None,
+                return_alpha=True,
             )
-
-        out_path = out_dir / f"{i:06d}.png"
-        save_rgb(out_path, pred)
+            fg_mask = fg_nobg_alpha.clamp(0.0, 1.0)
+            if (
+                fg_mask_mode in ("smpl", "mesh")
+                and binding_enabled
+                and verts_t is not None
+                and bind_faces_np is not None
+            ):
+                mask_np = _rasterize_mesh_mask(
+                    verts=verts_t.detach().cpu().numpy(),
+                    faces=bind_faces_np,
+                    K=K_use.detach().cpu().numpy().astype(np.float32),
+                    R=R.detach().cpu().numpy().astype(np.float32),
+                    t=t.detach().cpu().numpy().astype(np.float32),
+                    H=base_h,
+                    W=base_w,
+                    dilate_px=int(fg_mask_dilate_px),
+                    erode_px=int(fg_mask_erode_px),
+                )
+                fg_mask = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+            bg_fill_fg = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(fg_nobg_rgb)
+            pred_fg_only = fg_nobg_rgb * fg_mask + bg_fill_fg * (1.0 - fg_mask)
+            if overlay_smpl_skeleton and smpl_joints_map is not None:
+                joints_vis = smpl_joints_map.get(frames[i], None)
+                if joints_vis is not None and bind_rigid_align_apply_cfg is not None:
+                    joints_vis = apply_rigid_transform_np(
+                        np.asarray(joints_vis, dtype=np.float32),
+                        bind_rigid_align_apply_cfg,
+                    )
+                pred_fg_only = _overlay_smpl_skeleton(
+                    rgb_chw=pred_fg_only,
+                    joints_cam=joints_vis,
+                    K=K_use,
+                    R=R,
+                    t=t,
+                    connections=smpl_skeleton_connections,
+                    color_bgr=smpl_color_bgr,
+                    thickness=smpl_line_thickness,
+                    radius=smpl_joint_radius,
+                )
+            save_rgb(fg_nobg_out_dir / frame_out_name, pred_fg_only)
+        if render_tpose_image and i == int(tpose_pick_idx):
+            tpose_ctx = {
+                "frame_name": frames[i],
+                "H": base_h,
+                "W": base_w,
+                "K_use": K_use.detach().clone(),
+                "R": R.detach().clone(),
+                "t": t.detach().clone(),
+            }
 
         if (i + 1) % 50 == 0:
             logger.info(f"Rendered {i+1}/{to_render} ...")
+
+    if render_tpose_image and tpose_ctx is not None:
+        if not binding_enabled:
+            logger.warning("Skip T-pose render: binding is disabled or bind_idx is missing.")
+        elif bind_idx_t is None:
+            logger.warning("Skip T-pose render: bind indices unavailable.")
+        else:
+            if tpose_verts_cam_np is not None:
+                verts_np = np.asarray(tpose_verts_cam_np, dtype=np.float32).copy()
+            else:
+                tpose_mesh_cfg = render_cfg.get(
+                    "tpose_mesh_obj",
+                    ckpt.get("bind_tpose_obj", "outputs/stage1/smpl_mesh_tpose.obj"),
+                )
+                tpose_mesh_obj = Path(resolve_path(str(tpose_mesh_cfg)))
+                if not tpose_mesh_obj.is_absolute():
+                    tpose_mesh_obj = project_root / tpose_mesh_obj
+                if not tpose_mesh_obj.exists():
+                    raise FileNotFoundError(f"T-pose mesh not found: {tpose_mesh_obj}")
+
+                verts_np = load_obj_vertices(tpose_mesh_obj)
+                if bind_mesh_to_camera and (not bool(tpose_mesh_obj_in_camera_space)):
+                    if bind_inverse_export_upright:
+                        if exp_has_center_xy:
+                            verts_np[:, 0] += float(exp_center_xy[0])
+                            verts_np[:, 1] += float(exp_center_xy[1])
+                        if exp_has_floor:
+                            verts_np[:, 2] += float(exp_floor_z)
+                        verts_np = (verts_np @ exp_upright_rot.astype(np.float32))
+                    verts_np = np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(np.float32)
+            if bind_rigid_align_apply_cfg is not None:
+                verts_np = apply_rigid_transform_np(np.asarray(verts_np, dtype=np.float32), bind_rigid_align_apply_cfg)
+            verts_np_bind = (np.asarray(verts_np, dtype=np.float32) + bind_mesh_offset_np).astype(np.float32)
+            if bind_faces_np is not None:
+                _faces_compatible_with_verts(verts_np_bind, "t-pose")
+            verts_tpose = torch.from_numpy(verts_np_bind).to(device=device, dtype=torch.float32)
+
+            g_tpose = _clone_gaussians(g)
+            bind_mask = bind_idx_t >= 0
+            if bind_mask.any():
+                if str(binding_cfg.mode).lower() == "legacy":
+                    bind_idx_use = bind_idx_t[bind_mask]
+                    valid_local = bind_idx_use < int(verts_tpose.shape[0])
+                    if bool(valid_local.all()):
+                        xyz_new = verts_tpose.index_select(0, bind_idx_use)
+                        if bind_vertex_offset_t is not None:
+                            xyz_new = xyz_new + bind_vertex_offset_t[bind_mask]
+                        g_tpose.xyz[bind_mask] = xyz_new
+                    else:
+                        valid_mask = bind_mask.clone()
+                        valid_mask[bind_mask] = valid_local
+                        if not bool(valid_mask.any()):
+                            raise RuntimeError(
+                                "T-pose binding failed: all bind indices are out of range for current mesh topology. "
+                                "Please rerun stage1 and stage2 to refresh bind topology."
+                            )
+                        bad_n = int((~valid_local).sum().item())
+                        if strict_binding_topology:
+                            raise RuntimeError(
+                                "T-pose binding found out-of-range bind indices "
+                                f"({bad_n} invalid). Strict mode is enabled."
+                            )
+                        logger.warning(
+                                "T-pose render skipped %d out-of-range bind indices. "
+                                "Retrain stage2 for full topology alignment.",
+                                bad_n,
+                            )
+                        valid_idx = bind_idx_t[valid_mask]
+                        xyz_new = verts_tpose.index_select(0, valid_idx)
+                        if bind_vertex_offset_t is not None:
+                            xyz_new = xyz_new + bind_vertex_offset_t[valid_mask]
+                        g_tpose.xyz[valid_mask] = xyz_new
+                    if bool(bind_align_quat_to_mesh_normals) and bind_faces_np is not None and bind_quat_normal_blend > 0.0:
+                        normals_tp_np = _compute_vertex_normals_np(
+                            verts_tpose.detach().cpu().numpy(),
+                            bind_faces_np,
+                        )
+                        normals_tp = torch.from_numpy(normals_tp_np).to(device=device, dtype=torch.float32)
+                        bind_mask_local = bind_idx_t >= 0
+                        if bool(bind_mask_local.any()):
+                            bind_idx_use = bind_idx_t[bind_mask_local]
+                            valid_local = bind_idx_use < int(normals_tp.shape[0])
+                            valid_mask = bind_mask_local.clone()
+                            valid_mask[bind_mask_local] = valid_local
+                            if bool(valid_mask.any()):
+                                q_target = _quat_from_normals_torch(normals_tp.index_select(0, bind_idx_t[valid_mask]))
+                                with torch.no_grad():
+                                    if bind_quat_normal_blend >= 0.999:
+                                        g_tpose.quat[valid_mask] = q_target
+                                    else:
+                                        q_old = g_tpose.quat[valid_mask]
+                                        q_mix = (1.0 - bind_quat_normal_blend) * q_old + bind_quat_normal_blend * q_target
+                                        g_tpose.quat[valid_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
+                else:
+                    if bind_faces_np is not None:
+                        if bind_adjacency is None or len(bind_adjacency) != int(verts_np_bind.shape[0]):
+                            bind_adjacency = build_vertex_adjacency(int(verts_np_bind.shape[0]), bind_faces_np)
+                    tpose_frame = build_binding_frame_data(
+                        verts_np=verts_np_bind,
+                        faces_np=bind_faces_np,
+                        adjacency=bind_adjacency,
+                        cfg=binding_cfg,
+                        device=device,
+                    )
+                    _, valid_mask = update_gaussians_with_binding(
+                        g=g_tpose,
+                        frame=tpose_frame,
+                        bind_mask=bind_mask,
+                        bind_vertex_idx=bind_idx_t,
+                        bind_vertex_offset=bind_vertex_offset_t,
+                        bind_face_idx=bind_face_idx_t,
+                        bind_bary=bind_bary_t,
+                        cfg=binding_cfg,
+                        quat_blend=bind_quat_normal_blend,
+                        prev_vertex_dirs=prev_vertex_dirs,
+                    )
+                    if valid_mask is not None and not bool(valid_mask.all()):
+                        bad_n = int((bind_mask & (~valid_mask)).sum().item())
+                        if bad_n > 0:
+                            if strict_binding_topology:
+                                raise RuntimeError(
+                                    "T-pose render found invalid bindings for current topology "
+                                    f"({bad_n} invalid). Strict mode is enabled."
+                                )
+                            logger.warning(
+                                "T-pose render skipped %d invalid bindings for current topology.",
+                                bad_n,
+                            )
+
+            g_tp_render = g_tpose
+            if tpose_render_bound_only:
+                tp_fg_mask = (g_tpose.bind_idx >= 0) if g_tpose.bind_idx is not None else None
+                if tp_fg_mask is None or not tp_fg_mask.any():
+                    raise RuntimeError(
+                        "T-pose render requires bound gaussians when tpose_render_bound_only=true."
+                    )
+                g_tp_render = _select_gaussians(g_tpose, tp_fg_mask)
+                if bound_opacity_min > 0.0:
+                    opa = torch.sigmoid(g_tp_render.opacity_logit).squeeze(-1)
+                    keep = opa >= float(bound_opacity_min)
+                    if keep.any():
+                        g_tp_render = _select_gaussians(g_tp_render, keep)
+                    else:
+                        raise RuntimeError(
+                            "T-pose render with bound_opacity_min removed all gaussians. "
+                            "Lower render.bound_opacity_min."
+                        )
+
+            K_tp = tpose_ctx["K_use"]
+            R_tp = tpose_ctx["R"]
+            t_tp = tpose_ctx["t"]
+            H_tp = int(tpose_ctx["H"])
+            W_tp = int(tpose_ctx["W"])
+            rgb_tp, alpha_tp = render_gaussians_3d(
+                g=g_tp_render,
+                K=K_tp,
+                R=R_tp,
+                t=t_tp,
+                H=H_tp,
+                W=W_tp,
+                bg=None,
+                return_alpha=True,
+            )
+            tp_mask = alpha_tp.clamp(0.0, 1.0)
+            if bind_faces_np is not None:
+                mask_tp_np = _rasterize_mesh_mask(
+                    verts=verts_tpose.detach().cpu().numpy(),
+                    faces=bind_faces_np,
+                    K=K_tp.detach().cpu().numpy().astype(np.float32),
+                    R=R_tp.detach().cpu().numpy().astype(np.float32),
+                    t=t_tp.detach().cpu().numpy().astype(np.float32),
+                    H=H_tp,
+                    W=W_tp,
+                    dilate_px=int(fg_mask_dilate_px),
+                    erode_px=int(fg_mask_erode_px),
+                )
+                tp_mask = torch.from_numpy(mask_tp_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+            bg_fill_tp = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(rgb_tp)
+            pred_tpose = rgb_tp * tp_mask + bg_fill_tp * (1.0 - tp_mask)
+            if overlay_smpl_skeleton:
+                frame_name = str(tpose_ctx["frame_name"])
+                joints_tpose_use = tpose_joints_cam_np
+                if joints_tpose_use is None and smpl_joints_map is not None:
+                    joints_tpose_use = smpl_joints_map.get(frame_name, None)
+                if joints_tpose_use is not None:
+                    joints_tpose_use = np.asarray(joints_tpose_use, dtype=np.float32).copy()
+                    if bind_rigid_align_apply_cfg is not None:
+                        joints_tpose_use = apply_rigid_transform_np(joints_tpose_use, bind_rigid_align_apply_cfg)
+                    joints_tpose_use = joints_tpose_use + bind_mesh_offset_np
+                pred_tpose = _overlay_smpl_skeleton(
+                    rgb_chw=pred_tpose,
+                    joints_cam=joints_tpose_use,
+                    K=K_tp,
+                    R=R_tp,
+                    t=t_tp,
+                    connections=smpl_skeleton_connections,
+                    color_bgr=smpl_color_bgr,
+                    thickness=smpl_line_thickness,
+                    radius=smpl_joint_radius,
+                )
+            tpose_name = f"{Path(str(tpose_ctx['frame_name'])).stem}.png"
+            save_rgb(tpose_out_dir / tpose_name, pred_tpose)
 
     logger.info("Done.")
 
 
 if __name__ == "__main__":
     main()
+

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import json
+import cv2
 import numpy as np
 import torch
 
@@ -9,9 +10,438 @@ from avatar_gs.utils.io import ensure_dir, read_json
 from avatar_gs.utils.log import setup_logger
 from avatar_gs.utils.seed import seed_everything
 
-from avatar_gs.gaussian.init_from_smpl import init_gaussians_from_mesh_3d
+from avatar_gs.gaussian.init_from_smpl import (
+    init_gaussians_from_mesh_3d,
+    load_obj_mesh,
+    load_obj_vertices,
+)
+from avatar_gs.gaussian.rigid_align import (
+    apply_rigid_transform_np,
+    coordinate_descent_rigid_search,
+    normalize_rigid_align_config,
+)
 from avatar_gs.gaussian.train_loop import train_gaussians_3d_learnable_camera
-from avatar_gs.data.h36m import resolve_h36m_image_paths
+try:
+    from avatar_gs.data.h36m import resolve_h36m_image_paths
+except Exception:
+    resolve_h36m_image_paths = None
+
+
+def _resolve_project_path(project_root: Path, path_like: str | Path | None) -> Path | None:
+    if path_like is None:
+        return None
+    p = Path(str(path_like))
+    if not p.is_absolute():
+        p = project_root / p
+    return p
+
+
+def _project_points_numpy(
+    xyz: np.ndarray,
+    K: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    Xc = xyz @ R.T + t.reshape(1, 3)
+    z = Xc[:, 2]
+    valid = z > 1e-6
+    u = np.zeros((xyz.shape[0],), dtype=np.float32)
+    v = np.zeros((xyz.shape[0],), dtype=np.float32)
+    if np.any(valid):
+        Xcv = Xc[valid]
+        zv = z[valid]
+        u[valid] = K[0, 0] * (Xcv[:, 0] / zv) + K[0, 2]
+        v[valid] = K[1, 1] * (Xcv[:, 1] / zv) + K[1, 2]
+    return u, v, valid
+
+
+def _rasterize_mesh_mask(
+    verts: np.ndarray,
+    faces: np.ndarray | None,
+    K: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+    H: int,
+    W: int,
+) -> np.ndarray:
+    mask = np.zeros((H, W), dtype=np.uint8)
+    if faces is None or len(faces) == 0 or verts.shape[0] == 0:
+        return mask
+
+    u, v, valid = _project_points_numpy(verts, K, R, t)
+    if not np.any(valid):
+        return mask
+
+    uvi = np.stack([u, v], axis=1).astype(np.float32)
+    for tri in faces:
+        i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
+        if i0 < 0 or i1 < 0 or i2 < 0:
+            continue
+        if i0 >= len(valid) or i1 >= len(valid) or i2 >= len(valid):
+            continue
+        if not (valid[i0] and valid[i1] and valid[i2]):
+            continue
+        pts = uvi[[i0, i1, i2]]
+        if (
+            (pts[:, 0] < -2).all()
+            or (pts[:, 0] > W + 1).all()
+            or (pts[:, 1] < -2).all()
+            or (pts[:, 1] > H + 1).all()
+        ):
+            continue
+        poly = np.round(pts).astype(np.int32).reshape(-1, 1, 2)
+        cv2.fillConvexPoly(mask, poly, 1)
+    return mask
+
+
+def _maybe_pre_stage2_rigid_align(
+    *,
+    project_root: Path,
+    stage2_cfg: dict,
+    frames_dir: Path,
+    frames: list[str],
+    K_list: list[float],
+    bind_mesh_dir: Path | None,
+    bind_mesh_indices: list[int] | None,
+    bind_seq_npz_path: Path | None,
+    bind_vertices_npz_path: Path | None,
+    cam_t_prior: tuple[float, float, float],
+    out_dir: Path,
+    logger,
+) -> dict | None:
+    raw_cfg = stage2_cfg.get("bind_rigid_align", None)
+    cfg = normalize_rigid_align_config(raw_cfg, default_enabled=False)
+    if cfg is None:
+        return raw_cfg
+    if not bool(cfg.get("enabled", False)):
+        return cfg
+    if not bool(cfg.get("auto", False)):
+        return cfg
+    if not bool(cfg.get("pre_stage2", True)):
+        logger.info("bind_rigid_align.pre_stage2=false; skip pre-stage2 rigid search.")
+        return cfg
+    if bind_mesh_dir is None or bind_mesh_indices is None or len(bind_mesh_indices) == 0:
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: binding inputs are unavailable. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+
+    pm_cfg = cfg.get("person_masks_npz", None)
+    if pm_cfg is None:
+        pm_cfg = stage2_cfg.get("person_masks_npz", None)
+    pm_path = _resolve_project_path(project_root, pm_cfg)
+    if pm_path is None or (not pm_path.exists()):
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: person mask file missing. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+
+    first_img = cv2.imread(str(frames_dir / frames[0]), cv2.IMREAD_COLOR)
+    if first_img is None:
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: cannot read frame image. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+    H, W = int(first_img.shape[0]), int(first_img.shape[1])
+    if H <= 0 or W <= 0:
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: invalid frame size. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+
+    K_np = np.asarray(K_list, dtype=np.float32).reshape(3, 3)
+    R_eval = np.eye(3, dtype=np.float32)
+    t_eval = np.asarray(cam_t_prior, dtype=np.float32).reshape(3,)
+
+    mesh_ids = []
+    for p in bind_mesh_dir.glob("*.obj"):
+        if p.stem.isdigit():
+            mesh_ids.append(int(p.stem))
+    if len(mesh_ids) == 0:
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: no numeric OBJ meshes found. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+    mesh_ids_set = set(mesh_ids)
+    fallback_mesh_idx = int(max(mesh_ids))
+
+    first_mesh_idx = int(bind_mesh_indices[0])
+    if first_mesh_idx not in mesh_ids_set:
+        first_mesh_idx = fallback_mesh_idx
+    first_obj = bind_mesh_dir / f"{first_mesh_idx:06d}.obj"
+    if not first_obj.exists():
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: first mesh OBJ missing. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+    _, bind_faces_np = load_obj_mesh(first_obj)
+    if bind_faces_np is None or len(bind_faces_np) == 0:
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: mesh faces unavailable. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+
+    verts_seq_np = None
+    verts_seq_ids_set: set[int] = set()
+    verts_seq_fallback_idx = 0
+    if bind_vertices_npz_path is not None and bind_vertices_npz_path.exists():
+        vseq = np.load(bind_vertices_npz_path, allow_pickle=True)
+        if "verts_cam" in vseq.files:
+            verts_seq_np = np.asarray(vseq["verts_cam"], dtype=np.float32)
+            if verts_seq_np.ndim == 3 and verts_seq_np.shape[-1] == 3:
+                verts_seq_ids_set = set(range(int(verts_seq_np.shape[0])))
+                verts_seq_fallback_idx = int(max(int(verts_seq_np.shape[0]) - 1, 0))
+            else:
+                verts_seq_np = None
+
+    bind_mesh_obj_space_mode = str(stage2_cfg.get("bind_mesh_obj_space", "auto")).strip().lower()
+    if bind_mesh_obj_space_mode not in ("auto", "camera", "blender"):
+        bind_mesh_obj_space_mode = "auto"
+    mesh_obj_in_camera_space = bool(bind_mesh_obj_space_mode == "camera")
+    bind_mesh_to_camera = bool(stage2_cfg.get("bind_mesh_to_camera", False))
+    bind_inverse_export_upright = bool(stage2_cfg.get("bind_inverse_export_upright", True))
+    exp_upright_rot = np.eye(3, dtype=np.float32)
+    exp_center_xy = np.zeros((2,), dtype=np.float32)
+    exp_floor_z = 0.0
+    exp_has_center_xy = False
+    exp_has_floor = False
+    if bind_seq_npz_path is not None and bind_seq_npz_path.exists():
+        seq = np.load(bind_seq_npz_path, allow_pickle=True)
+        if bind_mesh_obj_space_mode == "auto" and "fit_strategy" in seq.files:
+            fs_arr = np.asarray(seq["fit_strategy"]).reshape(-1)
+            if fs_arr.size > 0 and str(fs_arr[0]).strip().lower() in ("stage1_motion_prior", "vibe"):
+                mesh_obj_in_camera_space = True
+        if "export_upright_rot" in seq.files:
+            exp_upright_rot = np.asarray(seq["export_upright_rot"], dtype=np.float32).reshape(3, 3)
+        if "export_center_xy" in seq.files:
+            exp_has_center_xy = bool(int(np.asarray(seq["export_center_xy"]).reshape(-1)[0]))
+        if "export_center_xy_value" in seq.files:
+            exp_center_xy = np.asarray(seq["export_center_xy_value"], dtype=np.float32).reshape(2,)
+        if "export_on_floor" in seq.files:
+            exp_has_floor = bool(int(np.asarray(seq["export_on_floor"]).reshape(-1)[0]))
+        if "export_floor_z" in seq.files:
+            exp_floor_z = float(np.asarray(seq["export_floor_z"], dtype=np.float32).reshape(-1)[0])
+
+    bind_mesh_offset_cfg = stage2_cfg.get("bind_mesh_offset", (0.0, 0.0, 0.0))
+    if not (isinstance(bind_mesh_offset_cfg, (list, tuple)) and len(bind_mesh_offset_cfg) == 3):
+        bind_mesh_offset_cfg = (0.0, 0.0, 0.0)
+    bind_mesh_offset_np = np.asarray(
+        [[
+            float(bind_mesh_offset_cfg[0]),
+            float(bind_mesh_offset_cfg[1]),
+            float(bind_mesh_offset_cfg[2]),
+        ]],
+        dtype=np.float32,
+    )
+
+    mesh_raw_cache: dict[int, np.ndarray] = {}
+
+    def _resolve_mesh_idx(mesh_idx: int) -> int:
+        mesh_idx_use = int(mesh_idx)
+        if verts_seq_np is not None:
+            if mesh_idx_use not in verts_seq_ids_set:
+                mesh_idx_use = verts_seq_fallback_idx
+        else:
+            if mesh_idx_use not in mesh_ids_set:
+                mesh_idx_use = fallback_mesh_idx
+        return mesh_idx_use
+
+    def _load_mesh_np_raw(mesh_idx: int) -> np.ndarray:
+        mesh_idx_use = _resolve_mesh_idx(mesh_idx)
+        if mesh_idx_use in mesh_raw_cache:
+            return mesh_raw_cache[mesh_idx_use]
+        if verts_seq_np is not None:
+            verts_np = np.asarray(verts_seq_np[mesh_idx_use], dtype=np.float32)
+        else:
+            obj_path = bind_mesh_dir / f"{mesh_idx_use:06d}.obj"
+            verts_np = load_obj_vertices(obj_path)
+            if bind_mesh_to_camera and (not bool(mesh_obj_in_camera_space)):
+                if bind_inverse_export_upright:
+                    if exp_has_center_xy:
+                        verts_np[:, 0] += float(exp_center_xy[0])
+                        verts_np[:, 1] += float(exp_center_xy[1])
+                    if exp_has_floor:
+                        verts_np[:, 2] += float(exp_floor_z)
+                    verts_np = (verts_np @ exp_upright_rot.astype(np.float32))
+                verts_np = np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(np.float32)
+        mesh_raw_cache[mesh_idx_use] = np.asarray(verts_np, dtype=np.float32)
+        return mesh_raw_cache[mesh_idx_use]
+
+    pdata = np.load(pm_path, allow_pickle=True)
+    if "frame_names" not in pdata.files or "masks" not in pdata.files:
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: person mask NPZ missing frame_names/masks. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+    p_names = [str(x) for x in pdata["frame_names"].tolist()]
+    p_masks = np.asarray(pdata["masks"], dtype=np.uint8)
+    if p_masks.ndim != 3 or len(p_names) != int(p_masks.shape[0]):
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: invalid mask tensor shape. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+    name_to_pm = {n: i for i, n in enumerate(p_names)}
+    valid_frame_ids = [i for i, fn in enumerate(frames) if fn in name_to_pm]
+    if len(valid_frame_ids) == 0:
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: no overlapping frame names with person masks. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
+
+    sample_n = min(int(cfg.get("sample_frames", 8)), len(valid_frame_ids))
+    pick = np.linspace(0, len(valid_frame_ids) - 1, num=sample_n, dtype=np.float64)
+    pick = np.clip(np.round(pick).astype(np.int64), 0, len(valid_frame_ids) - 1)
+    pick = np.unique(pick)
+    sample_ids = [valid_frame_ids[int(k)] for k in pick.tolist()]
+
+    ds = float(cfg.get("eval_downsample", 0.5))
+    Hs = max(8, int(round(float(H) * ds)))
+    Ws = max(8, int(round(float(W) * ds)))
+    sx = float(Ws) / float(W)
+    sy = float(Hs) / float(H)
+    K_eval = np.asarray(K_np, dtype=np.float32).copy()
+    K_eval[0, 0] *= sx
+    K_eval[0, 2] *= sx
+    K_eval[1, 1] *= sy
+    K_eval[1, 2] *= sy
+    outside_w = float(cfg.get("outside_weight", 2.0))
+    gt_masks_eval: dict[int, np.ndarray] = {}
+    for fj in sample_ids:
+        pm_i = int(name_to_pm[frames[fj]])
+        gt_m = (p_masks[pm_i] > 0).astype(np.uint8)
+        if Hs != H or Ws != W:
+            gt_m = cv2.resize(gt_m, (Ws, Hs), interpolation=cv2.INTER_NEAREST)
+        gt_masks_eval[fj] = (gt_m > 0)
+
+    def _eval_score(param_dict: dict) -> float:
+        cfg_eval = {"enabled": True}
+        cfg_eval.update(param_dict)
+        acc = 0.0
+        used = 0
+        for fj in sample_ids:
+            mesh_i = int(bind_mesh_indices[fj])
+            verts_raw = _load_mesh_np_raw(mesh_i)
+            verts_eval = apply_rigid_transform_np(verts_raw, cfg_eval) + bind_mesh_offset_np
+            pred = _rasterize_mesh_mask(
+                verts=verts_eval,
+                faces=bind_faces_np,
+                K=K_eval,
+                R=R_eval,
+                t=t_eval,
+                H=Hs,
+                W=Ws,
+            ) > 0
+            gt_m = gt_masks_eval[fj]
+            inter = float(np.logical_and(pred, gt_m).sum())
+            union = float(np.logical_or(pred, gt_m).sum())
+            iou = inter / (union + 1e-6)
+            pred_area = float(pred.sum())
+            outside = float(np.logical_and(pred, ~gt_m).sum()) / (pred_area + 1e-6)
+            acc += (iou - outside_w * outside)
+            used += 1
+        if used <= 0:
+            return -1e9
+        return float(acc / float(used))
+
+    def _eval_metrics(param_dict: dict) -> tuple[float, float, float]:
+        cfg_eval = {"enabled": True}
+        cfg_eval.update(param_dict)
+        iou_acc = 0.0
+        outside_acc = 0.0
+        score_acc = 0.0
+        used = 0
+        for fj in sample_ids:
+            mesh_i = int(bind_mesh_indices[fj])
+            verts_raw = _load_mesh_np_raw(mesh_i)
+            verts_eval = apply_rigid_transform_np(verts_raw, cfg_eval) + bind_mesh_offset_np
+            pred = _rasterize_mesh_mask(
+                verts=verts_eval,
+                faces=bind_faces_np,
+                K=K_eval,
+                R=R_eval,
+                t=t_eval,
+                H=Hs,
+                W=Ws,
+            ) > 0
+            gt_m = gt_masks_eval[fj]
+            inter = float(np.logical_and(pred, gt_m).sum())
+            union = float(np.logical_or(pred, gt_m).sum())
+            iou = inter / (union + 1e-6)
+            pred_area = float(pred.sum())
+            outside = float(np.logical_and(pred, ~gt_m).sum()) / (pred_area + 1e-6)
+            score = iou - outside_w * outside
+            iou_acc += iou
+            outside_acc += outside
+            score_acc += score
+            used += 1
+        if used <= 0:
+            return 0.0, 1.0, -1e9
+        n = float(used)
+        return float(iou_acc / n), float(outside_acc / n), float(score_acc / n)
+
+    init_params = {
+        "rx_deg": float(cfg.get("rx_deg", 0.0)),
+        "ry_deg": float(cfg.get("ry_deg", 0.0)),
+        "rz_deg": float(cfg.get("rz_deg", 0.0)),
+        "tx": float(cfg.get("tx", 0.0)),
+        "ty": float(cfg.get("ty", 0.0)),
+        "tz": float(cfg.get("tz", 0.0)),
+    }
+    best_params, score_before, score_after = coordinate_descent_rigid_search(
+        score_fn=_eval_score,
+        init_params=init_params,
+        rot_step_deg=float(cfg.get("rot_step_deg", 3.0)),
+        trans_step=tuple(cfg.get("trans_step", (0.04, 0.04, 0.06))),
+        levels=int(cfg.get("levels", 3)),
+        iters_per_level=int(cfg.get("iters_per_level", 2)),
+        max_rot_deg=float(cfg.get("max_rot_deg", 20.0)),
+        max_trans=tuple(cfg.get("max_trans", (0.35, 0.35, 0.45))),
+    )
+    iou_before, outside_before, _ = _eval_metrics(init_params)
+    iou_after, outside_after, _ = _eval_metrics(best_params)
+    logger.info(
+        "bind_rigid_align pre-stage2 auto: "
+        f"score {score_before:.4f}->{score_after:.4f}, "
+        f"iou {iou_before:.4f}->{iou_after:.4f}, "
+        f"outside {outside_before:.4f}->{outside_after:.4f}, "
+        f"rot=({best_params['rx_deg']:.3f},{best_params['ry_deg']:.3f},{best_params['rz_deg']:.3f})deg, "
+        f"trans=({best_params['tx']:.4f},{best_params['ty']:.4f},{best_params['tz']:.4f})"
+    )
+
+    report = {
+        "enabled": True,
+        "auto": True,
+        "pre_stage2": True,
+        "params": {k: float(v) for k, v in best_params.items()},
+        "score_before": float(score_before),
+        "score_after": float(score_after),
+        "iou_before": float(iou_before),
+        "iou_after": float(iou_after),
+        "outside_before": float(outside_before),
+        "outside_after": float(outside_after),
+        "sample_frames": [str(frames[i]) for i in sample_ids],
+        "person_masks_npz": str(pm_path),
+    }
+    report_path = out_dir / "bind_rigid_align_pre_stage2.json"
+    with report_path.open("w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    logger.info(f"Saved pre-stage2 rigid align report: {report_path}")
+
+    out_cfg = dict(cfg)
+    out_cfg.update(best_params)
+    out_cfg["enabled"] = True
+    out_cfg["auto"] = False  # already solved before training starts
+    return out_cfg
 
 
 def main():
@@ -38,7 +468,12 @@ def main():
     init_mesh_cfg = str(stage2_cfg.get("init_mesh_obj", "smpl_mesh_tpose.obj"))
     mesh_obj = Path(init_mesh_cfg)
     if not mesh_obj.is_absolute():
-        mesh_obj = stage1_dir / mesh_obj
+        # Prefer project-root relative path, fallback to stage1_dir relative path.
+        mesh_obj_project = project_root / mesh_obj
+        if mesh_obj_project.exists():
+            mesh_obj = mesh_obj_project
+        else:
+            mesh_obj = stage1_dir / mesh_obj
     if not mesh_obj.exists():
         fallback_mesh = None
         for cand in (stage1_dir / "smpl_mesh_tpose.obj", stage1_dir / "smpl_mesh.obj"):
@@ -58,6 +493,10 @@ def main():
     n_frames = int(stage2_cfg.get("n_frames", 20))
 
     if "h36m" in cfg.get("data", {}):
+        if resolve_h36m_image_paths is None:
+            raise ModuleNotFoundError(
+                "data.h36m config is provided, but avatar_gs.data.h36m is unavailable."
+            )
         paths = resolve_h36m_image_paths(project_root=project_root, data_cfg=cfg["data"])
         # Use the actual image root to load files by name.
         frames_dir = paths[0].parent
@@ -74,8 +513,19 @@ def main():
     elif frame_select == "last_k":
         k = max(1, int(n_frames))
         frames = frames[-k:]
+    elif frame_select == "uniform_k":
+        k = max(1, int(n_frames))
+        if k >= len(frames):
+            picked_idx = np.arange(len(frames), dtype=np.int64)
+        else:
+            idx = np.linspace(0, len(frames) - 1, num=k, dtype=np.float64)
+            idx = np.clip(np.round(idx).astype(np.int64), 0, len(frames) - 1)
+            picked_idx = np.unique(idx)
+        frames = [frames[int(i)] for i in picked_idx.tolist()]
     elif frame_select == "indices":
         indices = stage2_cfg.get("frame_indices", [])
+        if isinstance(indices, (int, np.integer, float, np.floating, str)):
+            indices = [indices]
         if not isinstance(indices, (list, tuple)) or len(indices) == 0:
             raise ValueError("frame_select=indices but frame_indices is empty.")
         picked = []
@@ -87,10 +537,12 @@ def main():
                 raise IndexError(f"frame index out of range: {idx}")
             picked.append(frames[i])
         frames = picked
-    else:
+    elif frame_select == "first":
         # default: first N frames
         if n_frames > 0:
             frames = frames[:n_frames]
+    else:
+        raise ValueError(f"Unsupported frame_select: {frame_select}. Use first|last|last_k|uniform_k|indices")
 
     logger.info(f"Mesh: {mesh_obj}")
     logger.info(f"Frames: {len(frames)} used for training")
@@ -139,6 +591,7 @@ def main():
     bind_mesh_indices = None
     bind_seq_npz_path = None
     bind_vertices_npz_path = None
+    bind_tpose_obj_path = None
     if bind_to_mesh:
         if g.bind_idx is None:
             raise RuntimeError("bind_to_mesh=true but gaussians have no bind_idx.")
@@ -150,21 +603,30 @@ def main():
                 "Run stage1 with stage1.export_meshes=true to generate smpl_mesh_sequence."
             )
 
-        seq_npz = stage1_dir / "smpl_params_sequence.npz"
-        bind_seq_npz_path = seq_npz
-        if not seq_npz.exists():
+        seq_npz_cfg = cfg["stage2"].get("bind_sequence_npz", str(stage1_dir / "smpl_params_sequence.npz"))
+        bind_seq_npz_path = _resolve_project_path(project_root, seq_npz_cfg)
+        if bind_seq_npz_path is None or (not bind_seq_npz_path.exists()):
             raise FileNotFoundError(
-                f"Missing {seq_npz}. Required to map frame names to mesh indices for binding."
+                f"Missing bind sequence npz: {bind_seq_npz_path}. "
+                "Required to map frame names to mesh indices for binding."
             )
-        verts_npz = stage1_dir / "smpl_vertices_sequence.npz"
-        if verts_npz.exists():
+        verts_npz_cfg = cfg["stage2"].get("bind_vertices_npz", str(stage1_dir / "smpl_vertices_sequence.npz"))
+        verts_npz = _resolve_project_path(project_root, verts_npz_cfg)
+        if verts_npz is not None and verts_npz.exists():
             bind_vertices_npz_path = verts_npz
             logger.info(f"Using dynamic bind vertices from: {bind_vertices_npz_path}")
         else:
             logger.warning(
                 f"Missing {verts_npz}; binding will fall back to OBJ sequence only."
             )
-        seq = np.load(seq_npz, allow_pickle=True)
+        tpose_obj_cfg = cfg["stage2"].get("bind_tpose_obj", str(stage1_dir / "smpl_mesh_tpose.obj"))
+        tpose_obj_path = _resolve_project_path(project_root, tpose_obj_cfg)
+        if tpose_obj_path is not None and tpose_obj_path.exists():
+            bind_tpose_obj_path = tpose_obj_path
+        else:
+            logger.warning(f"bind_tpose_obj not found: {tpose_obj_path}. Render will use fallback.")
+
+        seq = np.load(bind_seq_npz_path, allow_pickle=True)
         seq_names = [str(x) for x in seq["frame_names"].tolist()]
         name_to_idx = {n: i for i, n in enumerate(seq_names)}
 
@@ -241,6 +703,32 @@ def main():
         )
         cam_t_prior = (0.0, 0.0, 0.0)
 
+    bind_rigid_align_for_train = cfg["stage2"].get("bind_rigid_align", None)
+    try:
+        bind_rigid_align_for_train = _maybe_pre_stage2_rigid_align(
+            project_root=project_root,
+            stage2_cfg=stage2_cfg,
+            frames_dir=frames_dir,
+            frames=frames,
+            K_list=cam["K"],
+            bind_mesh_dir=bind_mesh_dir,
+            bind_mesh_indices=bind_mesh_indices,
+            bind_seq_npz_path=bind_seq_npz_path,
+            bind_vertices_npz_path=bind_vertices_npz_path,
+            cam_t_prior=cam_t_prior,
+            out_dir=out_dir,
+            logger=logger,
+        )
+    except Exception as e:
+        logger.warning(
+            "bind_rigid_align pre-stage2 failed (%s); fallback to in-train align.",
+            str(e),
+        )
+        bind_rigid_align_for_train = cfg["stage2"].get("bind_rigid_align", None)
+
+    if bind_rigid_align_for_train is not None:
+        cfg["stage2"]["bind_rigid_align_effective"] = bind_rigid_align_for_train
+
     ckpt_path = out_dir / "gaussians3d.pt"
     train_gaussians_3d_learnable_camera(
         g=g,
@@ -266,6 +754,7 @@ def main():
         face_weight=float(cfg["stage2"].get("face_weight", 1.0)),
         face_conf_min=float(cfg["stage2"].get("face_conf_min", 0.3)),
         face_box_pad=float(cfg["stage2"].get("face_box_pad", 0.2)),
+        face_use_ears=bool(cfg["stage2"].get("face_use_ears", False)),
         frame_weights=frame_weights,
         frame_loss_weights=frame_loss_weights,
         temporal_ref_window=int(cfg["stage2"].get("temporal_ref_window", 0)),
@@ -277,9 +766,16 @@ def main():
         bind_cache_size=int(cfg["stage2"].get("bind_cache_size", 8)),
         bind_seq_npz=str(bind_seq_npz_path) if bind_seq_npz_path is not None else None,
         bind_vertices_npz=str(bind_vertices_npz_path) if bind_vertices_npz_path is not None else None,
+        bind_tpose_obj=str(bind_tpose_obj_path) if bind_tpose_obj_path is not None else None,
         bind_mesh_to_camera=bool(cfg["stage2"].get("bind_mesh_to_camera", False)),
         bind_inverse_export_upright=bool(cfg["stage2"].get("bind_inverse_export_upright", True)),
+        bind_mesh_obj_space=str(cfg["stage2"].get("bind_mesh_obj_space", "auto")),
+        bind_align_quat_to_mesh_normals=bool(cfg["stage2"].get("bind_align_quat_to_mesh_normals", True)),
+        bind_quat_normal_blend=float(cfg["stage2"].get("bind_quat_normal_blend", 1.0)),
+        bind_surface_aniso_weight=float(cfg["stage2"].get("bind_surface_aniso_weight", 0.0)),
+        bind_surface_aniso_margin=float(cfg["stage2"].get("bind_surface_aniso_margin", 0.15)),
         bind_mesh_offset=tuple(cfg["stage2"].get("bind_mesh_offset", (0.0, 0.0, 0.0))),
+        bind_rigid_align=bind_rigid_align_for_train,
         use_smpl_silhouette_mask=bool(cfg["stage2"].get("use_smpl_silhouette_mask", False)),
         smpl_mask_dilate_px=int(cfg["stage2"].get("smpl_mask_dilate_px", 0)),
         smpl_mask_erode_px=int(cfg["stage2"].get("smpl_mask_erode_px", 0)),
@@ -288,6 +784,14 @@ def main():
         smpl_mask_override_alpha=bool(cfg["stage2"].get("smpl_mask_override_alpha", True)),
         smpl_mask_precompute=bool(cfg["stage2"].get("smpl_mask_precompute", True)),
         smpl_mask_precompute_max_frames=int(cfg["stage2"].get("smpl_mask_precompute_max_frames", 64)),
+        person_masks_npz=cfg["stage2"].get("person_masks_npz", str(stage1_dir / "person_masks.npz")),
+        use_person_mask=bool(cfg["stage2"].get("use_person_mask", False)),
+        person_mask_dilate_px=int(cfg["stage2"].get("person_mask_dilate_px", 0)),
+        person_mask_erode_px=int(cfg["stage2"].get("person_mask_erode_px", 0)),
+        person_mask_fuse_mode=str(cfg["stage2"].get("person_mask_fuse_mode", "intersect")),
+        separate_fg_bg_training=bool(cfg["stage2"].get("separate_fg_bg_training", False)),
+        fg_region_weight=float(cfg["stage2"].get("fg_region_weight", 1.0)),
+        bg_region_weight=float(cfg["stage2"].get("bg_region_weight", 1.0)),
         bg_grad_scale=float(cfg["stage2"].get("bg_grad_scale", 1.0)),
         bg_opacity_logit_max=cfg["stage2"].get("bg_opacity_logit_max", None),
         bg_log_scale_min=cfg["stage2"].get("bg_log_scale_min", None),
@@ -295,6 +799,11 @@ def main():
         fg_opacity_logit_max=cfg["stage2"].get("fg_opacity_logit_max", None),
         fg_log_scale_min=cfg["stage2"].get("fg_log_scale_min", None),
         fg_log_scale_max=cfg["stage2"].get("fg_log_scale_max", None),
+        early_stop_enable=bool(cfg["stage2"].get("early_stop_enable", False)),
+        early_stop_patience=int(cfg["stage2"].get("early_stop_patience", 0)),
+        early_stop_min_delta=float(cfg["stage2"].get("early_stop_min_delta", 0.0)),
+        early_stop_warmup_iters=int(cfg["stage2"].get("early_stop_warmup_iters", 0)),
+        binding=cfg["stage2"].get("binding", None),
     )
 
     logger.info(f"Saved checkpoint: {ckpt_path}")
@@ -303,3 +812,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
