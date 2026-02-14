@@ -8,7 +8,7 @@ import cv2
 import torch
 import numpy as np
 import scipy.signal as signal
-from progress.bar import Bar
+from tqdm import tqdm
 from scipy.ndimage.filters import gaussian_filter1d
 
 from configs import constants as _C
@@ -43,7 +43,7 @@ class FeatureExtractor(object):
             height, width = cv2.imread(video[0]).shape[:2]
         
         frame_id = 0
-        bar = Bar('Feature extraction ...', fill='#', max=length)
+        pbar = tqdm(total=length, desc='Feature extraction', unit='frame')
         while True:
             if is_video:
                 flag, img = cap.read()
@@ -83,9 +83,10 @@ class FeatureExtractor(object):
                     if frame_id2 == 0:
                         tracking_results = self.predict_init(torch.flip(norm_img, (3, )), tracking_results, _id, flip_eval=True)
                     
-            bar.next()
+            pbar.update(1)
             frame_id += 1
         
+        pbar.close()
         return self.process(tracking_results)
     
     def predict_init(self, norm_img, tracking_results, _id, flip_eval=False):

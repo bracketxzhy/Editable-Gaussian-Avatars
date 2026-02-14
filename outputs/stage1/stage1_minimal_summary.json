@@ -1,10 +1,8 @@
 {
   "stage1_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1",
   "frame_name": "000756.jpg",
-  "smpl_mesh_tpose_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smpl_mesh_tpose.obj",
-  "frame_tpose_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\000756_t-pose.obj",
-  "smpl_mesh_sequence_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smpl_mesh_sequence\\000756.obj",
-  "frame_sequence_obj_en_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\sequence\\000756.obj",
+  "tpose_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\000756_t-pose.obj",
+  "sequence_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\sequence\\000756.obj",
   "removed_intermediates": {
     "wham": true,
     "pymaf": true,
