@@ -1,11 +1,19 @@
+# ------------------------------
+# Keep as many project files as possible.
+# Only ignore local/cache files and files that exceed GitHub 100MB limit.
+# ------------------------------
+
 # ---- OS / IDE ----
 .DS_Store
 Thumbs.db
 *.swp
+*.swo
+
+# ---- Editor local state (safe to regenerate) ----
 .vscode/
 .idea/
 
-# ---- Python ----
+# ---- Python cache/build ----
 __pycache__/
 *.py[cod]
 *.pyd
@@ -18,51 +26,23 @@ build/
 pip-wheel-metadata/
 .pytest_cache/
 .mypy_cache/
-ruff_cache/
+.ruff_cache/
 
-# ---- Envs ----
+# ---- Virtual environments / local secrets ----
 .venv/
 venv/
 env/
 .conda/
 *.conda
-*.env
+.env
+.env.*
 
-# ---- Data / outputs----
-data/
-outputs/
-
-# ---- Logs ----
+# ---- Logs / temp ----
 *.log
-outputs/logs/
-
-# ---- Large artifacts ----
-*.pt
-*.pth
-*.ckpt
-*.npz
-*.npy
-*.png
-*.jpg
-*.jpeg
-*.mp4
-*.avi
-*.mov
-*.mkv
-*.pkl
-*.tar
-
-# ---- Temporary ----
 *.tmp
 *.cache
-*.zip
 
-LHM-main/
-
-CAR-master/
-gaussian-mesh-splatting/
-PyMAF-X-smplx/
-WHAM-main/
-
-Liao 等 - 2023 - High-Fidelity Clothed Avatar Reconstruction from a Single Image.pdf
-Qiu 等 - 2025 - LHM Large Animatable Human Reconstruction Model from a Single Image in Seconds.pdf
+# ---- Files over GitHub hard limit (>100MB) ----
+assets/smplx/SMPLX_FEMALE.npz
+assets/smplx/SMPLX_MALE.npz
+assets/smplx/SMPLX_NEUTRAL.npz
