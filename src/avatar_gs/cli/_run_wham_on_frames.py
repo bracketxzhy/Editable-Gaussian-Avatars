@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import os
@@ -59,10 +59,23 @@ def _make_temp_video(frames: list[Path], fps: float) -> tuple[Path, Path]:
 
 
 def _run_wham_api(video_path: Path, output_dir: Path, wham_repo_dir: Path, run_global: bool) -> None:
-    # WHAM imports use repository-relative modules and config paths.
-    sys.path.insert(0, str(wham_repo_dir))
+    # WHAM imports use top-level modules like `lib.*`.
+    # Our project also has `src/lib`, so isolate import path to avoid module collisions.
     prev_cwd = Path.cwd()
+    prev_sys_path = list(sys.path)
+    src_root = Path(__file__).resolve().parents[2]
+
     try:
+        sys.path = [
+            p for p in sys.path
+            if Path(p or ".").resolve() != src_root.resolve()
+        ]
+        sys.path.insert(0, str(wham_repo_dir))
+
+        for name in list(sys.modules.keys()):
+            if name == "lib" or name.startswith("lib."):
+                sys.modules.pop(name, None)
+
         os.chdir(str(wham_repo_dir))
         from wham_api import WHAM_API  # pylint: disable=import-outside-toplevel
 
@@ -75,6 +88,7 @@ def _run_wham_api(video_path: Path, output_dir: Path, wham_repo_dir: Path, run_g
         )
     finally:
         os.chdir(str(prev_cwd))
+        sys.path = prev_sys_path
 
     output_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(results, output_dir / "wham_results.pth")
@@ -130,3 +144,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -18,7 +18,7 @@
    - render `real`, `fg_only`, `t-pose`, novel views, and edited motions
 
 Notes:
-- `stage1_fit_smpl` is legacy VIBE-style entry. In this repo state, `stage1_vibe` backend is not available, so prefer `stage1_fit_wham_pymaf`.
+- Stage1 is WHAM+PyMAF only in the current repository.
 
 ---
 
@@ -49,8 +49,6 @@ Notes:
   - frame extraction settings
 - `configs/stage1_wham_pymaf.yaml`
   - stage1 WHAM+PyMAF settings
-- `configs/stage1_smplfit.yaml`
-  - legacy stage1 config (VIBE path)
 - `configs/stage2_gaussian.yaml`
   - stage2 gaussian training settings
 - `configs/render.yaml`
@@ -99,7 +97,6 @@ Notes:
 
 - `preprocess_video.py`
 - `stage1_fit_wham_pymaf.py` (default stage1)
-- `stage1_fit_smpl.py` (legacy)
 - `stage2_train_gaussian.py`
 - `render.py`
 - `edit.py`
@@ -188,3 +185,5 @@ python -m avatar_gs.cli.render --config configs/render.yaml
 - Keep inputs under `data/`.
 - Stage chaining should always be explicit via config/override paths.
 - If unsure, prefer `stage1_fit_wham_pymaf` for stage1.
+
+

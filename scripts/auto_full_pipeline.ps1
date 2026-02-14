@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [int]$WaitIntervalSec = 30,
     [int]$MaxRounds = 2
@@ -10,7 +10,7 @@ function Get-AvatarGsRuns {
     Get-CimInstance Win32_Process |
         Where-Object {
             $_.Name -eq "python.exe" -and
-            $_.CommandLine -match "avatar_gs\.cli\.(stage1_fit_smpl|stage2_train_gaussian|render)"
+            $_.CommandLine -match "avatar_gs\.cli\.(stage1_fit_wham_pymaf|stage2_train_gaussian|render)"
         }
 }
 
@@ -46,7 +46,7 @@ while ($true) {
 Log "No running avatar_gs task detected. Starting full pipeline."
 
 Log "Stage1 start"
-python -m avatar_gs.cli.stage1_fit_smpl --config configs/stage1_smplfit.yaml 2>&1 |
+python -m avatar_gs.cli.stage1_fit_wham_pymaf --project_root . --frames_dir data/frames/input --assets_dir assets --out_dir outputs/stage1 --pymaf_frame_indices -1 --single_person 2>&1 |
     Tee-Object -FilePath $logFile -Append | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "Stage1 failed with exit code $LASTEXITCODE"
@@ -240,3 +240,5 @@ if ($bestRound -ge 1 -and $null -ne $bestCkptBytes -and $null -ne $bestRenderByt
 Log "All rounds completed. BestRound=$bestRound BestPSNR=$bestPsnr"
 Log "BestScore=$bestScore"
 Log "Artifacts kept with original names: outputs/stage2/gaussians3d.pt and outputs/renders/fg_only/000000.png"
+
+

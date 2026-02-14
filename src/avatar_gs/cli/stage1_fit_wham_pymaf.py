@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -67,15 +67,41 @@ def _prepare_runtime_wham_assets(assets_dir: Path, runtime_root: Path) -> Path:
     smpl_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    smpl_maps = [
+    # WHAM uses smplx.SMPL, which expects pkl model files under body_models/smpl/.
+    smpl_pkl_maps = [
+        (["SMPL_NEUTRAL.pkl", "SMPL_N_model.pkl"], "SMPL_NEUTRAL.pkl"),
+        (["SMPL_MALE.pkl", "SMPL_M_model.pkl"], "SMPL_MALE.pkl"),
+        (["SMPL_FEMALE.pkl", "SMPL_F_model.pkl"], "SMPL_FEMALE.pkl"),
+    ]
+    missing_smpl_pkls: list[str] = []
+    for src_names, dst_name in smpl_pkl_maps:
+        src = None
+        for src_name in src_names:
+            cand = assets_dir / "smpl" / src_name
+            if cand.exists():
+                src = cand
+                break
+        if src is None:
+            missing_smpl_pkls.append(dst_name)
+            continue
+        _ensure_link_or_copy(src, smpl_dir / dst_name)
+
+    # Keep legacy npz links if present (used by some auxiliary tools).
+    legacy_npz_maps = [
         ("SMPL_N_model.npz", "SMPL_NEUTRAL.npz"),
         ("SMPL_M_model.npz", "SMPL_MALE.npz"),
         ("SMPL_F_model.npz", "SMPL_FEMALE.npz"),
     ]
-    for src_name, dst_name in smpl_maps:
+    for src_name, dst_name in legacy_npz_maps:
         src = assets_dir / "smpl" / src_name
         if src.exists():
             _ensure_link_or_copy(src, smpl_dir / dst_name)
+
+    if len(missing_smpl_pkls) > 0:
+        raise FileNotFoundError(
+            "WHAM requires SMPL pkl files under assets/smpl. Missing: "
+            + ", ".join(missing_smpl_pkls)
+        )
 
     aux_files = [
         "J_regressor_wham.npy",
@@ -379,6 +405,11 @@ def _check_stage1_requirements(assets_dir: Path, wham_dir: Path, pymaf_dir: Path
         if _find_first_file(assets_dir, name) is None:
             missing["wham"].append(name)
 
+    # Required by WHAM body model loader (smplx.SMPL)
+    for name in ["SMPL_NEUTRAL.pkl", "SMPL_MALE.pkl", "SMPL_FEMALE.pkl"]:
+        if _find_first_file(assets_dir, name) is None:
+            missing["wham"].append(name)
+
     if _find_any_file(assets_dir, ["PyMAF-X_model_checkpoint_v1.1.pt", "PyMAF*.pt", "*pymaf*.pt"]) is None:
         missing["pymaf"].append("PyMAF-X_model_checkpoint_v1.1.pt")
 
@@ -657,4 +688,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
 

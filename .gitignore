@@ -60,3 +60,9 @@ third_party/PyMAF-X/data/smpl/SMPLX_NEUTRAL_2020.npz
 *.pth
 *.pt
 *.pth.tar
+*.pkl
+# Local recoverable deletions
+
+
+
+src/avatar_gs/cli/_perm_test.tmp

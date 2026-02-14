@@ -1,4 +1,4 @@
-project_root: .
+﻿project_root: .
 seed: 42
 log_dir: outputs/logs
 
@@ -7,7 +7,7 @@ data:
 
 stage1_wham_pymaf:
   assets_dir: assets
-  out_dir: outputs/stage1_wham_pymaf
+  out_dir: outputs/stage1
   fps: 30.0
   pymaf_frame_indices: -1
   single_person: true
@@ -22,3 +22,4 @@ stage1_wham_pymaf:
   vitpose_ckpt: ""
   yolo_ckpt: ""
   hmr2_ckpt: ""
+
