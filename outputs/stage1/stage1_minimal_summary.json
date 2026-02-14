@@ -4,11 +4,11 @@
   "smpl_mesh_tpose_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smpl_mesh_tpose.obj",
   "frame_tpose_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\000756_t-pose.obj",
   "smpl_mesh_sequence_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smpl_mesh_sequence\\000756.obj",
-  "frame_sequence_obj_cn_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\\u65f6\u5e8f\\000756.obj",
-  "pruned_to_trash": {
-    "wham": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\trash\\stage1_pruned_20260215_021551_wham\\wham",
-    "pymaf": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\trash\\stage1_pruned_20260215_021551_pymaf\\pymaf",
-    "runtime": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\trash\\stage1_pruned_20260215_021551_runtime\\runtime",
-    "final": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\trash\\stage1_pruned_20260215_021556_final\\final"
+  "frame_sequence_obj_en_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\sequence\\000756.obj",
+  "removed_intermediates": {
+    "wham": true,
+    "pymaf": true,
+    "runtime": true,
+    "final": true
   }
 }

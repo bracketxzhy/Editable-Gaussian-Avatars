@@ -1879,11 +1879,15 @@ def main():
             else:
                 tpose_mesh_cfg = render_cfg.get(
                     "tpose_mesh_obj",
-                    ckpt.get("bind_tpose_obj", "outputs/stage1/smpl_mesh_tpose.obj"),
+                    ckpt.get("bind_tpose_obj", ""),
                 )
                 tpose_mesh_obj = Path(resolve_path(str(tpose_mesh_cfg)))
                 if not tpose_mesh_obj.is_absolute():
                     tpose_mesh_obj = project_root / tpose_mesh_obj
+                if (not str(tpose_mesh_cfg).strip()) or (not tpose_mesh_obj.exists()):
+                    cands = sorted((project_root / "outputs/stage1").glob("*_t-pose.obj"))
+                    if len(cands) > 0:
+                        tpose_mesh_obj = cands[-1]
                 if not tpose_mesh_obj.exists():
                     raise FileNotFoundError(f"T-pose mesh not found: {tpose_mesh_obj}")
 

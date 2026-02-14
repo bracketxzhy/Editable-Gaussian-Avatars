@@ -1,4 +1,4 @@
-project_root: .
+﻿project_root: .
 seed: 42
 log_dir: outputs/logs
 
@@ -18,7 +18,7 @@ data:
 stage2:
   stage1_dir: outputs/stage1
   out_dir: outputs/stage2
-  init_mesh_obj: smpl_mesh_tpose.obj
+  init_mesh_obj: ""
   enable_tf32: true
   cudnn_benchmark: true
 
@@ -73,9 +73,9 @@ stage2:
   temporal_ref_decay: 0.86
 
   # ---------- Dynamic binding to SMPL mesh sequence ----------
-  # Require stage1.export_meshes=true to generate outputs/stage1/smpl_mesh_sequence
+  # Require stage1.export_meshes=true to generate outputs/stage1/sequence
   bind_to_mesh: true
-  bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
+  bind_mesh_sequence_dir: outputs/stage1/sequence
   bind_cache_size: 32
   # auto: detect mesh OBJ coordinate space from stage1 metadata.
   bind_mesh_obj_space: auto
@@ -176,7 +176,7 @@ render:
   smpl_skeleton_line_thickness: 2
   smpl_skeleton_joint_radius: 3
   use_gt_background: false
-  bind_mesh_sequence_dir: outputs/stage1/smpl_mesh_sequence
+  bind_mesh_sequence_dir: outputs/stage1/sequence
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
   bind_mesh_obj_space: auto
   tpose_mesh_obj_space: auto
@@ -185,3 +185,4 @@ render:
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset: [0.0, 0.0, 0.0]
+

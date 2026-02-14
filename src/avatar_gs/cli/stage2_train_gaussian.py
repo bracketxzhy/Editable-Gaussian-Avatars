@@ -465,7 +465,7 @@ def main():
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = bool(stage2_cfg.get("cudnn_benchmark", True))
 
-    init_mesh_cfg = str(stage2_cfg.get("init_mesh_obj", "smpl_mesh_tpose.obj"))
+    init_mesh_cfg = str(stage2_cfg.get("init_mesh_obj", ""))
     mesh_obj = Path(init_mesh_cfg)
     if not mesh_obj.is_absolute():
         # Prefer project-root relative path, fallback to stage1_dir relative path.
@@ -474,16 +474,20 @@ def main():
             mesh_obj = mesh_obj_project
         else:
             mesh_obj = stage1_dir / mesh_obj
-    if not mesh_obj.exists():
+    if (not str(init_mesh_cfg).strip()) or (not mesh_obj.exists()):
         fallback_mesh = None
-        for cand in (stage1_dir / "smpl_mesh_tpose.obj", stage1_dir / "smpl_mesh.obj"):
-            if cand.exists():
-                fallback_mesh = cand
-                break
+        tpose_cands = sorted(stage1_dir.glob("*_t-pose.obj"))
+        if len(tpose_cands) > 0:
+            fallback_mesh = tpose_cands[-1]
+        else:
+            for cand in (stage1_dir / "smpl_mesh_tpose.obj", stage1_dir / "smpl_mesh.obj"):
+                if cand.exists():
+                    fallback_mesh = cand
+                    break
         if fallback_mesh is None:
             raise FileNotFoundError(
                 f"init mesh not found: {mesh_obj}. "
-                f"Checked fallback: {stage1_dir / 'smpl_mesh_tpose.obj'} and {stage1_dir / 'smpl_mesh.obj'}."
+                f"Checked fallback: {stage1_dir / '*_t-pose.obj'}, {stage1_dir / 'smpl_mesh_tpose.obj'} and {stage1_dir / 'smpl_mesh.obj'}."
             )
         mesh_obj = fallback_mesh
 
@@ -595,12 +599,12 @@ def main():
     if bind_to_mesh:
         if g.bind_idx is None:
             raise RuntimeError("bind_to_mesh=true but gaussians have no bind_idx.")
-        bind_mesh_dir_cfg = cfg["stage2"].get("bind_mesh_sequence_dir", str(stage1_dir / "smpl_mesh_sequence"))
+        bind_mesh_dir_cfg = cfg["stage2"].get("bind_mesh_sequence_dir", str(stage1_dir / "sequence"))
         bind_mesh_dir = project_root / Path(bind_mesh_dir_cfg)
         if not bind_mesh_dir.exists():
             raise FileNotFoundError(
                 f"bind_mesh_sequence_dir not found: {bind_mesh_dir}. "
-                "Run stage1 with stage1.export_meshes=true to generate smpl_mesh_sequence."
+                "Run stage1 to generate outputs/stage1/sequence."
             )
 
         seq_npz_cfg = cfg["stage2"].get("bind_sequence_npz", str(stage1_dir / "smpl_params_sequence.npz"))
@@ -619,7 +623,7 @@ def main():
             logger.warning(
                 f"Missing {verts_npz}; binding will fall back to OBJ sequence only."
             )
-        tpose_obj_cfg = cfg["stage2"].get("bind_tpose_obj", str(stage1_dir / "smpl_mesh_tpose.obj"))
+        tpose_obj_cfg = cfg["stage2"].get("bind_tpose_obj", str(mesh_obj))
         tpose_obj_path = _resolve_project_path(project_root, tpose_obj_cfg)
         if tpose_obj_path is not None and tpose_obj_path.exists():
             bind_tpose_obj_path = tpose_obj_path
@@ -682,7 +686,7 @@ def main():
             missing_mesh = [mi for mi in bind_mesh_indices if mi not in avail_set]
             if len(missing_mesh) > 0:
                 logger.warning(
-                    "Some bind mesh indices are missing from smpl_mesh_sequence; "
+                    "Some bind mesh indices are missing from sequence; "
                     f"falling back to mesh {fallback_idx:06d}.obj for {len(missing_mesh)} frames."
                 )
                 bind_mesh_indices = [mi if mi in avail_set else fallback_idx for mi in bind_mesh_indices]

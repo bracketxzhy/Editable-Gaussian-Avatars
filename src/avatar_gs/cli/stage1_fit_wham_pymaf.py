@@ -444,10 +444,10 @@ def _save_obj(path: Path, verts: np.ndarray, faces: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         for v in verts:
-            f.write(f"v {float(v[0]):.7f} {float(v[1]):.7f} {float(v[2]):.7f}\\n")
+            f.write(f"v {float(v[0]):.7f} {float(v[1]):.7f} {float(v[2]):.7f}\n")
         f1 = faces.astype(np.int64) + 1
         for tri in f1:
-            f.write(f"f {int(tri[0])} {int(tri[1])} {int(tri[2])}\\n")
+            f.write(f"f {int(tri[0])} {int(tri[1])} {int(tri[2])}\n")
 
 
 def _load_faces_from_npz(npz_path: Path) -> np.ndarray:
@@ -557,17 +557,17 @@ def _check_stage1_requirements(assets_dir: Path, wham_dir: Path, pymaf_dir: Path
     return missing
 
 
-def _move_path_to_trash(path: Path, project_root: Path, tag: str) -> Path | None:
+def _remove_path_tree(path: Path) -> bool:
     if not path.exists():
-        return None
-    trash_root = project_root / 'trash' / f'stage1_pruned_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{tag}'
-    trash_root.mkdir(parents=True, exist_ok=True)
-    dst = trash_root / path.name
+        return True
     try:
-        shutil.move(str(path), str(dst))
-        return dst
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        return True
     except Exception:
-        return None
+        return False
 
 
 
@@ -590,7 +590,7 @@ def main() -> None:
     parser.add_argument("--skip_pymaf", action="store_true", help="Skip PyMAF stage")
     parser.add_argument("--wham_repo_dir", type=str, default="third_party/WHAM", help="WHAM repo dir")
     parser.add_argument("--pymaf_repo_dir", type=str, default="third_party/PyMAF-X", help="PyMAF-X repo dir")
-    parser.add_argument("--minimal_stage1_outputs", action="store_true", help="Keep only t-pose obj and selected-frame sequence obj; move intermediates to trash")
+    parser.add_argument("--minimal_stage1_outputs", action="store_true", help="Keep only t-pose obj and selected-frame sequence obj; delete intermediates")
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
@@ -820,36 +820,27 @@ def main() -> None:
     with (final_out / "run_summary.json").open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
-    # Canonical stage1 mesh outputs used by downstream stage2 binding pipelines.
+    # Canonical stage1 mesh outputs (single naming scheme).
     frame_stem = Path(mesh_res.frame_name).stem
-    stage1_tpose_obj = out_dir / "smpl_mesh_tpose.obj"
-    stage1_tpose_named_obj = out_dir / f"{frame_stem}_t-pose.obj"
-    stage1_seq_dir = out_dir / "smpl_mesh_sequence"
-    stage1_seq_dir_cn = out_dir / "sequence"
+    stage1_tpose_obj = out_dir / f"{frame_stem}_t-pose.obj"
+    stage1_seq_dir = out_dir / "sequence"
     stage1_seq_dir.mkdir(parents=True, exist_ok=True)
-    stage1_seq_dir_cn.mkdir(parents=True, exist_ok=True)
     seq_obj_path = stage1_seq_dir / f"{frame_stem}.obj"
-    seq_obj_cn_path = stage1_seq_dir_cn / f"{frame_stem}.obj"
     _save_obj(stage1_tpose_obj, verts_cam, mesh_res.faces)
-    _save_obj(stage1_tpose_named_obj, verts_cam, mesh_res.faces)
     _save_obj(seq_obj_path, verts_cam, mesh_res.faces)
-    _save_obj(seq_obj_cn_path, verts_cam, mesh_res.faces)
 
     if bool(args.minimal_stage1_outputs):
-        moved = {}
-        # Keep only canonical objs in stage1 root; move bulky/intermediate outputs to trash (recoverable).
+        removed = {}
+        # Keep only canonical objs in stage1 root; delete bulky/intermediate outputs.
         for tag, pp in [('wham', wham_out), ('pymaf', pymaf_out), ('runtime', runtime_out), ('final', final_out)]:
-            dst = _move_path_to_trash(pp, project_root=project_root, tag=tag)
-            moved[tag] = (None if dst is None else str(dst))
+            removed[tag] = bool(_remove_path_tree(pp))
 
         compact_summary = {
             'stage1_dir': str(out_dir),
             'frame_name': mesh_res.frame_name,
-            'smpl_mesh_tpose_obj': str(stage1_tpose_obj),
-            'frame_tpose_obj': str(stage1_tpose_named_obj),
-            'smpl_mesh_sequence_obj': str(seq_obj_path),
-            'frame_sequence_obj_en_dir': str(seq_obj_cn_path),
-            'pruned_to_trash': moved,
+            'tpose_obj': str(stage1_tpose_obj),
+                        'sequence_obj': str(seq_obj_path),
+                        'removed_intermediates': removed,
         }
         with (out_dir / 'stage1_minimal_summary.json').open('w', encoding='utf-8') as f:
             json.dump(compact_summary, f, indent=2)
