@@ -17,6 +17,7 @@ from .backbone.utils import process_image
 from ...utils.imutils import flip_kp, flip_bbox
 
 ROOT_DIR = osp.abspath(f"{__file__}/../../../../")
+CHECKPOINT_DIR = os.environ.get("WHAM_CHECKPOINT_DIR", osp.join(ROOT_DIR, "checkpoints"))
 
 class FeatureExtractor(object):
     def __init__(self, device, flip_eval=False, max_batch_size=64):
@@ -25,7 +26,7 @@ class FeatureExtractor(object):
         self.flip_eval = flip_eval
         self.max_batch_size = max_batch_size
         
-        ckpt = osp.join(ROOT_DIR, 'checkpoints', 'hmr2a.ckpt')
+        ckpt = osp.join(CHECKPOINT_DIR, 'hmr2a.ckpt')
         self.model = hmr2(ckpt).to(device).eval()
     
     def run(self, video, tracking_results, patch_h=256, patch_w=256):

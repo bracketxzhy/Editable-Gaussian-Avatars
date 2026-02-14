@@ -216,10 +216,12 @@ def run_demo(args):
 
     model.eval()
 
-    smpl2limb_vert_faces = get_partial_smpl(args.render_model)
-
-    smpl2part = smpl2limb_vert_faces[args.render_part]['vids']
-    part_faces = smpl2limb_vert_faces[args.render_part]['faces']
+    smpl2part = None
+    part_faces = None
+    if not args.no_render:
+        smpl2limb_vert_faces = get_partial_smpl(args.render_model)
+        smpl2part = smpl2limb_vert_faces[args.render_part]['vids']
+        part_faces = smpl2limb_vert_faces[args.render_part]['faces']
 
     # ========= Run pred on each person ========= #
     if args.recon_result_file:
@@ -602,3 +604,4 @@ if __name__ == '__main__':
 
     print('Running demo...')
     run_demo(args)
+

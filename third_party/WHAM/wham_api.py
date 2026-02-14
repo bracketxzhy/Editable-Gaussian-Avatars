@@ -30,7 +30,18 @@ except:
 
 def prepare_cfg():
     cfg = get_cfg_defaults()
-    cfg.merge_from_file('configs/yamls/demo.yaml')
+    repo_dir = osp.dirname(osp.abspath(__file__))
+    demo_yaml = osp.join(repo_dir, "configs", "yamls", "demo.yaml")
+    cfg.merge_from_file(demo_yaml)
+
+    ckpt = os.environ.get("WHAM_MAIN_CHECKPOINT", "").strip()
+    if ckpt:
+        cfg.TRAIN.CHECKPOINT = ckpt
+
+    model_cfg = os.environ.get("WHAM_MODEL_CONFIG", "").strip()
+    if model_cfg:
+        cfg.MODEL_CONFIG = model_cfg
+
     return cfg
 
 def load_video(video):
@@ -113,7 +124,7 @@ class WHAM_API(object):
             results[_id]['trans_world'] = pred['trans_world'].cpu().squeeze(0).numpy()
             results[_id]['frame_id'] = frame_id
         
-        joblib.dump(slam_results, osp.join(output_dir, 'wham_results.pth'))
+        joblib.dump(results, osp.join(output_dir, 'wham_results.pth'))
         return results
     
     @torch.no_grad()

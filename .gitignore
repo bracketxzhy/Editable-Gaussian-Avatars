@@ -1,4 +1,4 @@
-# ------------------------------
+﻿# ------------------------------
 # Keep as many project files as possible.
 # Only ignore local/cache files and files that exceed GitHub 100MB limit.
 # ------------------------------
@@ -46,3 +46,17 @@ env/
 assets/smplx/SMPLX_FEMALE.npz
 assets/smplx/SMPLX_MALE.npz
 assets/smplx/SMPLX_NEUTRAL.npz
+
+# ---- Model checkpoints / weights (usually >100MB) ----
+assets/checkpoints/
+third_party/PyMAF-X/data/pretrained_model/
+third_party/PyMAF-X/data/smpl/SMPLX_FEMALE.npz
+third_party/PyMAF-X/data/smpl/SMPLX_MALE.npz
+third_party/PyMAF-X/data/smpl/SMPLX_NEUTRAL.npz
+third_party/PyMAF-X/data/smpl/SMPLX_NEUTRAL_2020.npz
+
+# Common large weight formats
+*.ckpt
+*.pth
+*.pt
+*.pth.tar

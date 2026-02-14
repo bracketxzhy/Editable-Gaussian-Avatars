@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -7,7 +7,10 @@ import cv2
 import numpy as np
 import torch
 
-from avatar_gs.data.h36m import resolve_h36m_image_paths
+try:
+    from avatar_gs.data.h36m import resolve_h36m_image_paths
+except Exception:
+    resolve_h36m_image_paths = None
 from avatar_gs.data.keypoints_mediapipe import extract_keypoints_from_frames
 from avatar_gs.smpl.fit_from_video import fit_smpl_sequence_stage1
 from avatar_gs.utils.cfg import apply_overrides, load_yaml, parse_args_base, save_yaml
@@ -73,6 +76,10 @@ def main():
 
     frame_paths: list[Path] | None = None
     if "h36m" in data_cfg:
+        if resolve_h36m_image_paths is None:
+            raise RuntimeError(
+                "data.h36m config is provided, but avatar_gs.data.h36m is unavailable."
+            )
         resolved = resolve_h36m_image_paths(project_root=project_root, data_cfg=data_cfg)
         if len(resolved) <= 0:
             raise RuntimeError("No H36M images resolved from data.h36m config.")
@@ -268,4 +275,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 

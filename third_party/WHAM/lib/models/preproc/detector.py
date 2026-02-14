@@ -19,7 +19,8 @@ from mmpose.apis import (
 )
 
 ROOT_DIR = osp.abspath(f"{__file__}/../../../../")
-VIT_DIR = osp.join(ROOT_DIR, "third-party/ViTPose")
+CHECKPOINT_DIR = os.environ.get("WHAM_CHECKPOINT_DIR", osp.join(ROOT_DIR, "checkpoints"))
+VIT_DIR = os.environ.get("WHAM_VITPOSE_DIR", osp.join(ROOT_DIR, "third-party", "ViTPose"))
 
 VIS_THRESH = 0.3
 BBOX_CONF = 0.5
@@ -32,11 +33,11 @@ class DetectionModel(object):
         
         # ViTPose
         pose_model_cfg = osp.join(VIT_DIR, 'configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py')
-        pose_model_ckpt = osp.join(ROOT_DIR, 'checkpoints', 'vitpose-h-multi-coco.pth')
+        pose_model_ckpt = osp.join(CHECKPOINT_DIR, 'vitpose-h-multi-coco.pth')
         self.pose_model = init_pose_model(pose_model_cfg, pose_model_ckpt, device=device.lower())
         
         # YOLO
-        bbox_model_ckpt = osp.join(ROOT_DIR, 'checkpoints', 'yolov8x.pt')
+        bbox_model_ckpt = osp.join(CHECKPOINT_DIR, 'yolov8x.pt')
         self.bbox_model = YOLO(bbox_model_ckpt)
         
         self.device = device

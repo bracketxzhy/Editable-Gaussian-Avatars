@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
+import os
 import torch
 
 IMG_FEAT_DIM = {
@@ -10,7 +11,7 @@ IMG_FEAT_DIM = {
 }
 
 N_JOINTS = 17
-root = 'dataset'
+root = os.environ.get('WHAM_ASSET_ROOT', 'dataset')
 class PATHS:
     # Raw data folders
     PARSED_DATA = f'{root}/parsed_data'
@@ -57,3 +58,4 @@ class BMODEL:
     JOINTS_REGRESSOR_FEET = f'{root}/body_models/J_regressor_feet.npy'
     PARENTS = torch.tensor([
         -1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 12, 13, 14, 16, 17, 18, 19, 20, 21])
+

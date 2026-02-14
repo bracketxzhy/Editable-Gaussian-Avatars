@@ -55,6 +55,7 @@ class CustomDataset(torch.utils.data.Dataset):
         self.keypoints_normalizer = Normalizer(cfg)
         
         self._to = lambda x: x.unsqueeze(0).to(self.device)
+        self.prefix = ''
         
     def __len__(self):
         return len(self.tracking_results.keys())

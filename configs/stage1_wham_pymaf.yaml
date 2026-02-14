@@ -1,0 +1,24 @@
+project_root: .
+seed: 42
+log_dir: outputs/logs
+
+data:
+  frames_dir: data/frames/input
+
+stage1_wham_pymaf:
+  assets_dir: assets
+  out_dir: outputs/stage1_wham_pymaf
+  fps: 30.0
+  pymaf_frame_indices: -1
+  single_person: true
+
+  # Third-party repos
+  wham_repo_dir: third_party/WHAM
+  pymaf_repo_dir: third_party/PyMAF-X
+
+  # Optional explicit checkpoints (recommended to set from CLI)
+  pymaf_ckpt: ""
+  wham_ckpt: ""
+  vitpose_ckpt: ""
+  yolo_ckpt: ""
+  hmr2_ckpt: ""
