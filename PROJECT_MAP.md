@@ -18,6 +18,7 @@
    - render `real`, `fg_only`, `t-pose`, novel views, and edited motions
 
 Notes:
+
 - Stage1 is WHAM+PyMAF only in the current repository.
 
 ---
@@ -34,6 +35,8 @@ Notes:
   - all generated results
 - `scripts/`
   - convenience scripts
+- `evaluation/`
+  - standalone evaluation scripts and output images (one-way dependency)
 - `src/`
   - main Python package `avatar_gs`
 - `third_party/`
@@ -104,7 +107,11 @@ Notes:
 - helper wrappers:
   - `_run_wham_on_frames.py`
   - `_run_pymaf_refine_frames.py`
-  - `stage1_align_check.py`
+  - `stage1_align_check.py` (compat shim -> evaluation entry)
+
+Evaluation entries:
+
+- `evaluation/stage1_eval/run_stage1_eval.py`
 
 ### `data/`
 
@@ -142,6 +149,7 @@ Notes:
   - PyMAF-X codebase used for frame refinement
 
 Typical checkpoints are under:
+
 - `assets/checkpoints/`
 
 ---
@@ -171,9 +179,9 @@ python -m avatar_gs.cli.stage2_train_gaussian --config configs/stage2_gaussian.y
 
 ### 4) Render
 
-```powershell
-$env:PYTHONPATH='src'
+set PYTHONPATH=src
 python -m avatar_gs.cli.render --config configs/render.yaml
+
 ```
 
 ---
@@ -187,3 +195,4 @@ python -m avatar_gs.cli.render --config configs/render.yaml
 - If unsure, prefer `stage1_fit_wham_pymaf` for stage1.
 
 
+```

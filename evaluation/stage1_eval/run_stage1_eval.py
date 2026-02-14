@@ -2,10 +2,15 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+THIS_DIR = Path(__file__).resolve().parent
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
 
 from avatar_gs.gaussian.init_from_smpl import load_obj_mesh
 from person_contour import extract_person_contours, load_person_mask_from_npz

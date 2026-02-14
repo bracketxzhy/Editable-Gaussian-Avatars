@@ -58,6 +58,22 @@ def _make_temp_video(frames: list[Path], fps: float) -> tuple[Path, Path]:
     return mp4_path, tmp_dir
 
 
+def _patch_numpy_legacy_aliases() -> None:
+    """Patch deprecated NumPy aliases required by legacy chumpy/smpl loaders."""
+    alias_map = {
+        "bool": bool,
+        "int": int,
+        "float": float,
+        "complex": complex,
+        "object": object,
+        "str": str,
+        "unicode": str,
+    }
+    for name, value in alias_map.items():
+        if np.__dict__.get(name, None) is None:
+            setattr(np, name, value)
+
+
 def _run_wham_api(video_path: Path, output_dir: Path, wham_repo_dir: Path, run_global: bool) -> None:
     # WHAM imports use top-level modules like `lib.*`.
     # Our project also has `src/lib`, so isolate import path to avoid module collisions.
@@ -66,6 +82,7 @@ def _run_wham_api(video_path: Path, output_dir: Path, wham_repo_dir: Path, run_g
     src_root = Path(__file__).resolve().parents[2]
 
     try:
+        _patch_numpy_legacy_aliases()
         sys.path = [
             p for p in sys.path
             if Path(p or ".").resolve() != src_root.resolve()
@@ -144,4 +161,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 

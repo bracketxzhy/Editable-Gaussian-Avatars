@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -59,7 +60,76 @@ def _ensure_link_or_copy(src: Path, dst: Path) -> None:
             shutil.copy2(src, dst)
 
 
-def _prepare_runtime_wham_assets(assets_dir: Path, runtime_root: Path) -> Path:
+def _find_first_file_in_roots(roots: list[Path], name: str) -> Path | None:
+    for root in roots:
+        if root is None or (not root.exists()):
+            continue
+        src = _find_first_file(root, name)
+        if src is not None:
+            return src
+    return None
+
+
+def _try_download_wham_body_models(runtime_root: Path) -> Path | None:
+    """
+    Download WHAM body_models bundle that contains auxiliary regressors/faces/mean params.
+    Returns extraction directory on success, otherwise None.
+    """
+    url = "https://drive.google.com/uc?id=1pbmzRbWGgae6noDIyQOnohzaVnX_csUZ&export=download&confirm=t"
+    dl_dir = runtime_root / "downloads"
+    dl_dir.mkdir(parents=True, exist_ok=True)
+    tar_path = dl_dir / "wham_body_models.tar.gz"
+    extract_dir = dl_dir / "wham_body_models_extracted"
+    try:
+        urllib.request.urlretrieve(url, str(tar_path))
+    except Exception:
+        return None
+    if not tar_path.exists():
+        return None
+    try:
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(tar_path, "r:*") as tar:
+            tar.extractall(path=str(extract_dir))
+    except Exception:
+        return None
+    return extract_dir
+
+
+def _try_write_smpl_faces_npy(body_models_dir: Path, search_roots: list[Path]) -> bool:
+    """Generate smpl_faces.npy from neutral SMPL npz when missing."""
+    dst = body_models_dir / "smpl_faces.npy"
+    if dst.exists():
+        return True
+
+    neutral_npz = None
+    for cand_name in ["SMPL_N_model.npz", "SMPL_NEUTRAL.npz"]:
+        neutral_npz = _find_first_file_in_roots(search_roots, cand_name)
+        if neutral_npz is not None:
+            break
+    if neutral_npz is None:
+        return False
+
+    try:
+        data = np.load(str(neutral_npz), allow_pickle=True)
+        faces = None
+        for key in ["f", "faces", "F"]:
+            if key in data.files:
+                faces = np.asarray(data[key], dtype=np.int64)
+                break
+        if faces is None:
+            return False
+        np.save(str(dst), faces)
+        return True
+    except Exception:
+        return False
+
+
+def _prepare_runtime_wham_assets(
+    assets_dir: Path,
+    runtime_root: Path,
+    wham_repo_dir: Path | None = None,
+    pymaf_repo_dir: Path | None = None,
+) -> Path:
     wham_root = runtime_root / "wham_runtime_assets"
     body_models_dir = wham_root / "body_models"
     smpl_dir = body_models_dir / "smpl"
@@ -112,10 +182,50 @@ def _prepare_runtime_wham_assets(assets_dir: Path, runtime_root: Path) -> Path:
         "smpl_faces.npy",
         "smplx2smpl.pkl",
     ]
+    search_roots: list[Path] = [assets_dir]
+    if pymaf_repo_dir is not None:
+        search_roots.extend([pymaf_repo_dir / "data", pymaf_repo_dir])
+    if wham_repo_dir is not None:
+        search_roots.extend([wham_repo_dir / "dataset" / "body_models", wham_repo_dir])
+
+    missing_aux: list[str] = []
     for name in aux_files:
-        src = _find_first_file(assets_dir, name)
+        dst = body_models_dir / name
+        if dst.exists():
+            continue
+        src = _find_first_file_in_roots(search_roots, name)
         if src is not None:
-            _ensure_link_or_copy(src, body_models_dir / name)
+            _ensure_link_or_copy(src, dst)
+        else:
+            missing_aux.append(name)
+
+    if len(missing_aux) > 0:
+        extracted_root = _try_download_wham_body_models(runtime_root=runtime_root)
+        if extracted_root is not None:
+            search_roots = [extracted_root] + search_roots
+            missing_aux_2: list[str] = []
+            for name in aux_files:
+                dst = body_models_dir / name
+                if dst.exists():
+                    continue
+                src = _find_first_file_in_roots(search_roots, name)
+                if src is not None:
+                    _ensure_link_or_copy(src, dst)
+                else:
+                    missing_aux_2.append(name)
+            missing_aux = missing_aux_2
+
+    if "smpl_faces.npy" in missing_aux:
+        if _try_write_smpl_faces_npy(body_models_dir=body_models_dir, search_roots=search_roots):
+            missing_aux = [x for x in missing_aux if x != "smpl_faces.npy"]
+
+    if len(missing_aux) > 0:
+        raise FileNotFoundError(
+            "Missing WHAM body-model auxiliary files: "
+            + ", ".join(missing_aux)
+            + ". Put them under assets/ (or third_party/WHAM dataset body_models), "
+            + "or allow auto-download of WHAM body_models bundle."
+        )
 
     for name in [
         "wham_vit_bedlam_w_3dpw.pth.tar",
@@ -489,7 +599,12 @@ def main() -> None:
 
     req = _check_stage1_requirements(assets_dir=assets_dir, wham_dir=wham_dir, pymaf_dir=pymaf_dir)
 
-    wham_asset_root = _prepare_runtime_wham_assets(assets_dir=assets_dir, runtime_root=runtime_out)
+    wham_asset_root = _prepare_runtime_wham_assets(
+        assets_dir=assets_dir,
+        runtime_root=runtime_out,
+        wham_repo_dir=wham_dir,
+        pymaf_repo_dir=pymaf_dir,
+    )
     wham_ckpts = _resolve_wham_ckpts(assets_dir=assets_dir, wham_runtime_root=wham_asset_root)
     wham_ckpts = _apply_wham_ckpt_overrides(
         wham_ckpts=wham_ckpts,
