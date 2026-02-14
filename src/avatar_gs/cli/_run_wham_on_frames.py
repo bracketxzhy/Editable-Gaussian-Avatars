@@ -74,6 +74,27 @@ def _patch_numpy_legacy_aliases() -> None:
             setattr(np, name, value)
 
 
+def _resolve_wham_asset_root(output_dir: Path, wham_repo_dir: Path) -> Path | None:
+    # 1) Explicit env override
+    env_root = os.environ.get("WHAM_ASSET_ROOT", "").strip()
+    if env_root:
+        p = Path(env_root).expanduser().resolve()
+        if p.exists():
+            return p
+
+    # 2) Stage1 convention: outputs/stage1/{wham,runtime/...}
+    cand = output_dir.resolve().parent / "runtime" / "wham_runtime_assets"
+    if cand.exists():
+        return cand
+
+    # 3) WHAM demo convention
+    cand = wham_repo_dir.resolve() / "dataset"
+    if cand.exists():
+        return cand
+
+    return None
+
+
 def _run_wham_api(video_path: Path, output_dir: Path, wham_repo_dir: Path, run_global: bool) -> None:
     # WHAM imports use top-level modules like `lib.*`.
     # Our project also has `src/lib`, so isolate import path to avoid module collisions.
@@ -87,10 +108,26 @@ def _run_wham_api(video_path: Path, output_dir: Path, wham_repo_dir: Path, run_g
             p for p in sys.path
             if Path(p or ".").resolve() != src_root.resolve()
         ]
+
+        # Ensure WHAM asset root is set even when running this script standalone.
+        wham_asset_root = _resolve_wham_asset_root(output_dir=output_dir, wham_repo_dir=wham_repo_dir)
+        if wham_asset_root is not None:
+            os.environ["WHAM_ASSET_ROOT"] = str(wham_asset_root)
+            ckpt_dir = wham_asset_root / "checkpoints"
+            if ckpt_dir.exists() and os.environ.get("WHAM_CHECKPOINT_DIR", "").strip() == "":
+                os.environ["WHAM_CHECKPOINT_DIR"] = str(ckpt_dir)
+
+        # Prefer WHAM-bundled ViTPose fork (contains ViT backbone registry entries).
+        vitpose_dir = wham_repo_dir / "third-party" / "ViTPose"
+        if vitpose_dir.exists():
+            sys.path.insert(0, str(vitpose_dir))
+            if os.environ.get("WHAM_VITPOSE_DIR", "").strip() == "":
+                os.environ["WHAM_VITPOSE_DIR"] = str(vitpose_dir)
+
         sys.path.insert(0, str(wham_repo_dir))
 
         for name in list(sys.modules.keys()):
-            if name == "lib" or name.startswith("lib."):
+            if name == "lib" or name.startswith("lib.") or name == "mmpose" or name.startswith("mmpose."):
                 sys.modules.pop(name, None)
 
         os.chdir(str(wham_repo_dir))

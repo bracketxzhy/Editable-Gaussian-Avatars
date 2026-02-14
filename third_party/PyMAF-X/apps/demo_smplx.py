@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # This script is borrowed and extended from https://github.com/mkocabas/VIBE/blob/master/demo.py and https://github.com/nkolot/SPIN/blob/master/demo.py
-# Max-Planck-Gesellschaft zur Förderung der Wissenschaften e.V. (MPG) is
+# Max-Planck-Gesellschaft zur F枚rderung der Wissenschaften e.V. (MPG) is
 # holder of all proprietary rights on this computer program.
 # You can only use this computer program if you have closed
 # a license agreement with MPG or you get the right to use the computer
@@ -8,7 +8,7 @@
 # Any use of the computer program without a valid license is prohibited and
 # liable to prosecution.
 #
-# Copyright©2019 Max-Planck-Gesellschaft zur Förderung
+# Copyright漏2019 Max-Planck-Gesellschaft zur F枚rderung
 # der Wissenschaften e.V. (MPG). acting on behalf of its Max Planck Institute
 # for Intelligent Systems. All rights reserved.
 #
@@ -38,12 +38,29 @@ from skimage.transform import resize
 from torchvision.transforms import Normalize
 from collections import OrderedDict
 
+# NumPy 1.24+ removed legacy aliases used by chumpy-loaded SMPL pkl files.
+_NP_LEGACY_ALIASES = {
+    "bool": bool,
+    "int": int,
+    "float": float,
+    "complex": complex,
+    "object": object,
+    "str": str,
+    "unicode": str,
+}
+for _k, _v in _NP_LEGACY_ALIASES.items():
+    if not hasattr(np, _k):
+        setattr(np, _k, _v)
+
 from core.cfgs import cfg, parse_args
 from models import hmr, pymaf_net
 from models.smpl import get_partial_smpl, SMPL, SMPLX
 from core import path_config, constants
 from datasets.inference import Inference
-from utils.renderer import PyRenderer
+try:
+    from utils.renderer import PyRenderer
+except Exception:
+    PyRenderer = None
 from utils.imutils import crop
 from utils.demo_utils import (
     download_url,
@@ -53,16 +70,70 @@ from utils.demo_utils import (
 )
 from utils.geometry import convert_to_full_img_cam
 
-from openpifpaf import decoder as ppdecoder
-from openpifpaf import network as ppnetwork
-
-from openpifpaf.predictor import Predictor
-from openpifpaf.stream import Stream
+try:
+    from openpifpaf import decoder as ppdecoder
+    from openpifpaf import network as ppnetwork
+    from openpifpaf.predictor import Predictor
+    from openpifpaf.stream import Stream
+    OPENPIFPAF_AVAILABLE = True
+except Exception:
+    ppdecoder = None
+    ppnetwork = None
+    Predictor = None
+    Stream = None
+    OPENPIFPAF_AVAILABLE = False
 
 from os.path import join, expanduser
 
 
 MIN_NUM_FRAMES = 1
+
+
+def _build_fallback_tracking_results(image_folder, num_frames):
+    image_file_names = sorted([
+        osp.join(image_folder, x)
+        for x in os.listdir(image_folder)
+        if x.endswith('.png') or x.endswith('.jpg')
+    ])
+    if len(image_file_names) <= 0:
+        return {}
+
+    sample = cv2.imread(image_file_names[0])
+    if sample is None:
+        return {}
+    h, w = sample.shape[:2]
+
+    # COCO-17 in image-normalized coordinates, roughly centered human template.
+    template = np.asarray([
+        [0.50, 0.20], [0.47, 0.19], [0.53, 0.19], [0.44, 0.20], [0.56, 0.20],
+        [0.42, 0.32], [0.58, 0.32], [0.36, 0.45], [0.64, 0.45], [0.32, 0.58],
+        [0.68, 0.58], [0.45, 0.55], [0.55, 0.55], [0.44, 0.72], [0.56, 0.72],
+        [0.44, 0.90], [0.56, 0.90],
+    ], dtype=np.float32)
+
+    joints2d = np.zeros((17, 3), dtype=np.float32)
+    joints2d[:, 0] = template[:, 0] * float(w)
+    joints2d[:, 1] = template[:, 1] * float(h)
+    joints2d[:, 2] = 0.95
+
+    lhand = np.zeros((21, 3), dtype=np.float32)
+    rhand = np.zeros((21, 3), dtype=np.float32)
+    face = np.zeros((68, 3), dtype=np.float32)
+
+    result = {
+        'fallback_p0': {
+            'frames': list(range(int(num_frames))),
+            'joints2d': [joints2d.copy() for _ in range(int(num_frames))],
+            'joints2d_lhand': [lhand.copy() for _ in range(int(num_frames))],
+            'joints2d_rhand': [rhand.copy() for _ in range(int(num_frames))],
+            'joints2d_face': [face.copy() for _ in range(int(num_frames))],
+            'vis_face': [0.0 for _ in range(int(num_frames))],
+            'vis_lhand': [0.0 for _ in range(int(num_frames))],
+            'vis_rhand': [0.0 for _ in range(int(num_frames))],
+        }
+    }
+    return result
+
 
 def prepare_rendering_results(person_data, nframes):
     frame_results = [{} for _ in range(nframes)]
@@ -127,53 +198,57 @@ def run_demo(args):
 
     # pifpaf person detection 
     pp_det_file_path = os.path.join(output_path, 'pp_det_results.pkl')
-    pp_args = copy.deepcopy(args)
-    pp_args.force_complete_pose = True
-    ppdecoder.configure(pp_args)
-    ppnetwork.Factory.configure(pp_args)
-    ppnetwork.Factory.checkpoint = pp_args.detector_checkpoint
-    Predictor.configure(pp_args)
-    Stream.configure(pp_args)
-
-    Predictor.batch_size = pp_args.detector_batch_size
-    if pp_args.detector_batch_size > 1:
-        Predictor.long_edge = 1000
-    Predictor.loader_workers = 1
-    predictor = Predictor()
-    if args.vid_file is not None:
-        capture = Stream(args.vid_file, preprocess=predictor.preprocess)
-        capture = predictor.dataset(capture)
-    elif args.image_folder is not None:
-        image_file_names = sorted([
-            osp.join(image_folder, x)
-            for x in os.listdir(image_folder)
-            if x.endswith('.png') or x.endswith('.jpg')
-        ])
-        capture = predictor.images(image_file_names)
-
     tracking_results = {}
-    print('Running openpifpaf for person detection...')
-    for preds, _, meta in tqdm(capture, total=num_frames // args.detector_batch_size):
-        if args.single_person:
-            preds = [preds[0]]
-        for pid, ann in enumerate(preds):
-            if ann.score > args.detection_threshold:
-                frame_i = meta['frame_i'] - 1 if 'frame_i' in meta else meta['dataset_index']
-                file_name = meta['file_name'] if 'file_name' in meta else image_folder
-                person_id = file_name.split('/')[-1].split('.')[0] + '_f' + str(frame_i) + '_p' + str(pid)
-                det_wb_kps = ann.data
-                det_face_kps = det_wb_kps[23:91]
-                tracking_results[person_id] = {
-                            'frames': [frame_i],
-                            # 'predictions': [ann.json_data() for ann in preds]
-                            'joints2d': [det_wb_kps[:17]],
-                            'joints2d_lhand': [det_wb_kps[91:112]],
-                            'joints2d_rhand': [det_wb_kps[112:133]],
-                            'joints2d_face': [np.concatenate([det_face_kps[17:], det_face_kps[:17]])],
-                            'vis_face': [np.mean(det_face_kps[17:, -1])],
-                            'vis_lhand': [np.mean(det_wb_kps[91:112, -1])],
-                            'vis_rhand': [np.mean(det_wb_kps[112:133, -1])],
-                        }
+    if OPENPIFPAF_AVAILABLE:
+        pp_args = copy.deepcopy(args)
+        pp_args.force_complete_pose = True
+        ppdecoder.configure(pp_args)
+        ppnetwork.Factory.configure(pp_args)
+        ppnetwork.Factory.checkpoint = pp_args.detector_checkpoint
+        Predictor.configure(pp_args)
+        Stream.configure(pp_args)
+
+        Predictor.batch_size = pp_args.detector_batch_size
+        if pp_args.detector_batch_size > 1:
+            Predictor.long_edge = 1000
+        Predictor.loader_workers = 1
+        predictor = Predictor()
+        if args.vid_file is not None:
+            capture = Stream(args.vid_file, preprocess=predictor.preprocess)
+            capture = predictor.dataset(capture)
+        elif args.image_folder is not None:
+            image_file_names = sorted([
+                osp.join(image_folder, x)
+                for x in os.listdir(image_folder)
+                if x.endswith('.png') or x.endswith('.jpg')
+            ])
+            capture = predictor.images(image_file_names)
+
+        print('Running openpifpaf for person detection...')
+        for preds, _, meta in tqdm(capture, total=max(1, num_frames // max(1, args.detector_batch_size))):
+            if args.single_person and len(preds) > 0:
+                preds = [preds[0]]
+            for pid, ann in enumerate(preds):
+                if ann.score > args.detection_threshold:
+                    frame_i = meta['frame_i'] - 1 if 'frame_i' in meta else meta['dataset_index']
+                    file_name = meta['file_name'] if 'file_name' in meta else image_folder
+                    person_id = file_name.split('/')[-1].split('.')[0] + '_f' + str(frame_i) + '_p' + str(pid)
+                    det_wb_kps = ann.data
+                    det_face_kps = det_wb_kps[23:91]
+                    tracking_results[person_id] = {
+                                'frames': [frame_i],
+                                'joints2d': [det_wb_kps[:17]],
+                                'joints2d_lhand': [det_wb_kps[91:112]],
+                                'joints2d_rhand': [det_wb_kps[112:133]],
+                                'joints2d_face': [np.concatenate([det_face_kps[17:], det_face_kps[:17]])],
+                                'vis_face': [np.mean(det_face_kps[17:, -1])],
+                                'vis_lhand': [np.mean(det_wb_kps[91:112, -1])],
+                                'vis_rhand': [np.mean(det_wb_kps[112:133, -1])],
+                            }
+    else:
+        print('openpifpaf is not installed. Falling back to single-person center keypoints.')
+        tracking_results = _build_fallback_tracking_results(image_folder=image_folder, num_frames=num_frames)
+
     pkle.dump(tracking_results, open(pp_det_file_path, 'wb'))
 
     bbox_scale = 1.0
@@ -219,6 +294,8 @@ def run_demo(args):
     smpl2part = None
     part_faces = None
     if not args.no_render:
+        if PyRenderer is None:
+            raise RuntimeError('Rendering is enabled but PyRenderer/pyrender is unavailable. Use --no_render.')
         smpl2limb_vert_faces = get_partial_smpl(args.render_model)
         smpl2part = smpl2limb_vert_faces[args.render_part]['vids']
         part_faces = smpl2limb_vert_faces[args.render_part]['faces']
@@ -298,7 +375,8 @@ def run_demo(args):
         scales = dataset.scales
         frames = dataset.frames
 
-        dataloader = DataLoader(dataset, batch_size=args.model_batch_size, num_workers=16)
+        worker_count = 0 if os.name == "nt" else 16
+        dataloader = DataLoader(dataset, batch_size=args.model_batch_size, num_workers=worker_count)
 
         with torch.no_grad():
 
@@ -536,11 +614,14 @@ class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=CustomFormatter)
 
-    print('initializing openpifpaf')
-    ppnetwork.Factory.cli(parser)
-    ppdecoder.cli(parser)
-    Predictor.cli(parser)
-    Stream.cli(parser)
+    if OPENPIFPAF_AVAILABLE:
+        print('initializing openpifpaf')
+        ppnetwork.Factory.cli(parser)
+        ppdecoder.cli(parser)
+        Predictor.cli(parser)
+        Stream.cli(parser)
+    else:
+        print('openpifpaf is not available; using fallback keypoint mode.')
 
     parser.add_argument('--img_file', type=str, default=None,
                         help='Path to a single input image')
@@ -604,4 +685,6 @@ if __name__ == '__main__':
 
     print('Running demo...')
     run_demo(args)
+
+
 

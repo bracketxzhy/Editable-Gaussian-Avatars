@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tarfile
 import urllib.request
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -341,7 +342,7 @@ def _extract_tar_if_needed(tar_path: Path, dst_dir: Path, marker: str) -> None:
                 f.write(src.read())
 
 
-def _prepare_pymaf_runtime_data(assets_dir: Path, pymaf_dir: Path, pymaf_ckpt: Path) -> tuple[Path, Path]:
+def _prepare_pymaf_runtime_data(assets_dir: Path, pymaf_dir: Path, pymaf_ckpt: Path, wham_asset_root: Path | None = None) -> tuple[Path, Path]:
     data_dir = pymaf_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -374,6 +375,17 @@ def _prepare_pymaf_runtime_data(assets_dir: Path, pymaf_dir: Path, pymaf_ckpt: P
     pretrain_dir = data_dir / "pretrained_model"
     pretrain_dir.mkdir(parents=True, exist_ok=True)
     _ensure_link_or_copy(pymaf_ckpt, pretrain_dir / pymaf_ckpt.name)
+
+    # PyMAF-X expects data/smpl/model_transfer/smplx_to_smpl.pkl
+    transfer_dir = smpl_dir / "model_transfer"
+    transfer_dir.mkdir(parents=True, exist_ok=True)
+    transfer_dst = transfer_dir / "smplx_to_smpl.pkl"
+    if not transfer_dst.exists():
+        transfer_src = _find_any_file(assets_dir, ["smplx_to_smpl.pkl", "smplx2smpl.pkl"])
+        if transfer_src is None and wham_asset_root is not None:
+            transfer_src = _find_any_file(wham_asset_root, ["smplx_to_smpl.pkl", "smplx2smpl.pkl"])
+        if transfer_src is not None:
+            _ensure_link_or_copy(transfer_src, transfer_dst)
 
     return data_dir, smpl_dir
 
@@ -545,6 +557,21 @@ def _check_stage1_requirements(assets_dir: Path, wham_dir: Path, pymaf_dir: Path
     return missing
 
 
+def _move_path_to_trash(path: Path, project_root: Path, tag: str) -> Path | None:
+    if not path.exists():
+        return None
+    trash_root = project_root / 'trash' / f'stage1_pruned_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{tag}'
+    trash_root.mkdir(parents=True, exist_ok=True)
+    dst = trash_root / path.name
+    try:
+        shutil.move(str(path), str(dst))
+        return dst
+    except Exception:
+        return None
+
+
+
+
 def main() -> None:
     parser = argparse.ArgumentParser("Stage1: WHAM initialization + PyMAF-X refine")
     parser.add_argument("--project_root", type=str, default=".", help="Project root")
@@ -563,6 +590,7 @@ def main() -> None:
     parser.add_argument("--skip_pymaf", action="store_true", help="Skip PyMAF stage")
     parser.add_argument("--wham_repo_dir", type=str, default="third_party/WHAM", help="WHAM repo dir")
     parser.add_argument("--pymaf_repo_dir", type=str, default="third_party/PyMAF-X", help="PyMAF-X repo dir")
+    parser.add_argument("--minimal_stage1_outputs", action="store_true", help="Keep only t-pose obj and selected-frame sequence obj; move intermediates to trash")
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
@@ -621,7 +649,7 @@ def main() -> None:
             assets_dir=assets_dir,
             override=(Path(args.pymaf_ckpt).resolve() if str(args.pymaf_ckpt).strip() else None),
         )
-        _prepare_pymaf_runtime_data(assets_dir=assets_dir, pymaf_dir=pymaf_dir, pymaf_ckpt=pymaf_ckpt)
+        _prepare_pymaf_runtime_data(assets_dir=assets_dir, pymaf_dir=pymaf_dir, pymaf_ckpt=pymaf_ckpt, wham_asset_root=wham_asset_root)
 
     env_base = os.environ.copy()
     env_base["WHAM_ASSET_ROOT"] = str(wham_asset_root)
@@ -791,6 +819,40 @@ def main() -> None:
     }
     with (final_out / "run_summary.json").open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
+
+    # Canonical stage1 mesh outputs used by downstream stage2 binding pipelines.
+    frame_stem = Path(mesh_res.frame_name).stem
+    stage1_tpose_obj = out_dir / "smpl_mesh_tpose.obj"
+    stage1_tpose_named_obj = out_dir / f"{frame_stem}_t-pose.obj"
+    stage1_seq_dir = out_dir / "smpl_mesh_sequence"
+    stage1_seq_dir_cn = out_dir / "sequence"
+    stage1_seq_dir.mkdir(parents=True, exist_ok=True)
+    stage1_seq_dir_cn.mkdir(parents=True, exist_ok=True)
+    seq_obj_path = stage1_seq_dir / f"{frame_stem}.obj"
+    seq_obj_cn_path = stage1_seq_dir_cn / f"{frame_stem}.obj"
+    _save_obj(stage1_tpose_obj, verts_cam, mesh_res.faces)
+    _save_obj(stage1_tpose_named_obj, verts_cam, mesh_res.faces)
+    _save_obj(seq_obj_path, verts_cam, mesh_res.faces)
+    _save_obj(seq_obj_cn_path, verts_cam, mesh_res.faces)
+
+    if bool(args.minimal_stage1_outputs):
+        moved = {}
+        # Keep only canonical objs in stage1 root; move bulky/intermediate outputs to trash (recoverable).
+        for tag, pp in [('wham', wham_out), ('pymaf', pymaf_out), ('runtime', runtime_out), ('final', final_out)]:
+            dst = _move_path_to_trash(pp, project_root=project_root, tag=tag)
+            moved[tag] = (None if dst is None else str(dst))
+
+        compact_summary = {
+            'stage1_dir': str(out_dir),
+            'frame_name': mesh_res.frame_name,
+            'smpl_mesh_tpose_obj': str(stage1_tpose_obj),
+            'frame_tpose_obj': str(stage1_tpose_named_obj),
+            'smpl_mesh_sequence_obj': str(seq_obj_path),
+            'frame_sequence_obj_en_dir': str(seq_obj_cn_path),
+            'pruned_to_trash': moved,
+        }
+        with (out_dir / 'stage1_minimal_summary.json').open('w', encoding='utf-8') as f:
+            json.dump(compact_summary, f, indent=2)
 
     print("Done.")
     print(f"Last frame OBJ (legacy local): {obj_legacy_path}")
