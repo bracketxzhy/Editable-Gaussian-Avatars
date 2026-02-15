@@ -60,7 +60,7 @@ render:
   debug_kpt_conf_min: 0.2
   debug_kpt_radius: 3
   use_gt_background: false
-  bind_mesh_sequence_dir: outputs/stage1/sequence
+  bind_mesh_sequence_dir: outputs/stage1
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
   bind_mesh_obj_space: auto
   tpose_mesh_obj_space: auto

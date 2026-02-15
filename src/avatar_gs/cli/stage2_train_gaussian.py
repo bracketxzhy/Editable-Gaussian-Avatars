@@ -599,12 +599,12 @@ def main():
     if bind_to_mesh:
         if g.bind_idx is None:
             raise RuntimeError("bind_to_mesh=true but gaussians have no bind_idx.")
-        bind_mesh_dir_cfg = cfg["stage2"].get("bind_mesh_sequence_dir", str(stage1_dir / "sequence"))
+        bind_mesh_dir_cfg = cfg["stage2"].get("bind_mesh_sequence_dir", str(stage1_dir))
         bind_mesh_dir = project_root / Path(bind_mesh_dir_cfg)
         if not bind_mesh_dir.exists():
             raise FileNotFoundError(
                 f"bind_mesh_sequence_dir not found: {bind_mesh_dir}. "
-                "Run stage1 to generate outputs/stage1/sequence."
+                "Run stage1 to generate numeric OBJ meshes under outputs/stage1."
             )
 
         seq_npz_cfg = cfg["stage2"].get("bind_sequence_npz", str(stage1_dir / "smpl_params_sequence.npz"))

@@ -738,6 +738,13 @@ def main():
         if not tpose_out_dir.is_absolute():
             tpose_out_dir = project_root / tpose_out_dir
         tpose_out_dir = ensure_dir(tpose_out_dir)
+    view_yaw_deg = float(render_cfg.get("view_yaw_deg", 0.0))
+    view_pitch_deg = float(render_cfg.get("view_pitch_deg", 0.0))
+    view_roll_deg = float(render_cfg.get("view_roll_deg", 0.0))
+    file_suffix = str(render_cfg.get("file_suffix", "")).strip()
+    if file_suffix and (not file_suffix.startswith("_")):
+        file_suffix = f"_{file_suffix}"
+
     if bool(render_cfg.get("clear_out_dir_pngs", False)):
         removed = 0
         removed += _clear_image_files(out_dir)
@@ -1472,6 +1479,17 @@ def main():
         else:
             R = axis_angle_to_rotmat(cam_w[i])
             t = cam_t[i]
+
+        if (abs(view_yaw_deg) > 1e-8) or (abs(view_pitch_deg) > 1e-8) or (abs(view_roll_deg) > 1e-8):
+            R_delta_view = _euler_deg_to_rotmat_torch(
+                yaw_deg=view_yaw_deg,
+                pitch_deg=view_pitch_deg,
+                roll_deg=view_roll_deg,
+                device=torch.device(device),
+            )
+            R = R_delta_view @ R
+            t = (R_delta_view @ t.view(3, 1)).view(3)
+
         verts_t = None
         normals_t = None
         bind_mask_curr = bind_mask if binding_enabled else None
@@ -1747,7 +1765,7 @@ def main():
                 bg_fill = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(pred)
             pred = pred * fg_mask + bg_fill * (1.0 - fg_mask)
 
-        frame_out_name = f"{Path(frames[i]).stem}.png"
+        frame_out_name = f"{Path(frames[i]).stem}{file_suffix}.png"
         pred_real = pred
 
         if save_main_image:
@@ -2071,7 +2089,7 @@ def main():
                     thickness=smpl_line_thickness,
                     radius=smpl_joint_radius,
                 )
-            tpose_name = f"{Path(str(tpose_ctx['frame_name'])).stem}.png"
+            tpose_name = f"{Path(str(tpose_ctx['frame_name'])).stem}{file_suffix}.png"
             save_rgb(tpose_out_dir / tpose_name, pred_tpose)
 
     logger.info("Done.")

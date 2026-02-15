@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -136,17 +136,78 @@ def _read_camera_K(cam_json_path: Path, w: int, h: int) -> np.ndarray:
     return np.asarray([[f, 0.0, 0.5 * w], [0.0, f, 0.5 * h], [0.0, 0.0, 1.0]], dtype=np.float32)
 
 
-def _grabcut_person_mask(img_bgr: np.ndarray) -> np.ndarray:
+def _largest_component_by_overlap(mask_u8: np.ndarray, ref_mask_u8: np.ndarray | None, min_area: int = 128) -> np.ndarray:
+    m = (mask_u8 > 0).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+    if n <= 1:
+        return (m * 255).astype(np.uint8)
+
+    best_i = -1
+    best_score = -1.0
+    ref = (ref_mask_u8 > 0) if ref_mask_u8 is not None else None
+
+    for i in range(1, n):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        if area < int(min_area):
+            continue
+        comp = (labels == i)
+        if ref is not None:
+            inter = float(np.logical_and(comp, ref).sum())
+            cover = inter / float(max(area, 1))
+            score = inter + 0.2 * cover
+        else:
+            score = float(area)
+        if score > best_score:
+            best_score = score
+            best_i = i
+
+    if best_i < 0:
+        return np.zeros_like(mask_u8, dtype=np.uint8)
+
+    out = np.zeros_like(mask_u8, dtype=np.uint8)
+    out[labels == best_i] = 255
+    return out
+
+
+def _grabcut_person_mask(img_bgr: np.ndarray, smpl_mask_hint: np.ndarray | None = None) -> np.ndarray:
     h, w = img_bgr.shape[:2]
-    rect = (int(0.08 * w), int(0.04 * h), int(0.84 * w), int(0.92 * h))
-    gc_mask = np.full((h, w), cv2.GC_BGD, dtype=np.uint8)
     bg_model = np.zeros((1, 65), dtype=np.float64)
     fg_model = np.zeros((1, 65), dtype=np.float64)
-    cv2.grabCut(img_bgr, gc_mask, rect, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_RECT)
+
+    if smpl_mask_hint is None or int((smpl_mask_hint > 0).sum()) <= 0:
+        rect = (int(0.08 * w), int(0.04 * h), int(0.84 * w), int(0.92 * h))
+        gc_mask = np.full((h, w), cv2.GC_BGD, dtype=np.uint8)
+        cv2.grabCut(img_bgr, gc_mask, rect, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_RECT)
+    else:
+        hint = (smpl_mask_hint > 0).astype(np.uint8)
+        if hint.shape[0] != h or hint.shape[1] != w:
+            hint = cv2.resize(hint, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        gc_mask = np.full((h, w), cv2.GC_PR_BGD, dtype=np.uint8)
+
+        # Strong foreground prior from SMPL silhouette center region.
+        sure_fg = cv2.erode(hint, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)), iterations=1)
+        pr_fg = cv2.dilate(hint, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31)), iterations=1)
+
+        gc_mask[pr_fg > 0] = cv2.GC_PR_FGD
+        gc_mask[sure_fg > 0] = cv2.GC_FGD
+
+        # Image borders are very likely background.
+        bd = max(8, int(0.02 * min(h, w)))
+        gc_mask[:bd, :] = cv2.GC_BGD
+        gc_mask[-bd:, :] = cv2.GC_BGD
+        gc_mask[:, :bd] = cv2.GC_BGD
+        gc_mask[:, -bd:] = cv2.GC_BGD
+
+        cv2.grabCut(img_bgr, gc_mask, None, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_MASK)
+
     fg = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k, iterations=1)
     fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k, iterations=2)
+
+    # Keep the component that overlaps SMPL the most, not the largest green area.
+    fg = _largest_component_by_overlap(fg, smpl_mask_hint, min_area=256)
     return fg
 
 
@@ -214,8 +275,16 @@ def main() -> None:
     person_mask = None
     if pm_npz.exists():
         person_mask = load_person_mask_from_npz(npz_path=pm_npz, frame_name=frame_name, image_hw=(h, w))
-    if person_mask is None or int(person_mask.sum()) <= 0:
-        person_mask = _grabcut_person_mask(img)
+
+    need_recompute = (person_mask is None) or (int(person_mask.sum()) <= 0)
+    if not need_recompute:
+        iou_npz = _iou(person_mask, smpl_mask_raw)
+        # If mask is far from SMPL body area, treat it as unreliable and recompute.
+        if iou_npz < 0.10:
+            need_recompute = True
+
+    if need_recompute:
+        person_mask = _grabcut_person_mask(img, smpl_mask_hint=smpl_mask_raw)
 
     use_auto_align = (not bool(args.no_auto_align))
     if bool(args.auto_align):

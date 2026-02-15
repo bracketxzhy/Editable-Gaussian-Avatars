@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -509,6 +509,161 @@ def _select_last_frame_result(
     )
 
 
+
+def _project_points_to_uv(points_cam: np.ndarray, width: int, height: int, focal: float = 5000.0) -> tuple[np.ndarray, np.ndarray]:
+    pts = np.asarray(points_cam, dtype=np.float32).reshape(-1, 3)
+    z = pts[:, 2]
+    valid = z > 1e-6
+    u = np.zeros((pts.shape[0],), dtype=np.float32)
+    v = np.zeros((pts.shape[0],), dtype=np.float32)
+    fx = float(focal)
+    fy = float(focal)
+    cx = float(width) * 0.5
+    cy = float(height) * 0.5
+    u[valid] = fx * (pts[valid, 0] / z[valid]) + cx
+    v[valid] = fy * (pts[valid, 1] / z[valid]) + cy
+    return np.stack([u, v], axis=1), valid
+
+
+def _extract_pred_joints(
+    pred_results: dict,
+    selected_meta: dict,
+    frame_name: str,
+    cam_t: np.ndarray,
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    sel_files = [str(x) for x in selected_meta.get("selected_files", [])]
+    if len(sel_files) <= 0:
+        return None, None
+
+    if frame_name in sel_files:
+        local_idx = int(sel_files.index(frame_name))
+    else:
+        local_idx = int(len(sel_files) - 1)
+
+    frame_ids = np.asarray(pred_results.get("frame_ids", []), dtype=np.int64).reshape(-1)
+    if frame_ids.size <= 0:
+        return None, None
+    cand = np.where(frame_ids == local_idx)[0]
+    idx = int(cand[0]) if cand.size > 0 else int(np.argmax(frame_ids))
+
+    joints2d = None
+    if "joints2d" in pred_results and pred_results["joints2d"] is not None:
+        arr2d = np.asarray(pred_results["joints2d"], dtype=np.float32)
+        if arr2d.ndim == 3 and idx < arr2d.shape[0] and arr2d.shape[2] >= 2:
+            joints2d = arr2d[idx]
+
+    joints_cam = None
+    if "joints3d" in pred_results and pred_results["joints3d"] is not None:
+        arr3d = np.asarray(pred_results["joints3d"], dtype=np.float32)
+        if arr3d.ndim == 3 and idx < arr3d.shape[0] and arr3d.shape[2] == 3:
+            joints_cam = arr3d[idx] + np.asarray(cam_t, dtype=np.float32).reshape(1, 3)
+
+    return joints2d, joints_cam
+
+
+def _write_stage1_compat_assets(
+    out_dir: Path,
+    frame_name: str,
+    frame_hw: tuple[int, int],
+    verts_cam: np.ndarray,
+    gt_mask: np.ndarray,
+    joints2d: np.ndarray | None,
+    joints_cam: np.ndarray | None,
+    faces: np.ndarray,
+) -> dict[str, str]:
+    h, w = int(frame_hw[0]), int(frame_hw[1])
+
+    # 1) cameras.json (minimal stage2 contract)
+    K_list = [5000.0, 0.0, float(w) * 0.5, 0.0, 5000.0, float(h) * 0.5, 0.0, 0.0, 1.0]
+    cameras_path = out_dir / "cameras.json"
+    with cameras_path.open("w", encoding="utf-8") as f:
+        json.dump({"K": K_list}, f, indent=2)
+
+    # 2) keypoints.json
+    keypoints_path = out_dir / "keypoints.json"
+    if joints2d is not None and joints2d.ndim == 2 and joints2d.shape[1] >= 2:
+        if joints2d.shape[1] >= 3:
+            kpts = [[float(p[0]), float(p[1]), float(np.clip(p[2], 0.0, 1.0))] for p in joints2d]
+        else:
+            kpts = [[float(p[0]), float(p[1]), 1.0] for p in joints2d]
+    elif joints_cam is not None and joints_cam.ndim == 2 and joints_cam.shape[1] == 3:
+        uv, valid = _project_points_to_uv(joints_cam, width=w, height=h, focal=5000.0)
+        kpts = [[float(uv[i, 0]), float(uv[i, 1]), float(1.0 if bool(valid[i]) else 0.0)] for i in range(uv.shape[0])]
+    else:
+        kpts = []
+    with keypoints_path.open("w", encoding="utf-8") as f:
+        json.dump({frame_name: kpts}, f, indent=2)
+
+    # 3) person_masks.npz
+    person_masks_path = out_dir / "person_masks.npz"
+    masks = (np.asarray(gt_mask, dtype=np.uint8) > 0).astype(np.uint8)[None, ...]
+    np.savez(
+        person_masks_path,
+        frame_names=np.asarray([frame_name], dtype=object),
+        masks=masks,
+    )
+
+    # 4) sequence meshes and binding npz
+    frame_stem = Path(frame_name).stem
+    seq_dir = out_dir / "sequence"
+    seq_dir.mkdir(parents=True, exist_ok=True)
+
+    seq_obj = seq_dir / f"{frame_stem}.obj"
+    _save_obj(seq_obj, verts_cam, faces)
+
+    # Numeric index OBJ for stage2 bind lookup by sequence index 0.
+    idx_obj = out_dir / "000000.obj"
+    _save_obj(idx_obj, verts_cam, faces)
+
+
+
+    params_npz = out_dir / "smpl_params_sequence.npz"
+    params_kwargs = {
+        "frame_names": np.asarray([frame_name], dtype=object),
+        "fit_strategy": np.asarray(["stage1_wham_pymaf"], dtype=object),
+        "export_upright_rot": np.eye(3, dtype=np.float32),
+        "export_center_xy": np.asarray([0], dtype=np.int32),
+        "export_center_xy_value": np.asarray([0.0, 0.0], dtype=np.float32),
+        "export_on_floor": np.asarray([0], dtype=np.int32),
+        "export_floor_z": np.asarray([0.0], dtype=np.float32),
+        "verts_tpose_cam": np.asarray(verts_cam, dtype=np.float32),
+    }
+    if joints_cam is not None and joints_cam.ndim == 2 and joints_cam.shape[1] == 3:
+        params_kwargs["joints_tpose_cam"] = np.asarray(joints_cam, dtype=np.float32)
+    np.savez(params_npz, **params_kwargs)
+
+    verts_npz = out_dir / "smpl_vertices_sequence.npz"
+    np.savez(
+        verts_npz,
+        frame_names=np.asarray([frame_name], dtype=object),
+        verts_cam=np.asarray(verts_cam, dtype=np.float32)[None, ...],
+    )
+
+    if joints_cam is not None and joints_cam.ndim == 2 and joints_cam.shape[1] == 3:
+        joints_arr = np.asarray(joints_cam, dtype=np.float32)[None, ...]
+        np.savez(
+            out_dir / "smpl_joints_sequence.npz",
+            frame_names=np.asarray([frame_name], dtype=object),
+            joints_cam=joints_arr,
+        )
+        np.savez(
+            out_dir / "smpl_skeleton_sequence.npz",
+            frame_names=np.asarray([frame_name], dtype=object),
+            joints_cam=joints_arr,
+            joints_cam_theta=joints_arr,
+        )
+
+    return {
+        "cameras_json": str(cameras_path),
+        "keypoints_json": str(keypoints_path),
+        "person_masks_npz": str(person_masks_path),
+        "smpl_params_sequence_npz": str(params_npz),
+        "smpl_vertices_sequence_npz": str(verts_npz),
+        "sequence_obj": str(seq_obj),
+        "numeric_index_obj": str(idx_obj),
+    }
+
+
 def _run_cmd(cmd: list[str], cwd: Path, env: dict[str, str]) -> None:
     print("Running:", " ".join(cmd))
     subprocess.run(cmd, cwd=str(cwd), env=env, check=True)
@@ -783,14 +938,39 @@ def main() -> None:
     if len(model_cnt) > 0:
         cv2.drawContours(overlay, model_cnt, -1, color=(0, 0, 255), thickness=2)
 
-    gt_copy_path = final_out / f"last_frame_gt_{mesh_res.frame_name}"
-    overlay_path = final_out / "last_frame_gt_model_contours.png"
-    gt_mask_path = final_out / "last_frame_gt_mask.png"
-    model_mask_path = final_out / "last_frame_model_mask.png"
+    eval_out_dir = project_root / "evaluation" / "output_images" / "stage1"
+    eval_out_dir.mkdir(parents=True, exist_ok=True)
+
+    gt_copy_path = eval_out_dir / f"last_frame_gt_{mesh_res.frame_name}"
+    overlay_path = eval_out_dir / "last_frame_gt_model_contours.png"
+    gt_mask_path = eval_out_dir / "last_frame_gt_mask.png"
+    model_mask_path = eval_out_dir / "last_frame_model_mask.png"
     cv2.imwrite(str(gt_copy_path), gt_img)
     cv2.imwrite(str(overlay_path), overlay)
     cv2.imwrite(str(gt_mask_path), gt_mask)
     cv2.imwrite(str(model_mask_path), model_mask)
+
+    # Canonical stage1 mesh output is under sequence/.
+    frame_stem = Path(mesh_res.frame_name).stem
+    stage1_seq_obj = out_dir / "sequence" / f"{frame_stem}.obj"
+    _save_obj(stage1_seq_obj, verts_cam, mesh_res.faces)
+
+    joints2d, joints_cam = _extract_pred_joints(
+        pred_results=pred_results,
+        selected_meta=selected_meta,
+        frame_name=mesh_res.frame_name,
+        cam_t=mesh_res.cam_t,
+    )
+    compat_assets = _write_stage1_compat_assets(
+        out_dir=out_dir,
+        frame_name=mesh_res.frame_name,
+        frame_hw=(h, w),
+        verts_cam=verts_cam,
+        gt_mask=gt_mask,
+        joints2d=joints2d,
+        joints_cam=joints_cam,
+        faces=mesh_res.faces,
+    )
 
     summary = {
         "frames_dir": str(frames_dir),
@@ -816,18 +996,11 @@ def main() -> None:
         "wham_checkpoints": {k: (None if v is None else str(v)) for k, v in wham_ckpts.items()},
         "pymaf_checkpoint": (None if pymaf_ckpt is None else str(pymaf_ckpt)),
         "missing_requirements": req,
+        "stage2_compat_assets": compat_assets,
+        "stage1_sequence_obj": str(stage1_seq_obj),
     }
     with (final_out / "run_summary.json").open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-
-    # Canonical stage1 mesh outputs (single naming scheme).
-    frame_stem = Path(mesh_res.frame_name).stem
-    stage1_tpose_obj = out_dir / f"{frame_stem}_t-pose.obj"
-    stage1_seq_dir = out_dir / "sequence"
-    stage1_seq_dir.mkdir(parents=True, exist_ok=True)
-    seq_obj_path = stage1_seq_dir / f"{frame_stem}.obj"
-    _save_obj(stage1_tpose_obj, verts_cam, mesh_res.faces)
-    _save_obj(seq_obj_path, verts_cam, mesh_res.faces)
 
     if bool(args.minimal_stage1_outputs):
         removed = {}
@@ -835,15 +1008,6 @@ def main() -> None:
         for tag, pp in [('wham', wham_out), ('pymaf', pymaf_out), ('runtime', runtime_out), ('final', final_out)]:
             removed[tag] = bool(_remove_path_tree(pp))
 
-        compact_summary = {
-            'stage1_dir': str(out_dir),
-            'frame_name': mesh_res.frame_name,
-            'tpose_obj': str(stage1_tpose_obj),
-                        'sequence_obj': str(seq_obj_path),
-                        'removed_intermediates': removed,
-        }
-        with (out_dir / 'stage1_minimal_summary.json').open('w', encoding='utf-8') as f:
-            json.dump(compact_summary, f, indent=2)
 
     print("Done.")
     print(f"Last frame OBJ (legacy local): {obj_legacy_path}")

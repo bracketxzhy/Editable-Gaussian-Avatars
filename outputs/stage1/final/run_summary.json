@@ -1,0 +1,36 @@
+{
+  "frames_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\data\\frames\\input",
+  "assets_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\assets",
+  "wham_repo_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\WHAM",
+  "pymaf_repo_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\PyMAF-X",
+  "wham_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\wham",
+  "pymaf_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\pymaf\\selected_frames",
+  "final_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final",
+  "last_frame_name": "000756.jpg",
+  "last_frame_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_smplx.obj",
+  "last_frame_pose_local_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_pose_local.obj",
+  "last_frame_cam_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_smplx_cam.obj",
+  "last_frame_coord_meta": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_coord_meta.json",
+  "coord_system": {
+    "training_binding_recommended": "camera_world_obj",
+    "editing_reference_recommended": "pose_local_obj"
+  },
+  "last_frame_overlay_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_gt_model_contours.png",
+  "last_frame_gt_mask": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_gt_mask.png",
+  "last_frame_model_mask": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_model_mask.png",
+  "model_type": "smplx",
+  "wham_checkpoints": {
+    "wham": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\runtime\\wham_runtime_assets\\checkpoints\\wham_vit_bedlam_w_3dpw.pth.tar",
+    "vitpose": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\runtime\\wham_runtime_assets\\checkpoints\\vitpose-h-multi-coco.pth",
+    "yolo": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\runtime\\wham_runtime_assets\\checkpoints\\yolov8x.pt",
+    "hmr2a": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\runtime\\wham_runtime_assets\\checkpoints\\hmr2a.ckpt"
+  },
+  "pymaf_checkpoint": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\assets\\checkpoints\\PyMAF-X_model_checkpoint_v1.1.pt",
+  "missing_requirements": {
+    "wham": [],
+    "pymaf": [],
+    "python": [
+      "openpifpaf"
+    ]
+  }
+}

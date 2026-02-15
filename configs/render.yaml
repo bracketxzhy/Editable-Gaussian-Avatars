@@ -36,7 +36,7 @@ render:
   smpl_skeleton_line_thickness: 2
   smpl_skeleton_joint_radius: 3
   use_gt_background: false
-  bind_mesh_sequence_dir: outputs/stage1/sequence
+  bind_mesh_sequence_dir: outputs/stage1
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
   bind_mesh_obj_space: auto
   tpose_mesh_obj_space: auto
