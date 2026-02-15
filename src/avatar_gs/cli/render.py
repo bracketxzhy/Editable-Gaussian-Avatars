@@ -76,6 +76,43 @@ def axis_angle_to_rotmat(w: torch.Tensor) -> torch.Tensor:
     return I + s * K + (1.0 - c) * (K @ K)
 
 
+
+def _euler_deg_to_rotmat_torch(
+    yaw_deg: float,
+    pitch_deg: float,
+    roll_deg: float,
+    device: torch.device | str | None = None,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """
+    Convert Euler angles in degrees to a 3x3 rotation matrix.
+    Convention: intrinsic yaw(Y) -> pitch(X) -> roll(Z), combined as Rz * Rx * Ry.
+    """
+    y = math.radians(float(yaw_deg))
+    x = math.radians(float(pitch_deg))
+    z = math.radians(float(roll_deg))
+
+    cy, sy = math.cos(y), math.sin(y)
+    cx, sx = math.cos(x), math.sin(x)
+    cz, sz = math.cos(z), math.sin(z)
+
+    dev = torch.device(device) if device is not None else None
+    Ry = torch.tensor(
+        [[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]],
+        dtype=dtype,
+        device=dev,
+    )
+    Rx = torch.tensor(
+        [[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]],
+        dtype=dtype,
+        device=dev,
+    )
+    Rz = torch.tensor(
+        [[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]],
+        dtype=dtype,
+        device=dev,
+    )
+    return Rz @ Rx @ Ry
 def save_rgb(path: str | Path, rgb_chw: torch.Tensor) -> None:
     """Save (3,H,W) RGB float [0,1] as png/jpg, preserving exact H/W."""
     img = (rgb_chw.detach().clamp(0.0, 1.0) * 255.0).byte().permute(1, 2, 0).cpu().numpy()  # (H,W,3) RGB
@@ -296,24 +333,6 @@ def _overlay_keypoints(
 
     H, W = bgr.shape[:2]
     rr = max(1, int(radius))
-    if draw_skeleton:
-        for a, b in MP_POSE_CONNECTIONS:
-            if a >= len(arr) or b >= len(arr):
-                continue
-            pa = arr[a]
-            pb = arr[b]
-            if float(pa[2]) < float(conf_min) or float(pb[2]) < float(conf_min):
-                continue
-            xa = int(round(float(pa[0])))
-            ya = int(round(float(pa[1])))
-            xb = int(round(float(pb[0])))
-            yb = int(round(float(pb[1])))
-            if xa < 0 or xa >= W or ya < 0 or ya >= H:
-                continue
-            if xb < 0 or xb >= W or yb < 0 or yb >= H:
-                continue
-            cv2.line(bgr, (xa, ya), (xb, yb), (0, 180, 0), thickness=2, lineType=cv2.LINE_AA)
-
     for j, p in enumerate(arr):
         if body_only and j not in MP_BODY_DRAW_IDS:
             continue
@@ -459,22 +478,6 @@ def _overlay_smpl_skeleton(
         v[valid] = K_np[1, 1] * (Xcv[:, 1] / zv) + K_np[1, 2]
 
     rr = max(1, int(radius))
-    th = max(1, int(thickness))
-    draw_connections = connections if (connections is not None and len(connections) > 0) else SMPL_SKELETON_CONNECTIONS
-    for a, b in draw_connections:
-        if a >= len(u) or b >= len(u):
-            continue
-        if not (valid[a] and valid[b]):
-            continue
-        xa = int(round(float(u[a])))
-        ya = int(round(float(v[a])))
-        xb = int(round(float(u[b])))
-        yb = int(round(float(v[b])))
-        if xa < 0 or xa >= W or ya < 0 or ya >= H:
-            continue
-        if xb < 0 or xb >= W or yb < 0 or yb >= H:
-            continue
-        cv2.line(bgr, (xa, ya), (xb, yb), color_bgr, thickness=th, lineType=cv2.LINE_AA)
     for j in range(len(u)):
         if not valid[j]:
             continue
@@ -727,17 +730,43 @@ def main():
     save_real_image = bool(render_cfg.get("save_real_image", True))
     save_fg_nobg_skeleton = bool(render_cfg.get("save_fg_nobg_skeleton", True))
     render_tpose_image = bool(render_cfg.get("render_tpose_image", True))
-    real_out_dir = ensure_dir(out_dir / Path(render_cfg.get("real_out_subdir", "real")))
-    fg_nobg_out_dir = ensure_dir(out_dir / Path(render_cfg.get("fg_nobg_out_subdir", "fg_only")))
-    tpose_out_subdir = str(render_cfg.get("tpose_out_subdir", "t-pose"))
+
+    render_mode = str(render_cfg.get("mode", "")).strip().lower()
+    if render_mode in ("fg", "fg_only"):
+        save_main_image = False
+        save_real_image = False
+        save_fg_nobg_skeleton = True
+        render_tpose_image = False
+    elif render_mode in ("tpose", "t-pose", "t_pose"):
+        save_main_image = False
+        save_real_image = False
+        save_fg_nobg_skeleton = False
+        render_tpose_image = True
+
+    real_out_subdir = str(render_cfg.get("real_out_subdir", "real")).strip()
+    fg_nobg_out_subdir = str(render_cfg.get("fg_nobg_out_subdir", "fg_only")).strip()
+    tpose_out_subdir = str(render_cfg.get("tpose_out_subdir", "t-pose")).strip()
+
+    # In single-mode rendering, default to writing directly into out_dir (no nested subfolders).
+    if render_mode in ("fg", "fg_only") and fg_nobg_out_subdir == "fg_only":
+        fg_nobg_out_subdir = "."
+    if render_mode in ("tpose", "t-pose", "t_pose") and tpose_out_subdir == "t-pose":
+        tpose_out_subdir = "."
+
+    real_out_dir = ensure_dir(out_dir / Path(real_out_subdir)) if save_real_image else out_dir
+    fg_nobg_out_dir = ensure_dir(out_dir / Path(fg_nobg_out_subdir)) if save_fg_nobg_skeleton else out_dir
+
     tpose_out_cfg = render_cfg.get("tpose_out_dir", None)
-    if tpose_out_cfg is None or not str(tpose_out_cfg).strip():
-        tpose_out_dir = ensure_dir(out_dir / Path(tpose_out_subdir))
+    if render_tpose_image:
+        if tpose_out_cfg is None or not str(tpose_out_cfg).strip():
+            tpose_out_dir = ensure_dir(out_dir / Path(tpose_out_subdir))
+        else:
+            tpose_out_dir = Path(resolve_path(str(tpose_out_cfg)))
+            if not tpose_out_dir.is_absolute():
+                tpose_out_dir = project_root / tpose_out_dir
+            tpose_out_dir = ensure_dir(tpose_out_dir)
     else:
-        tpose_out_dir = Path(resolve_path(str(tpose_out_cfg)))
-        if not tpose_out_dir.is_absolute():
-            tpose_out_dir = project_root / tpose_out_dir
-        tpose_out_dir = ensure_dir(tpose_out_dir)
+        tpose_out_dir = out_dir
     view_yaw_deg = float(render_cfg.get("view_yaw_deg", 0.0))
     view_pitch_deg = float(render_cfg.get("view_pitch_deg", 0.0))
     view_roll_deg = float(render_cfg.get("view_roll_deg", 0.0))
@@ -939,6 +968,9 @@ def main():
     debug_kpt_conf_min = float(render_cfg.get("debug_kpt_conf_min", 0.2))
     debug_kpt_radius = int(render_cfg.get("debug_kpt_radius", 3))
     debug_need_kpts = bool(debug_bind_to_google_skeleton or debug_overlay_keypoints)
+    center_subject = bool(render_cfg.get("center_subject", True))
+    center_subject_use_mesh = bool(render_cfg.get("center_subject_use_mesh", True))
+    center_subject_depth_min = float(render_cfg.get("center_subject_depth_min", 0.1))
     vis_rgb_raw = render_cfg.get("vis_rgb", None)
     vis_rgb = None
     if isinstance(vis_rgb_raw, (list, tuple)) and len(vis_rgb_raw) == 3:
@@ -1080,7 +1112,7 @@ def main():
         device=device,
     ).view(1, 3)
     bind_mesh_offset_np = bind_mesh_offset_t.detach().cpu().numpy().reshape(1, 3).astype(np.float32)
-    bind_rigid_align_cfg_raw = render_cfg.get("bind_rigid_align", ckpt.get("bind_rigid_align", None))
+    bind_rigid_align_cfg_raw = render_cfg.get("bind_rigid_align", {"enabled": False})
     bind_rigid_align_cfg = normalize_rigid_align_config(bind_rigid_align_cfg_raw, default_enabled=False)
     bind_rigid_align_apply_cfg = (
         {
@@ -1625,6 +1657,32 @@ def main():
         # Scale intrinsics for wider/narrower FOV if requested
         K_use = _scale_intrinsics(K, k_scale)
 
+
+        # Keep subject centered in image to avoid out-of-frame blank renders.
+        if center_subject:
+            center_world = None
+            if center_subject_use_mesh and (verts_t is not None) and (verts_t.numel() > 0):
+                center_world = verts_t.mean(dim=0)
+            elif g.xyz is not None and g.xyz.numel() > 0:
+                if (g.bind_idx is not None) and bool((g.bind_idx >= 0).any()):
+                    center_world = g.xyz[g.bind_idx >= 0].mean(dim=0)
+                else:
+                    center_world = g.xyz.mean(dim=0)
+            if center_world is not None:
+                xc = (R @ center_world.view(3, 1)).view(3) + t
+                zc = torch.clamp(xc[2], min=float(center_subject_depth_min))
+                fx = K_use[0, 0]
+                fy = K_use[1, 1]
+                cx = K_use[0, 2]
+                cy = K_use[1, 2]
+                u_tgt = torch.tensor((base_w - 1) * 0.5, device=device, dtype=torch.float32)
+                v_tgt = torch.tensor((base_h - 1) * 0.5, device=device, dtype=torch.float32)
+                x_tgt = (u_tgt - cx) * zc / fx
+                y_tgt = (v_tgt - cy) * zc / fy
+                t = t + torch.stack(
+                    [x_tgt - xc[0], y_tgt - xc[1], torch.zeros((), device=device, dtype=torch.float32)],
+                    dim=0,
+                )
         if debug_point_render:
             skeleton_segments = None
             if debug_bind_to_google_skeleton and debug_kpt_json_path is not None:
@@ -2097,4 +2155,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
 

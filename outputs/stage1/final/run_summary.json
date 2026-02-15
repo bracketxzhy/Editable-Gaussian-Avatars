@@ -15,9 +15,9 @@
     "training_binding_recommended": "camera_world_obj",
     "editing_reference_recommended": "pose_local_obj"
   },
-  "last_frame_overlay_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_gt_model_contours.png",
-  "last_frame_gt_mask": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_gt_mask.png",
-  "last_frame_model_mask": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_model_mask.png",
+  "last_frame_overlay_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\last_frame_gt_model_contours.png",
+  "last_frame_gt_mask": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\last_frame_gt_mask.png",
+  "last_frame_model_mask": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\last_frame_model_mask.png",
   "model_type": "smplx",
   "wham_checkpoints": {
     "wham": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\runtime\\wham_runtime_assets\\checkpoints\\wham_vit_bedlam_w_3dpw.pth.tar",
@@ -32,5 +32,15 @@
     "python": [
       "openpifpaf"
     ]
-  }
+  },
+  "stage2_compat_assets": {
+    "cameras_json": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\cameras.json",
+    "keypoints_json": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\keypoints.json",
+    "person_masks_npz": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\person_masks.npz",
+    "smpl_params_sequence_npz": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smpl_params_sequence.npz",
+    "smpl_vertices_sequence_npz": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smpl_vertices_sequence.npz",
+    "sequence_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\sequence\\000756.obj",
+    "numeric_index_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\000000.obj"
+  },
+  "stage1_sequence_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\sequence\\000756.obj"
 }

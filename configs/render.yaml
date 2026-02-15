@@ -1,4 +1,4 @@
-﻿project_root: .
+project_root: .
 log_dir: outputs/logs
 
 render:
@@ -11,7 +11,7 @@ render:
   fg_nobg_out_subdir: fg_only
   render_tpose_image: true
   tpose_out_subdir: t-pose
-  clear_out_dir_pngs: true
+  clear_out_dir_pngs: false
   frames_dir: data/frames/input
   frame_select: last
   max_frames: 1
@@ -44,5 +44,11 @@ render:
   bind_quat_normal_blend: 1.0
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
+
+  bind_rigid_align:
+    enabled: false
   bind_mesh_offset: [0.0, 0.0, 0.0]
+  center_subject: true
+  center_subject_use_mesh: true
+  center_subject_depth_min: 0.1
 

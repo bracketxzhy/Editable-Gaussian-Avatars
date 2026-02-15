@@ -1,0 +1,34 @@
+{
+  "frame_name": "000756.jpg",
+  "frame_index": 0,
+  "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000756_gt_stage1_contour.png",
+  "iou_before": 0.8722640647338865,
+  "iou_after": 0.820620853655924,
+  "align": {
+    "applied": true,
+    "scale": 1.003507849785556,
+    "center_src": [
+      560.0,
+      594.5
+    ],
+    "center_tgt": [
+      558.0,
+      585.0
+    ],
+    "bbox_src": [
+      321.0,
+      172.0,
+      799.0,
+      1017.0
+    ],
+    "bbox_tgt": [
+      321.0,
+      156.0,
+      795.0,
+      1014.0
+    ],
+    "accepted": false
+  },
+  "stage1_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1",
+  "frames_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\data\\frames\\input"
+}

@@ -169,6 +169,41 @@ def _largest_component_by_overlap(mask_u8: np.ndarray, ref_mask_u8: np.ndarray |
     return out
 
 
+
+
+def _mask_border_touch_ratio(mask_u8: np.ndarray) -> float:
+    m = (mask_u8 > 0).astype(np.uint8)
+    h, w = m.shape[:2]
+    if h <= 2 or w <= 2:
+        return 1.0
+    border = np.zeros_like(m, dtype=np.uint8)
+    border[0, :] = 1
+    border[-1, :] = 1
+    border[:, 0] = 1
+    border[:, -1] = 1
+    inter = float((m * border).sum())
+    area = float(max(1, m.sum()))
+    return inter / area
+
+
+def _is_person_mask_plausible(person_mask: np.ndarray, smpl_mask: np.ndarray) -> bool:
+    pm = (person_mask > 0).astype(np.uint8)
+    sm = (smpl_mask > 0).astype(np.uint8)
+    area_pm = float(pm.sum())
+    area_sm = float(max(1, sm.sum()))
+    ratio = area_pm / area_sm
+    iou = _iou(pm, sm)
+    border_ratio = _mask_border_touch_ratio(pm)
+
+    # Too large/small vs SMPL, too little overlap, or too much border touching -> unreliable.
+    if ratio < 0.45 or ratio > 2.20:
+        return False
+    if iou < 0.22:
+        return False
+    if border_ratio > 0.08:
+        return False
+    return True
+
 def _grabcut_person_mask(img_bgr: np.ndarray, smpl_mask_hint: np.ndarray | None = None) -> np.ndarray:
     h, w = img_bgr.shape[:2]
     bg_model = np.zeros((1, 65), dtype=np.float64)
@@ -256,9 +291,21 @@ def main() -> None:
         raise FileNotFoundError(f"Cannot read GT image: {img_path}")
     h, w = img.shape[:2]
 
-    mesh_obj = stage1_dir / "smpl_mesh_tpose.obj"
-    if not mesh_obj.exists():
-        raise FileNotFoundError(f"Missing mesh for face topology: {mesh_obj}")
+    frame_stem = Path(frame_name).stem
+    mesh_candidates = [
+        stage1_dir / "smpl_mesh_tpose.obj",
+        stage1_dir / f"{frame_stem}.obj",
+        stage1_dir / "sequence" / f"{frame_stem}.obj",
+        stage1_dir / "000000.obj",
+        stage1_dir / "final" / "last_frame_smplx_cam.obj",
+        stage1_dir / "final" / "last_frame_smplx.obj",
+        stage1_dir / "final" / "last_frame_pose_local.obj",
+    ]
+    mesh_obj = next((m for m in mesh_candidates if m.exists()), None)
+    if mesh_obj is None:
+        raise FileNotFoundError(
+            "Missing mesh for face topology. Tried: " + ", ".join(str(x) for x in mesh_candidates)
+        )
     _, faces = load_obj_mesh(mesh_obj)
     if faces is None or len(faces) <= 0:
         raise RuntimeError(f"No faces in mesh topology: {mesh_obj}")
@@ -278,9 +325,7 @@ def main() -> None:
 
     need_recompute = (person_mask is None) or (int(person_mask.sum()) <= 0)
     if not need_recompute:
-        iou_npz = _iou(person_mask, smpl_mask_raw)
-        # If mask is far from SMPL body area, treat it as unreliable and recompute.
-        if iou_npz < 0.10:
+        if not _is_person_mask_plausible(person_mask=person_mask, smpl_mask=smpl_mask_raw):
             need_recompute = True
 
     if need_recompute:

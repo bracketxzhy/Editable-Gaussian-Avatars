@@ -434,12 +434,6 @@ def _rasterize_mesh_mask(uv: np.ndarray, valid_v: np.ndarray, faces: np.ndarray,
     return mask
 
 
-def _largest_contour(mask_u8: np.ndarray) -> list[np.ndarray]:
-    cnts, _ = cv2.findContours((mask_u8 > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
-    return cnts[:1]
-
-
 def _save_obj(path: Path, verts: np.ndarray, faces: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -925,30 +919,8 @@ def main() -> None:
         raise FileNotFoundError(f"Cannot read GT frame image: {mesh_res.frame_path}")
     h, w = gt_img.shape[:2]
 
-    uv, valid_v = _project_verts_to_uv(mesh_res.verts, mesh_res.cam_t, width=w, height=h, focal=5000.0)
-    model_mask = _rasterize_mesh_mask(uv, valid_v, mesh_res.faces, image_hw=(h, w))
+    # Training-only asset: person mask used by stage2 losses/rigid-align.
     gt_mask = _estimate_person_mask_grabcut(gt_img)
-
-    model_cnt = _largest_contour(model_mask)
-    gt_cnt = _largest_contour(gt_mask)
-
-    overlay = gt_img.copy()
-    if len(gt_cnt) > 0:
-        cv2.drawContours(overlay, gt_cnt, -1, color=(0, 255, 255), thickness=2)
-    if len(model_cnt) > 0:
-        cv2.drawContours(overlay, model_cnt, -1, color=(0, 0, 255), thickness=2)
-
-    eval_out_dir = project_root / "evaluation" / "output_images" / "stage1"
-    eval_out_dir.mkdir(parents=True, exist_ok=True)
-
-    gt_copy_path = eval_out_dir / f"last_frame_gt_{mesh_res.frame_name}"
-    overlay_path = eval_out_dir / "last_frame_gt_model_contours.png"
-    gt_mask_path = eval_out_dir / "last_frame_gt_mask.png"
-    model_mask_path = eval_out_dir / "last_frame_model_mask.png"
-    cv2.imwrite(str(gt_copy_path), gt_img)
-    cv2.imwrite(str(overlay_path), overlay)
-    cv2.imwrite(str(gt_mask_path), gt_mask)
-    cv2.imwrite(str(model_mask_path), model_mask)
 
     # Canonical stage1 mesh output is under sequence/.
     frame_stem = Path(mesh_res.frame_name).stem
@@ -989,9 +961,6 @@ def main() -> None:
             "training_binding_recommended": "camera_world_obj",
             "editing_reference_recommended": "pose_local_obj",
         },
-        "last_frame_overlay_image": str(overlay_path),
-        "last_frame_gt_mask": str(gt_mask_path),
-        "last_frame_model_mask": str(model_mask_path),
         "model_type": mesh_res.model_type,
         "wham_checkpoints": {k: (None if v is None else str(v)) for k, v in wham_ckpts.items()},
         "pymaf_checkpoint": (None if pymaf_ckpt is None else str(pymaf_ckpt)),
@@ -1014,7 +983,6 @@ def main() -> None:
     print(f"Last frame OBJ (pose local): {obj_local_path}")
     print(f"Last frame OBJ (camera/world): {obj_cam_path}")
     print(f"Coordinate metadata: {coord_meta_path}")
-    print(f"Contour overlay: {overlay_path}")
     print(f"Summary: {final_out / 'run_summary.json'}")
 
 

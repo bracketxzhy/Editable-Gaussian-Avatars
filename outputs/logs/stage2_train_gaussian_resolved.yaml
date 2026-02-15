@@ -1,0 +1,208 @@
+project_root: .
+seed: 42
+log_dir: outputs/logs
+data:
+  frames_dir: data/frames/input
+stage2:
+  stage1_dir: outputs/stage1
+  out_dir: outputs/stage2
+  init_mesh_obj: outputs/stage1/sequence/000756.obj
+  enable_tf32: true
+  cudnn_benchmark: true
+  n_frames: 1
+  n_gaussians: 120000
+  sample_on_surface: true
+  n_gaussians_bg: 30000
+  bg_extent:
+  - 4.0
+  - 4.0
+  - 1.0
+  bg_center_z: 2.5
+  bg_log_scale: -3.5
+  bg_opacity_logit: -3.0
+  bg_exclude_bbox_pad: 0.2
+  bg_grad_scale: 1.0
+  bg_opacity_logit_max: -3.5
+  bg_log_scale_min: -3.5
+  bg_log_scale_max: -2.0
+  fg_opacity_logit_max: 3.2
+  fg_log_scale_min: -6.5
+  fg_log_scale_max: -4.6
+  iters: 3000
+  lr_gauss: 0.002
+  lr_cam: 0.0
+  camera_mode: fixed
+  cam_t_prior:
+  - 0.0
+  - 0.0
+  - 0.0
+  cam_reg_weight: 0.0
+  cam_warmup_iters: 0
+  l1_weight: 0.3
+  use_alpha_mask: false
+  alpha_threshold: 0.03
+  keypoints_json: outputs/stage1/keypoints.json
+  kpt_conf_min: 0.2
+  kpt_box_pad: 0.12
+  use_kpt_bbox_mask: false
+  face_weight: 1.8
+  face_conf_min: 0.35
+  face_box_pad: 0.1
+  face_use_ears: false
+  bg_rgb:
+  - 1.0
+  - 1.0
+  - 1.0
+  frame_select: indices
+  temporal_ref_anchor: sample
+  temporal_ref_window: 0
+  temporal_ref_decay: 0.86
+  bind_to_mesh: true
+  bind_mesh_sequence_dir: outputs/stage1/sequence
+  bind_cache_size: 32
+  bind_mesh_obj_space: auto
+  bind_align_quat_to_mesh_normals: true
+  bind_quat_normal_blend: 1.0
+  bind_surface_aniso_weight: 0.002
+  bind_surface_aniso_margin: 0.15
+  bind_mesh_to_camera: true
+  bind_inverse_export_upright: true
+  bind_mesh_offset:
+  - 0.0
+  - 0.0
+  - 0.0
+  bind_rigid_align:
+    enable: true
+    auto: true
+    pre_stage2: true
+    person_masks_npz: outputs/stage1/person_masks.npz
+    sample_frames: 8
+    eval_downsample: 0.5
+    outside_weight: 2.0
+    levels: 3
+    iters_per_level: 2
+    rot_step_deg: 3.0
+    trans_step:
+    - 0.04
+    - 0.04
+    - 0.06
+    max_rot_deg: 20.0
+    max_trans:
+    - 0.35
+    - 0.35
+    - 0.45
+  binding:
+    mode: games_face
+    hybrid_weight: 0.0
+    eps_normal: 0.001
+    curv_conf_tau: 0.2
+    curv_degen_tau: 0.0001
+    temporal_frame: true
+    scale_clamp_min: 0.0005
+    scale_clamp_max: 0.25
+    max_temporal_angle_deg: 75.0
+    temporal_alpha: 0.35
+    debug_assertions: false
+  use_smpl_silhouette_mask: true
+  smpl_mask_dilate_px: 0
+  smpl_mask_erode_px: 3
+  smpl_color_mask_erode_px: 3
+  smpl_alpha_leak_weight: 0.55
+  smpl_mask_override_alpha: false
+  smpl_mask_precompute: true
+  smpl_mask_precompute_max_frames: 64
+  use_person_mask: false
+  person_masks_npz: outputs/stage1/person_masks.npz
+  person_mask_dilate_px: 1
+  person_mask_erode_px: 1
+  person_mask_fuse_mode: intersect
+  separate_fg_bg_training: true
+  fg_region_weight: 1.35
+  bg_region_weight: 1.0
+  early_stop_enable: true
+  early_stop_patience: 6000
+  early_stop_min_delta: 1.0e-05
+  early_stop_warmup_iters: 8000
+  frame_indices: 756
+  bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
+  bind_vertices_npz: outputs/stage1/smpl_vertices_sequence.npz
+  bind_tpose_obj: outputs/stage1/000756_t-pose.obj
+  bind_rigid_align_effective:
+    enabled: true
+    auto: false
+    pre_stage2: true
+    rx_deg: 1.5
+    ry_deg: 0.0
+    rz_deg: 4.5
+    tx: -0.01
+    ty: -0.02
+    tz: 0.09
+    sample_frames: 8
+    eval_downsample: 0.5
+    outside_weight: 2.0
+    levels: 3
+    iters_per_level: 2
+    rot_step_deg: 3.0
+    trans_step:
+    - 0.04
+    - 0.04
+    - 0.06
+    max_rot_deg: 20.0
+    max_trans:
+    - 0.35
+    - 0.35
+    - 0.45
+    person_masks_npz: outputs/stage1/person_masks.npz
+render:
+  stage2_dir: outputs/stage2
+  out_dir: outputs/renders
+  save_main_image: false
+  save_real_image: true
+  real_out_subdir: real
+  save_fg_nobg_skeleton: true
+  fg_nobg_out_subdir: fg_only
+  render_tpose_image: true
+  tpose_out_subdir: t-pose
+  clear_out_dir_pngs: true
+  frames_dir: data/frames/input
+  frame_select: last
+  max_frames: 1
+  bg:
+  - 1.0
+  - 1.0
+  - 1.0
+  k_scale: 1.0
+  fg_scale: 1.0
+  bg_scale: 1.0
+  split_by_bind: false
+  render_bound_only: false
+  fg_only_render_bound_only: true
+  tpose_render_bound_only: true
+  bound_alpha_threshold: 0.28
+  bound_opacity_min: 0.05
+  fg_mask_mode: smpl
+  fg_mask_dilate_px: 0
+  fg_mask_erode_px: 3
+  overlay_smpl_skeleton: true
+  smpl_skeleton_source: theta
+  smpl_skeleton_npz: outputs/stage1/smpl_skeleton_sequence.npz
+  smpl_joints_npz: outputs/stage1/smpl_joints_sequence.npz
+  smpl_skeleton_color_bgr:
+  - 0
+  - 255
+  - 0
+  smpl_skeleton_line_thickness: 2
+  smpl_skeleton_joint_radius: 3
+  use_gt_background: false
+  bind_mesh_sequence_dir: outputs/stage1
+  bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
+  bind_mesh_obj_space: auto
+  tpose_mesh_obj_space: auto
+  bind_align_quat_to_mesh_normals: true
+  bind_quat_normal_blend: 1.0
+  bind_mesh_to_camera: true
+  bind_inverse_export_upright: true
+  bind_mesh_offset:
+  - 0.0
+  - 0.0
+  - 0.0

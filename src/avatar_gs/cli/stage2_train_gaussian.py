@@ -708,6 +708,8 @@ def main():
         cam_t_prior = (0.0, 0.0, 0.0)
 
     bind_rigid_align_for_train = cfg["stage2"].get("bind_rigid_align", None)
+    _bind_cfg_norm = normalize_rigid_align_config(bind_rigid_align_for_train, default_enabled=False)
+    require_pre_stage2_align = bool((_bind_cfg_norm or {}).get("require_pre_stage2", True)) if bool((_bind_cfg_norm or {}).get("enabled", False)) else False
     try:
         bind_rigid_align_for_train = _maybe_pre_stage2_rigid_align(
             project_root=project_root,
@@ -724,11 +726,17 @@ def main():
             logger=logger,
         )
     except Exception as e:
+        if require_pre_stage2_align:
+            raise RuntimeError(f"bind_rigid_align pre-stage2 failed and require_pre_stage2=true: {e}") from e
         logger.warning(
             "bind_rigid_align pre-stage2 failed (%s); fallback to in-train align.",
             str(e),
         )
         bind_rigid_align_for_train = cfg["stage2"].get("bind_rigid_align", None)
+
+    _eff_norm = normalize_rigid_align_config(bind_rigid_align_for_train, default_enabled=False)
+    if require_pre_stage2_align and bool((_eff_norm or {}).get("enabled", False)) and bool((_eff_norm or {}).get("auto", False)):
+        raise RuntimeError("require_pre_stage2=true but pre-stage2 rigid alignment did not complete; refusing to start stage2 training.")
 
     if bind_rigid_align_for_train is not None:
         cfg["stage2"]["bind_rigid_align_effective"] = bind_rigid_align_for_train
