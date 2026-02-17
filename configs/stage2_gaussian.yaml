@@ -43,7 +43,7 @@ stage2:
   fg_opacity_logit_max: 3.2
   fg_log_scale_min: -6.5
   fg_log_scale_max: -4.6
-  iters: 50000
+  iters: 3000
 
   # Learning rates
   lr_gauss: 0.002
@@ -186,4 +186,3 @@ render:
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset: [0.0, 0.0, 0.0]
-

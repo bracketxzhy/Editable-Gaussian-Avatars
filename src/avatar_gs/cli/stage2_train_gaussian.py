@@ -601,6 +601,11 @@ def main():
             raise RuntimeError("bind_to_mesh=true but gaussians have no bind_idx.")
         bind_mesh_dir_cfg = cfg["stage2"].get("bind_mesh_sequence_dir", str(stage1_dir))
         bind_mesh_dir = project_root / Path(bind_mesh_dir_cfg)
+        # If stage1 produced a `sequence` subfolder with numeric OBJs, prefer it.
+        seq_dir_candidate = stage1_dir / "sequence"
+        if seq_dir_candidate.exists():
+            bind_mesh_dir = seq_dir_candidate
+            logger.info(f"Using bind mesh sequence dir: {bind_mesh_dir}")
         if not bind_mesh_dir.exists():
             raise FileNotFoundError(
                 f"bind_mesh_sequence_dir not found: {bind_mesh_dir}. "
@@ -643,7 +648,16 @@ def main():
                 missing.append(fn)
 
         if missing:
-            if len(seq_names) == len(frames):
+            # If there are numeric OBJ files in bind_mesh_dir (e.g. outputs/stage1/sequence),
+            # prefer a sequential fallback mapping rather than failing hard.
+            mesh_files_here = [p for p in bind_mesh_dir.glob("*.obj") if p.stem.isdigit()]
+            if len(mesh_files_here) > 0:
+                logger.warning(
+                    "Some frame names not found in smpl_params_sequence.npz; "
+                    "falling back to sequential mesh indices from bind_mesh_sequence_dir."
+                )
+                bind_mesh_indices = list(range(len(frames)))
+            elif len(seq_names) == len(frames):
                 logger.warning(
                     "Some frame names not found in smpl_params_sequence.npz; "
                     "falling back to sequential mesh indices."

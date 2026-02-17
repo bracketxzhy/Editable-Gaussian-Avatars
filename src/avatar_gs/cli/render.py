@@ -1059,6 +1059,19 @@ def main():
     # Optional: dynamic binding to SMPL mesh sequence
     bind_to_mesh = bool(render_cfg.get("bind_to_mesh", True))
     bind_mesh_dir = render_cfg.get("bind_mesh_sequence_dir", None)
+    # Prefer a `sequence` subfolder under the provided bind_mesh_sequence_dir (or outputs/stage1)
+    if bind_mesh_dir is not None:
+        try:
+            cand = Path(resolve_path(str(bind_mesh_dir)))
+            if not cand.is_absolute():
+                cand = project_root / cand
+            seq_cand = cand / "sequence"
+            if seq_cand.exists():
+                bind_mesh_dir = str(seq_cand)
+                logger.info(f"Using bind mesh sequence dir: {seq_cand}")
+        except Exception:
+            # non-fatal: leave bind_mesh_dir as-is
+            pass
     bind_seq_npz = render_cfg.get("bind_sequence_npz", ckpt.get("bind_sequence_npz", None))
     bind_vertices_npz = render_cfg.get("bind_vertices_npz", ckpt.get("bind_vertices_npz", None))
     strict_binding_topology = bool(render_cfg.get("strict_binding_topology", True))

@@ -9,7 +9,7 @@ stage2:
   init_mesh_obj: outputs/stage1/sequence/000756.obj
   enable_tf32: true
   cudnn_benchmark: true
-  n_frames: 1
+  n_frames: 16
   n_gaussians: 120000
   sample_on_surface: true
   n_gaussians_bg: 30000
@@ -53,12 +53,12 @@ stage2:
   - 1.0
   - 1.0
   - 1.0
-  frame_select: indices
+  frame_select: uniform_k
   temporal_ref_anchor: sample
   temporal_ref_window: 0
   temporal_ref_decay: 0.86
   bind_to_mesh: true
-  bind_mesh_sequence_dir: outputs/stage1/sequence
+  bind_mesh_sequence_dir: outputs/stage1
   bind_cache_size: 32
   bind_mesh_obj_space: auto
   bind_align_quat_to_mesh_normals: true
@@ -75,6 +75,7 @@ stage2:
     enable: true
     auto: true
     pre_stage2: true
+    require_pre_stage2: true
     person_masks_npz: outputs/stage1/person_masks.npz
     sample_frames: 8
     eval_downsample: 0.5
@@ -123,10 +124,6 @@ stage2:
   early_stop_patience: 6000
   early_stop_min_delta: 1.0e-05
   early_stop_warmup_iters: 8000
-  frame_indices: 756
-  bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
-  bind_vertices_npz: outputs/stage1/smpl_vertices_sequence.npz
-  bind_tpose_obj: outputs/stage1/000756_t-pose.obj
   bind_rigid_align_effective:
     enabled: true
     auto: false
