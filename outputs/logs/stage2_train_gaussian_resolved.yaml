@@ -6,10 +6,10 @@ data:
 stage2:
   stage1_dir: outputs/stage1
   out_dir: outputs/stage2
-  init_mesh_obj: outputs/stage1/sequence/000756.obj
+  init_mesh_obj: sequence/000756.obj
   enable_tf32: true
   cudnn_benchmark: true
-  n_frames: 16
+  n_frames: 1
   n_gaussians: 120000
   sample_on_surface: true
   n_gaussians_bg: 30000
@@ -53,7 +53,7 @@ stage2:
   - 1.0
   - 1.0
   - 1.0
-  frame_select: uniform_k
+  frame_select: indices
   temporal_ref_anchor: sample
   temporal_ref_window: 0
   temporal_ref_decay: 0.86
@@ -77,7 +77,7 @@ stage2:
     pre_stage2: true
     require_pre_stage2: true
     person_masks_npz: outputs/stage1/person_masks.npz
-    sample_frames: 8
+    sample_frames: 1
     eval_downsample: 0.5
     outside_weight: 2.0
     levels: 3
@@ -124,6 +124,7 @@ stage2:
   early_stop_patience: 6000
   early_stop_min_delta: 1.0e-05
   early_stop_warmup_iters: 8000
+  frame_indices: 756
   bind_rigid_align_effective:
     enabled: true
     auto: false
@@ -134,7 +135,7 @@ stage2:
     tx: -0.01
     ty: -0.02
     tz: 0.09
-    sample_frames: 8
+    sample_frames: 1
     eval_downsample: 0.5
     outside_weight: 2.0
     levels: 3

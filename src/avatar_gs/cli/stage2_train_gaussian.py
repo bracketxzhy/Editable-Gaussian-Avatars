@@ -484,10 +484,25 @@ def main():
                 if cand.exists():
                     fallback_mesh = cand
                     break
+            # Also support stage1 numeric sequence exports: outputs/stage1/sequence/*.obj.
+            if fallback_mesh is None:
+                seq_dir = stage1_dir / "sequence"
+                if seq_dir.exists():
+                    seq_objs = [p for p in seq_dir.glob("*.obj") if p.is_file()]
+                    if len(seq_objs) > 0:
+                        seq_objs.sort(key=lambda p: (not p.stem.isdigit(), int(p.stem) if p.stem.isdigit() else p.stem))
+                        fallback_mesh = seq_objs[-1]
+            # Also support numeric OBJs directly under outputs/stage1/*.obj.
+            if fallback_mesh is None:
+                root_objs = [p for p in stage1_dir.glob("*.obj") if p.is_file()]
+                if len(root_objs) > 0:
+                    root_objs.sort(key=lambda p: (not p.stem.isdigit(), int(p.stem) if p.stem.isdigit() else p.stem))
+                    fallback_mesh = root_objs[-1]
         if fallback_mesh is None:
             raise FileNotFoundError(
                 f"init mesh not found: {mesh_obj}. "
-                f"Checked fallback: {stage1_dir / '*_t-pose.obj'}, {stage1_dir / 'smpl_mesh_tpose.obj'} and {stage1_dir / 'smpl_mesh.obj'}."
+                f"Checked fallback: {stage1_dir / '*_t-pose.obj'}, {stage1_dir / 'smpl_mesh_tpose.obj'}, {stage1_dir / 'smpl_mesh.obj'}, "
+                f"{stage1_dir / 'sequence' / '*.obj'} and {stage1_dir / '*.obj'}."
             )
         mesh_obj = fallback_mesh
 
