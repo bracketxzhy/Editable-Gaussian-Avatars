@@ -76,8 +76,13 @@ stage2:
     auto: true
     pre_stage2: true
     require_pre_stage2: true
+    require_quality: true
+    min_iou_after: 0.7
+    max_outside_after: 0.2
+    init_from_bbox: true
+    use_best_if_quality_fail: true
     person_masks_npz: outputs/stage1/person_masks.npz
-    sample_frames: 1
+    sample_frames: 8
     eval_downsample: 0.5
     outside_weight: 2.0
     levels: 3
@@ -129,13 +134,19 @@ stage2:
     enabled: true
     auto: false
     pre_stage2: true
-    rx_deg: 1.5
+    require_pre_stage2: true
+    require_quality: true
+    min_iou_after: 0.7
+    max_outside_after: 0.2
+    init_from_bbox: true
+    use_best_if_quality_fail: true
+    rx_deg: 0.0
     ry_deg: 0.0
-    rz_deg: 4.5
-    tx: -0.01
-    ty: -0.02
-    tz: 0.09
-    sample_frames: 1
+    rz_deg: 1.5
+    tx: -0.0233955078125
+    ty: -0.24401812744140625
+    tz: -0.405
+    sample_frames: 8
     eval_downsample: 0.5
     outside_weight: 2.0
     levels: 3
@@ -182,14 +193,14 @@ render:
   fg_mask_dilate_px: 0
   fg_mask_erode_px: 3
   overlay_smpl_skeleton: true
-  smpl_skeleton_source: theta
+  smpl_skeleton_source: joints
   smpl_skeleton_npz: outputs/stage1/smpl_skeleton_sequence.npz
   smpl_joints_npz: outputs/stage1/smpl_joints_sequence.npz
   smpl_skeleton_color_bgr:
   - 0
   - 255
   - 0
-  smpl_skeleton_line_thickness: 2
+  smpl_skeleton_line_thickness: 0
   smpl_skeleton_joint_radius: 3
   use_gt_background: false
   bind_mesh_sequence_dir: outputs/stage1

@@ -390,18 +390,124 @@ def _prepare_pymaf_runtime_data(assets_dir: Path, pymaf_dir: Path, pymaf_ckpt: P
     return data_dir, smpl_dir
 
 
-def _estimate_person_mask_grabcut(image_bgr: np.ndarray) -> np.ndarray:
+def _pick_main_component(mask_u8: np.ndarray, prefer_non_border: bool = True) -> np.ndarray:
+    mask = (np.asarray(mask_u8, dtype=np.uint8) > 0).astype(np.uint8)
+    if mask.size == 0:
+        return mask
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    if n <= 1:
+        return mask
+    h, w = mask.shape[:2]
+    best_idx = -1
+    best_area = -1
+    for i in range(1, n):
+        x, y, ww, hh, area = stats[i]
+        if area <= 0:
+            continue
+        touch_border = (x <= 0) or (y <= 0) or (x + ww >= w - 1) or (y + hh >= h - 1)
+        if prefer_non_border and touch_border:
+            continue
+        if int(area) > best_area:
+            best_area = int(area)
+            best_idx = i
+    if best_idx < 0:
+        # Fallback: pick largest component regardless of border touching.
+        areas = stats[1:, cv2.CC_STAT_AREA]
+        best_idx = 1 + int(np.argmax(areas))
+    out = (labels == best_idx).astype(np.uint8)
+    return out
+
+
+def _estimate_person_mask_chromakey(image_bgr: np.ndarray) -> np.ndarray:
+    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+    # Typical green-screen range, slightly tolerant.
+    lower = np.array([35, 35, 25], dtype=np.uint8)
+    upper = np.array([95, 255, 255], dtype=np.uint8)
+    green = cv2.inRange(hsv, lower, upper)
+    fg = (green == 0).astype(np.uint8)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k, iterations=1)
+    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k, iterations=2)
+    fg = _pick_main_component((fg * 255).astype(np.uint8), prefer_non_border=True)
+    return (fg * 255).astype(np.uint8)
+
+
+def _mask_score(mask_u8: np.ndarray, mesh_hint_mask_u8: np.ndarray | None) -> float:
+    m = (np.asarray(mask_u8, dtype=np.uint8) > 0)
+    if m.size == 0:
+        return -1e9
+    area = float(m.mean())
+    if area < 0.01:
+        return -1e6
+
+    h, w = m.shape[:2]
+    border = np.zeros_like(m, dtype=np.uint8)
+    border[0, :] = 1
+    border[-1, :] = 1
+    border[:, 0] = 1
+    border[:, -1] = 1
+    border_touch = float(m[border > 0].mean())
+
+    ys, xs = np.where(m)
+    if len(xs) == 0:
+        center_dist = 1.0
+    else:
+        cx, cy = float(xs.mean()), float(ys.mean())
+        dx = (cx - 0.5 * (w - 1)) / max(1.0, 0.5 * (w - 1))
+        dy = (cy - 0.5 * (h - 1)) / max(1.0, 0.5 * (h - 1))
+        center_dist = float(np.sqrt(dx * dx + dy * dy))
+
+    # Prefer plausible person area ratio for full-body framing.
+    area_target = 0.18
+    area_term = -abs(area - area_target)
+
+    iou_hint = 0.0
+    if mesh_hint_mask_u8 is not None:
+        g = (np.asarray(mesh_hint_mask_u8, dtype=np.uint8) > 0)
+        inter = float(np.logical_and(m, g).sum())
+        union = float(np.logical_or(m, g).sum())
+        iou_hint = inter / max(union, 1.0)
+
+    score = (3.0 * iou_hint) + (1.5 * area_term) - (2.0 * border_touch) - (0.5 * center_dist)
+    return float(score)
+
+
+def _estimate_person_mask_grabcut(image_bgr: np.ndarray, mesh_hint_mask: np.ndarray | None = None) -> np.ndarray:
     h, w = image_bgr.shape[:2]
+
+    # Candidate 1: GrabCut with loose rectangle.
     rect = (int(0.08 * w), int(0.04 * h), int(0.84 * w), int(0.92 * h))
     gc_mask = np.full((h, w), cv2.GC_BGD, dtype=np.uint8)
     bg_model = np.zeros((1, 65), dtype=np.float64)
     fg_model = np.zeros((1, 65), dtype=np.float64)
     cv2.grabCut(image_bgr, gc_mask, rect, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_RECT)
-    fg = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+    cand_gc = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k, iterations=1)
-    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k, iterations=2)
-    return fg
+    cand_gc = cv2.morphologyEx(cand_gc, cv2.MORPH_OPEN, k, iterations=1)
+    cand_gc = cv2.morphologyEx(cand_gc, cv2.MORPH_CLOSE, k, iterations=2)
+    cand_gc = (_pick_main_component(cand_gc, prefer_non_border=True) * 255).astype(np.uint8)
+
+    # Candidate 2: Green-screen color keying.
+    cand_ck = _estimate_person_mask_chromakey(image_bgr)
+
+    cands = [cand_gc, cand_ck]
+    if mesh_hint_mask is not None:
+        mesh_hint_u8 = ((np.asarray(mesh_hint_mask, dtype=np.uint8) > 0).astype(np.uint8) * 255)
+        cands.append(mesh_hint_u8)
+    else:
+        mesh_hint_u8 = None
+
+    best = None
+    best_score = -1e12
+    for c in cands:
+        s = _mask_score(c, mesh_hint_u8)
+        if s > best_score:
+            best_score = s
+            best = c
+
+    if best is None:
+        best = cand_gc
+    return (np.asarray(best, dtype=np.uint8) > 0).astype(np.uint8) * 255
 
 
 def _project_verts_to_uv(verts: np.ndarray, cam_t: np.ndarray, width: int, height: int, focal: float = 5000.0) -> tuple[np.ndarray, np.ndarray]:
@@ -920,7 +1026,24 @@ def main() -> None:
     h, w = gt_img.shape[:2]
 
     # Training-only asset: person mask used by stage2 losses/rigid-align.
-    gt_mask = _estimate_person_mask_grabcut(gt_img)
+    mask_hint = None
+    try:
+        uv_hint, valid_hint = _project_verts_to_uv(
+            verts=verts_local,
+            cam_t=np.asarray(mesh_res.cam_t, dtype=np.float32),
+            width=w,
+            height=h,
+            focal=5000.0,
+        )
+        mask_hint = _rasterize_mesh_mask(
+            uv=uv_hint,
+            valid_v=valid_hint,
+            faces=mesh_res.faces,
+            image_hw=(h, w),
+        )
+    except Exception:
+        mask_hint = None
+    gt_mask = _estimate_person_mask_grabcut(gt_img, mesh_hint_mask=mask_hint)
 
     # Canonical stage1 mesh output is under sequence/.
     frame_stem = Path(mesh_res.frame_name).stem

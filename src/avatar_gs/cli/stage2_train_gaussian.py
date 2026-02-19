@@ -289,8 +289,30 @@ def _maybe_pre_stage2_rigid_align(
             "Will fallback to in-train auto align."
         )
         return cfg
-    name_to_pm = {n: i for i, n in enumerate(p_names)}
-    valid_frame_ids = [i for i, fn in enumerate(frames) if fn in name_to_pm]
+    def _norm_frame_name(name: str) -> str:
+        s = str(name).strip().replace("\\", "/")
+        return Path(s).name.lower()
+
+    # Robust matching: support with/without extension and case differences.
+    name_to_pm_exact: dict[str, int] = {}
+    name_to_pm_stem: dict[str, int] = {}
+    for i, n in enumerate(p_names):
+        nn = _norm_frame_name(n)
+        name_to_pm_exact[nn] = int(i)
+        stem = Path(nn).stem
+        if stem and stem not in name_to_pm_stem:
+            name_to_pm_stem[stem] = int(i)
+
+    def _lookup_pm_idx(frame_name: str) -> int:
+        nn = _norm_frame_name(frame_name)
+        if nn in name_to_pm_exact:
+            return int(name_to_pm_exact[nn])
+        stem = Path(nn).stem
+        if stem in name_to_pm_stem:
+            return int(name_to_pm_stem[stem])
+        return -1
+
+    valid_frame_ids = [i for i, fn in enumerate(frames) if _lookup_pm_idx(fn) >= 0]
     if len(valid_frame_ids) == 0:
         logger.warning(
             "bind_rigid_align pre-stage2 skipped: no overlapping frame names with person masks. "
@@ -317,11 +339,19 @@ def _maybe_pre_stage2_rigid_align(
     outside_w = float(cfg.get("outside_weight", 2.0))
     gt_masks_eval: dict[int, np.ndarray] = {}
     for fj in sample_ids:
-        pm_i = int(name_to_pm[frames[fj]])
+        pm_i = int(_lookup_pm_idx(frames[fj]))
+        if pm_i < 0:
+            continue
         gt_m = (p_masks[pm_i] > 0).astype(np.uint8)
         if Hs != H or Ws != W:
             gt_m = cv2.resize(gt_m, (Ws, Hs), interpolation=cv2.INTER_NEAREST)
         gt_masks_eval[fj] = (gt_m > 0)
+    if len(gt_masks_eval) == 0:
+        logger.warning(
+            "bind_rigid_align pre-stage2 skipped: sampled masks are empty after frame-name matching. "
+            "Will fallback to in-train auto align."
+        )
+        return cfg
 
     def _eval_score(param_dict: dict) -> float:
         cfg_eval = {"enabled": True}
@@ -389,6 +419,12 @@ def _maybe_pre_stage2_rigid_align(
         n = float(used)
         return float(iou_acc / n), float(outside_acc / n), float(score_acc / n)
 
+    def _mask_bbox(mask_bool: np.ndarray) -> tuple[float, float, float, float] | None:
+        ys, xs = np.where(mask_bool > 0)
+        if ys.size == 0 or xs.size == 0:
+            return None
+        return float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())
+
     init_params = {
         "rx_deg": float(cfg.get("rx_deg", 0.0)),
         "ry_deg": float(cfg.get("ry_deg", 0.0)),
@@ -397,6 +433,57 @@ def _maybe_pre_stage2_rigid_align(
         "ty": float(cfg.get("ty", 0.0)),
         "tz": float(cfg.get("tz", 0.0)),
     }
+
+    # Stage1-style bbox alignment prior (2D contour center/scale) to improve rigid-search init.
+    bbox_init_applied = False
+    if bool(cfg.get("init_from_bbox", True)) and len(sample_ids) > 0:
+        fj0 = int(sample_ids[0])
+        mesh_i0 = int(bind_mesh_indices[fj0])
+        verts_raw0 = _load_mesh_np_raw(mesh_i0)
+        verts_eval0 = apply_rigid_transform_np(verts_raw0, {"enabled": True, **init_params}) + bind_mesh_offset_np
+        pred0 = _rasterize_mesh_mask(
+            verts=verts_eval0,
+            faces=bind_faces_np,
+            K=K_eval,
+            R=R_eval,
+            t=t_eval,
+            H=Hs,
+            W=Ws,
+        ) > 0
+        gt0 = gt_masks_eval.get(fj0, None)
+        if gt0 is not None:
+            b_s = _mask_bbox(pred0)
+            b_p = _mask_bbox(gt0)
+            if b_s is not None and b_p is not None:
+                ws = max(1.0, b_s[2] - b_s[0] + 1.0)
+                hs = max(1.0, b_s[3] - b_s[1] + 1.0)
+                wp = max(1.0, b_p[2] - b_p[0] + 1.0)
+                hp = max(1.0, b_p[3] - b_p[1] + 1.0)
+                csx = 0.5 * (b_s[0] + b_s[2])
+                csy = 0.5 * (b_s[1] + b_s[3])
+                cpx = 0.5 * (b_p[0] + b_p[2])
+                cpy = 0.5 * (b_p[1] + b_p[3])
+                s = float(np.clip(0.5 * ((wp / ws) + (hp / hs)), 0.5, 2.0))
+
+                verts_cam0 = (verts_eval0 @ R_eval.T) + t_eval.reshape(1, 3)
+                z_ref = float(np.median(np.clip(verts_cam0[:, 2], 1e-3, None)))
+                fx = max(abs(float(K_eval[0, 0])), 1e-6)
+                fy = max(abs(float(K_eval[1, 1])), 1e-6)
+                dx_px = float(cpx - csx)
+                dy_px = float(cpy - csy)
+
+                init_params["tx"] += (dx_px / fx) * z_ref
+                init_params["ty"] += (dy_px / fy) * z_ref
+                init_params["tz"] += (1.0 / max(s, 1e-6) - 1.0) * z_ref
+                bbox_init_applied = True
+
+    max_trans_cfg = tuple(cfg.get("max_trans", (0.35, 0.35, 0.45)))
+    if len(max_trans_cfg) != 3:
+        max_trans_cfg = (0.35, 0.35, 0.45)
+    init_params["tx"] = float(np.clip(init_params["tx"], -float(max_trans_cfg[0]), float(max_trans_cfg[0])))
+    init_params["ty"] = float(np.clip(init_params["ty"], -float(max_trans_cfg[1]), float(max_trans_cfg[1])))
+    init_params["tz"] = float(np.clip(init_params["tz"], -float(max_trans_cfg[2]), float(max_trans_cfg[2])))
+
     best_params, score_before, score_after = coordinate_descent_rigid_search(
         score_fn=_eval_score,
         init_params=init_params,
@@ -405,18 +492,39 @@ def _maybe_pre_stage2_rigid_align(
         levels=int(cfg.get("levels", 3)),
         iters_per_level=int(cfg.get("iters_per_level", 2)),
         max_rot_deg=float(cfg.get("max_rot_deg", 20.0)),
-        max_trans=tuple(cfg.get("max_trans", (0.35, 0.35, 0.45))),
+        max_trans=max_trans_cfg,
     )
     iou_before, outside_before, _ = _eval_metrics(init_params)
     iou_after, outside_after, _ = _eval_metrics(best_params)
+
+    min_iou_after = float(cfg.get("min_iou_after", 0.70))
+    max_outside_after = float(cfg.get("max_outside_after", 0.20))
+    require_quality = bool(cfg.get("require_quality", True))
+    quality_ok = bool((iou_after >= min_iou_after) and (outside_after <= max_outside_after))
+
     logger.info(
         "bind_rigid_align pre-stage2 auto: "
         f"score {score_before:.4f}->{score_after:.4f}, "
         f"iou {iou_before:.4f}->{iou_after:.4f}, "
         f"outside {outside_before:.4f}->{outside_after:.4f}, "
         f"rot=({best_params['rx_deg']:.3f},{best_params['ry_deg']:.3f},{best_params['rz_deg']:.3f})deg, "
-        f"trans=({best_params['tx']:.4f},{best_params['ty']:.4f},{best_params['tz']:.4f})"
+        f"trans=({best_params['tx']:.4f},{best_params['ty']:.4f},{best_params['tz']:.4f}), "
+        f"quality_ok={quality_ok} (iou>={min_iou_after:.2f}, outside<={max_outside_after:.2f})"
     )
+    use_best_if_quality_fail = bool(cfg.get("use_best_if_quality_fail", True))
+    if require_quality and (not quality_ok):
+        if not use_best_if_quality_fail:
+            raise RuntimeError(
+                "pre-stage2 rigid align quality check failed: "
+                f"iou_after={iou_after:.4f} (min {min_iou_after:.4f}), "
+                f"outside_after={outside_after:.4f} (max {max_outside_after:.4f})"
+            )
+        logger.warning(
+            "pre-stage2 rigid align quality below threshold, but use_best_if_quality_fail=true; "
+            "continue training with best-found rigid params. "
+            f"iou_after={iou_after:.4f} (min {min_iou_after:.4f}), "
+            f"outside_after={outside_after:.4f} (max {max_outside_after:.4f})"
+        )
 
     report = {
         "enabled": True,
@@ -429,6 +537,12 @@ def _maybe_pre_stage2_rigid_align(
         "iou_after": float(iou_after),
         "outside_before": float(outside_before),
         "outside_after": float(outside_after),
+        "bbox_init_applied": bool(bbox_init_applied),
+        "require_quality": bool(require_quality),
+        "use_best_if_quality_fail": bool(use_best_if_quality_fail),
+        "quality_ok": bool(quality_ok),
+        "min_iou_after": float(min_iou_after),
+        "max_outside_after": float(max_outside_after),
         "sample_frames": [str(frames[i]) for i in sample_ids],
         "person_masks_npz": str(pm_path),
     }
@@ -853,4 +967,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

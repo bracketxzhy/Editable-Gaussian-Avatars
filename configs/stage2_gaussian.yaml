@@ -4,16 +4,6 @@ log_dir: outputs/logs
 
 data:
   frames_dir: data/frames/input
-  # Optional: Human3.6M multi-view selection (same as stage1).
-  # h36m:
-  #   root_dir: data/frames/input/human3.6/S1
-  #   images_list: data/frames/input/human3.6/h36m_annot/train_images.txt
-  #   subject: S1
-  #   action: Directions
-  #   trial: 1
-  #   cameras: [54138969, 55011271, 58860488, 60457274]
-  #   stride: 1
-  #   max_images: -1
 
 stage2:
   stage1_dir: outputs/stage1
@@ -93,6 +83,11 @@ stage2:
     auto: true
     pre_stage2: true
     require_pre_stage2: true
+    require_quality: true
+    min_iou_after: 0.70
+    max_outside_after: 0.20
+    init_from_bbox: true
+    use_best_if_quality_fail: false
     person_masks_npz: outputs/stage1/person_masks.npz
     sample_frames: 8
     eval_downsample: 0.5
@@ -170,11 +165,11 @@ render:
   fg_mask_dilate_px: 0
   fg_mask_erode_px: 3
   overlay_smpl_skeleton: true
-  smpl_skeleton_source: theta
+  smpl_skeleton_source: joints
   smpl_skeleton_npz: outputs/stage1/smpl_skeleton_sequence.npz
   smpl_joints_npz: outputs/stage1/smpl_joints_sequence.npz
   smpl_skeleton_color_bgr: [0, 255, 0]
-  smpl_skeleton_line_thickness: 2
+  smpl_skeleton_line_thickness: 0
   smpl_skeleton_joint_radius: 3
   use_gt_background: false
   bind_mesh_sequence_dir: outputs/stage1

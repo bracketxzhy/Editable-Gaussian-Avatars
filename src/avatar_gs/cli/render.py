@@ -113,6 +113,31 @@ def _euler_deg_to_rotmat_torch(
         device=dev,
     )
     return Rz @ Rx @ Ry
+
+
+def _apply_world_rotation_about_pivot_extrinsics(
+    R: torch.Tensor,
+    t: torch.Tensor,
+    Q: torch.Tensor,
+    pivot_world: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Apply world-space rotation Q around pivot_world to camera extrinsics (world->cam):
+      X_cam = R @ X_world + t
+    After rotating world points:
+      X_world' = Q @ (X_world - p) + p
+    equivalent new extrinsics:
+      R' = R @ Q
+      t' = t + R @ ((I - Q) @ p)
+    """
+    Q = Q.to(device=R.device, dtype=R.dtype)
+    p = pivot_world.to(device=R.device, dtype=R.dtype).view(3)
+    I = torch.eye(3, device=R.device, dtype=R.dtype)
+    R_new = R @ Q
+    t_new = t + (R @ ((I - Q) @ p.view(3, 1))).view(3)
+    return R_new, t_new
+
+
 def save_rgb(path: str | Path, rgb_chw: torch.Tensor) -> None:
     """Save (3,H,W) RGB float [0,1] as png/jpg, preserving exact H/W."""
     img = (rgb_chw.detach().clamp(0.0, 1.0) * 255.0).byte().permute(1, 2, 0).cpu().numpy()  # (H,W,3) RGB
@@ -1525,15 +1550,15 @@ def main():
             R = axis_angle_to_rotmat(cam_w[i])
             t = cam_t[i]
 
-        if (abs(view_yaw_deg) > 1e-8) or (abs(view_pitch_deg) > 1e-8) or (abs(view_roll_deg) > 1e-8):
+        view_orbit_enabled = (abs(view_yaw_deg) > 1e-8) or (abs(view_pitch_deg) > 1e-8) or (abs(view_roll_deg) > 1e-8)
+        R_delta_view = None
+        if view_orbit_enabled:
             R_delta_view = _euler_deg_to_rotmat_torch(
                 yaw_deg=view_yaw_deg,
                 pitch_deg=view_pitch_deg,
                 roll_deg=view_roll_deg,
                 device=torch.device(device),
             )
-            R = R_delta_view @ R
-            t = (R_delta_view @ t.view(3, 1)).view(3)
 
         verts_t = None
         normals_t = None
@@ -1629,6 +1654,26 @@ def main():
                                 bad_n,
                             )
                             invalid_bind_warned = True
+
+        # Orbit view should rotate around subject pivot instead of world origin.
+        # Otherwise side/back views can move subject behind camera and become blank.
+        if view_orbit_enabled and R_delta_view is not None:
+            pivot_world = None
+            if center_subject_use_mesh and (verts_t is not None) and (verts_t.numel() > 0):
+                pivot_world = verts_t.mean(dim=0)
+            elif g.xyz is not None and g.xyz.numel() > 0:
+                if (g.bind_idx is not None) and bool((g.bind_idx >= 0).any()):
+                    pivot_world = g.xyz[g.bind_idx >= 0].mean(dim=0)
+                else:
+                    pivot_world = g.xyz.mean(dim=0)
+            if pivot_world is None:
+                pivot_world = torch.zeros((3,), device=device, dtype=torch.float32)
+            R, t = _apply_world_rotation_about_pivot_extrinsics(
+                R=R,
+                t=t,
+                Q=R_delta_view,
+                pivot_world=pivot_world,
+            )
 
         # Optional: split gaussians by bind_idx
         if split_by_bind and g.bind_idx is not None:
