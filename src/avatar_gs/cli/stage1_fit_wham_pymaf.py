@@ -681,72 +681,126 @@ def _extract_tpose_cam_from_smplx(
         return None, None
 
     smplx_params_all = pred_results.get("smplx_params", None)
-    if smplx_params_all is None:
-        return None, None
-    if idx >= len(smplx_params_all):
-        return None, None
+    params_i = None
+    if smplx_params_all is not None and idx < len(smplx_params_all):
+        p_i = smplx_params_all[idx]
+        if isinstance(p_i, dict):
+            params_i = p_i
 
-    params_i = smplx_params_all[idx]
-    if not isinstance(params_i, dict):
-        return None, None
-
-    smplx_dir = assets_dir / "smplx"
-    if not smplx_dir.exists():
-        return None, None
-
-    try:
+    gender = "neutral"
+    if isinstance(params_i, dict):
         gender = str(params_i.get("gender", "neutral")).strip().lower()
-        if gender not in {"neutral", "male", "female"}:
-            gender = "neutral"
+    if gender not in {"neutral", "male", "female"}:
+        gender = "neutral"
 
+    betas_np = None
+    if isinstance(params_i, dict):
+        betas_np = params_i.get("shape", None)
+    if betas_np is None and pred_results.get("betas", None) is not None:
+        try:
+            betas_all = pred_results["betas"]
+            if idx < len(betas_all):
+                betas_np = _to_numpy_cpu(betas_all[idx])
+        except Exception:
+            betas_np = None
+    if betas_np is None:
+        betas_np = np.zeros((10,), dtype=np.float32)
+    betas_np = np.asarray(betas_np, dtype=np.float32).reshape(-1)
+
+    transl_t = torch.from_numpy(np.asarray(cam_t, dtype=np.float32).reshape(1, 3))
+
+    def _run_tpose_for_model(model_type: str, model_root: Path) -> tuple[np.ndarray, np.ndarray]:
         model = smplx.create(
-            model_path=str(smplx_dir),
-            model_type="smplx",
+            model_path=str(model_root),
+            model_type=model_type,
             gender=gender,
             use_pca=False,
             flat_hand_mean=True,
             batch_size=1,
         ).to(device="cpu")
 
-        def _zero_like_param(name: str, default_dim: int) -> torch.Tensor:
-            pv = params_i.get(name, None)
-            if pv is None:
-                return torch.zeros((1, default_dim), dtype=torch.float32)
-            arr = _to_numpy_cpu(pv).astype(np.float32).reshape(1, -1)
-            return torch.zeros((1, arr.shape[1]), dtype=torch.float32)
+        num_betas = int(getattr(model, "num_betas", max(10, int(betas_np.shape[0]))))
+        betas_use = betas_np
+        if betas_use.shape[0] < num_betas:
+            betas_use = np.pad(betas_use, (0, num_betas - betas_use.shape[0]))
+        betas_t = torch.from_numpy(betas_use[:num_betas].reshape(1, num_betas)).to(dtype=torch.float32)
 
-        betas_np = params_i.get("shape", None)
-        if betas_np is None and pred_results.get("betas", None) is not None:
-            betas_np = _to_numpy_cpu(pred_results["betas"][idx])
-        if betas_np is None:
-            betas_np = np.zeros((10,), dtype=np.float32)
-        betas_t = torch.from_numpy(np.asarray(betas_np, dtype=np.float32).reshape(1, -1))
+        body_j = int(getattr(model, "NUM_BODY_JOINTS", 21 if model_type == "smplx" else 23))
+        body_pose_dim = int(max(3, body_j * 3))
+        body_pose_base = torch.zeros((1, body_pose_dim), dtype=torch.float32)
 
-        transl_t = torch.from_numpy(np.asarray(cam_t, dtype=np.float32).reshape(1, 3))
+        # try multiple index conventions; choose the pose with max X span (most "T-like")
+        idx_sets = [
+            (15, 16, 13, 14),
+            (14, 15, 12, 13),
+            (16, 17, 14, 15),
+            (13, 14, 11, 12),
+        ]
 
-        kwargs = {
-            "betas": betas_t,
-            "global_orient": torch.zeros((1, 3), dtype=torch.float32),
-            "body_pose": _zero_like_param("body_pose", 63),
-            "left_hand_pose": _zero_like_param("left_hand_pose", 45),
-            "right_hand_pose": _zero_like_param("right_hand_pose", 45),
-            "jaw_pose": _zero_like_param("jaw_pose", 3),
-            "leye_pose": _zero_like_param("leye_pose", 3),
-            "reye_pose": _zero_like_param("reye_pose", 3),
-            "expression": _zero_like_param("expression", 10),
-            "transl": transl_t,
-            "return_verts": True,
-        }
+        candidates = [body_pose_base.clone()]
+        for ls, rs, lc, rc in idx_sets:
+            for shoulder_deg, collar_deg in ((90.0, 20.0), (80.0, 15.0), (70.0, 10.0)):
+                bp = body_pose_base.clone()
+                for j_idx, deg in ((ls, +shoulder_deg), (rs, -shoulder_deg), (lc, +collar_deg), (rc, -collar_deg)):
+                    k = int(j_idx) * 3 + 2
+                    if 0 <= k < body_pose_dim:
+                        bp[0, k] = float(np.deg2rad(deg))
+                candidates.append(bp)
 
-        with torch.no_grad():
-            out = model(**kwargs)
+        best_out = None
+        best_span = -1.0
+        for bp in candidates:
+            kwargs = {
+                "betas": betas_t,
+                "global_orient": torch.zeros((1, 3), dtype=torch.float32),
+                "body_pose": bp,
+                "transl": transl_t,
+                "return_verts": True,
+            }
+            if model_type == "smplx":
+                num_expr = int(getattr(model, "num_expression_coeffs", 10))
+                kwargs.update(
+                    {
+                        "left_hand_pose": torch.zeros((1, 45), dtype=torch.float32),
+                        "right_hand_pose": torch.zeros((1, 45), dtype=torch.float32),
+                        "jaw_pose": torch.zeros((1, 3), dtype=torch.float32),
+                        "leye_pose": torch.zeros((1, 3), dtype=torch.float32),
+                        "reye_pose": torch.zeros((1, 3), dtype=torch.float32),
+                        "expression": torch.zeros((1, num_expr), dtype=torch.float32),
+                    }
+                )
 
-        verts_tpose_cam = out.vertices[0].detach().cpu().numpy().astype(np.float32)
-        joints_tpose_cam = out.joints[0].detach().cpu().numpy().astype(np.float32)
+            with torch.no_grad():
+                out_i = model(**kwargs)
+            verts_i = out_i.vertices[0].detach().cpu().numpy().astype(np.float32)
+            span_x = float(np.percentile(verts_i[:, 0], 99.0) - np.percentile(verts_i[:, 0], 1.0))
+            if span_x > best_span:
+                best_span = span_x
+                best_out = out_i
+
+        if best_out is None:
+            raise RuntimeError(f"No valid T-pose candidate for model_type={model_type}")
+
+        verts_tpose_cam = best_out.vertices[0].detach().cpu().numpy().astype(np.float32)
+        joints_tpose_cam = best_out.joints[0].detach().cpu().numpy().astype(np.float32)
         return verts_tpose_cam, joints_tpose_cam
-    except Exception as e:
-        print(f"Warning: failed to compute true T-pose from smplx_params: {e}")
-        return None, None
+
+    errors: list[str] = []
+    try_order = [
+        ("smplx", assets_dir / "smplx"),
+        ("smpl", assets_dir / "smpl"),
+    ]
+    for model_type, model_root in try_order:
+        if not model_root.exists():
+            errors.append(f"{model_type}:missing_model_root:{model_root}")
+            continue
+        try:
+            return _run_tpose_for_model(model_type=model_type, model_root=model_root)
+        except Exception as e:
+            errors.append(f"{model_type}:{e}")
+
+    print("Warning: failed to compute true T-pose. attempts=" + " | ".join(errors))
+    return None, None
 
 
 def _extract_pred_joints(
@@ -1014,6 +1068,11 @@ def _write_stage1_sequence_assets_full(
     tpose_joints_ref: np.ndarray | None = (
         None if tpose_joints_cam is None else np.asarray(tpose_joints_cam, dtype=np.float32)
     )
+    if tpose_verts_ref is None:
+        raise RuntimeError(
+            'Failed to compute true T-pose verts (verts_tpose_cam). '
+            'Refusing to fallback to first-frame pose. Please check SMPL-X assets and rerun stage1.'
+        )
 
     for rec in records:
         frame_name = str(rec["frame_name"])
@@ -1067,8 +1126,6 @@ def _write_stage1_sequence_assets_full(
         masks_seq.append((np.asarray(mask, dtype=np.uint8) > 0).astype(np.uint8))
         kpt_map[frame_name] = kpts
 
-        if tpose_verts_ref is None:
-            tpose_verts_ref = verts_cam
         if tpose_joints_ref is None and joints_cam is not None:
             tpose_joints_ref = np.asarray(joints_cam, dtype=np.float32)
 
@@ -1112,7 +1169,7 @@ def _write_stage1_sequence_assets_full(
         "export_center_xy_value": np.asarray([0.0, 0.0], dtype=np.float32),
         "export_on_floor": np.asarray([0], dtype=np.int32),
         "export_floor_z": np.asarray([0.0], dtype=np.float32),
-        "verts_tpose_cam": np.asarray(tpose_verts_ref if tpose_verts_ref is not None else verts_cam_arr[0], dtype=np.float32),
+        "verts_tpose_cam": np.asarray(tpose_verts_ref, dtype=np.float32),
     }
     if tpose_joints_ref is not None and tpose_joints_ref.ndim == 2 and tpose_joints_ref.shape[1] == 3:
         params_kwargs["joints_tpose_cam"] = np.asarray(tpose_joints_ref, dtype=np.float32)
@@ -1418,6 +1475,11 @@ def main() -> None:
         assets_dir=assets_dir,
         cam_t=mesh_res.cam_t,
     )
+    if tpose_verts_cam is None:
+        raise RuntimeError(
+            'stage1 failed to produce true T-pose (verts_tpose_cam is None). '
+            'Please ensure assets/smplx is complete and rerun stage1.'
+        )
     compat_assets = _write_stage1_sequence_assets_full(
         out_dir=out_dir,
         frames_dir=frames_dir,

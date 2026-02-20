@@ -83,36 +83,59 @@ def _euler_deg_to_rotmat_torch(
     roll_deg: float,
     device: torch.device | str | None = None,
     dtype: torch.dtype = torch.float32,
+    axis_mode: str = "legacy",
 ) -> torch.Tensor:
     """
     Convert Euler angles in degrees to a 3x3 rotation matrix.
-    Convention: intrinsic yaw(Y) -> pitch(X) -> roll(Z), combined as Rz * Rx * Ry.
-    """
-    y = math.radians(float(yaw_deg))
-    x = math.radians(float(pitch_deg))
-    z = math.radians(float(roll_deg))
 
-    cy, sy = math.cos(y), math.sin(y)
-    cx, sx = math.cos(x), math.sin(x)
-    cz, sz = math.cos(z), math.sin(z)
+    axis_mode:
+      - legacy: yaw around Y, pitch around X, roll around Z (old behavior)
+      - z_up:   yaw around Z, pitch around X, roll around Y
+    """
+    yaw = math.radians(float(yaw_deg))
+    pitch = math.radians(float(pitch_deg))
+    roll = math.radians(float(roll_deg))
+
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    cx, sx = math.cos(pitch), math.sin(pitch)
+    cz, sz = math.cos(roll), math.sin(roll)
 
     dev = torch.device(device) if device is not None else None
-    Ry = torch.tensor(
-        [[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]],
-        dtype=dtype,
-        device=dev,
-    )
+
+    # Common X rotation (pitch)
     Rx = torch.tensor(
         [[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]],
         dtype=dtype,
         device=dev,
     )
-    Rz = torch.tensor(
+
+    m = str(axis_mode).strip().lower()
+    if m == "z_up":
+        # yaw around Z, roll around Y
+        R_yaw = torch.tensor(
+            [[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]],
+            dtype=dtype,
+            device=dev,
+        )
+        R_roll = torch.tensor(
+            [[cz, 0.0, sz], [0.0, 1.0, 0.0], [-sz, 0.0, cz]],
+            dtype=dtype,
+            device=dev,
+        )
+        return R_roll @ Rx @ R_yaw
+
+    # legacy: yaw around Y, roll around Z
+    R_yaw = torch.tensor(
+        [[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]],
+        dtype=dtype,
+        device=dev,
+    )
+    R_roll = torch.tensor(
         [[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]],
         dtype=dtype,
         device=dev,
     )
-    return Rz @ Rx @ Ry
+    return R_roll @ Rx @ R_yaw
 
 
 def _apply_world_rotation_about_pivot_extrinsics(
@@ -535,6 +558,71 @@ def _project_points_numpy(
     return u, v, valid
 
 
+def _fit_subject_camera_numpy(
+    verts: np.ndarray,
+    K: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+    H: int,
+    W: int,
+    fill: float = 0.82,
+    iters: int = 2,
+) -> tuple[np.ndarray, np.ndarray]:
+    if verts is None or verts.size == 0:
+        return K, t
+
+    K_new = np.asarray(K, dtype=np.float32).copy()
+    t_new = np.asarray(t, dtype=np.float32).reshape(3).copy()
+    fill = float(np.clip(fill, 0.2, 0.98))
+    iters = max(1, int(iters))
+
+    for _ in range(iters):
+        u, v, valid = _project_points_numpy(verts, K_new, R, t_new)
+        if int(valid.sum()) < 32:
+            break
+        uu = u[valid]
+        vv = v[valid]
+        x0, x1 = float(uu.min()), float(uu.max())
+        y0, y1 = float(vv.min()), float(vv.max())
+        bw = max(1.0, x1 - x0)
+        bh = max(1.0, y1 - y0)
+
+        cx_box = 0.5 * (x0 + x1)
+        cy_box = 0.5 * (y0 + y1)
+        cx_tgt = 0.5 * (W - 1)
+        cy_tgt = 0.5 * (H - 1)
+
+        Xc = verts @ R.T + t_new.reshape(1, 3)
+        z = Xc[:, 2]
+        z_valid = z[valid]
+        if z_valid.size > 0:
+            zc = float(np.clip(np.median(z_valid), 0.1, 100.0))
+            fx = float(max(1e-6, K_new[0, 0]))
+            fy = float(max(1e-6, K_new[1, 1]))
+            du = float(cx_tgt - cx_box)
+            dv = float(cy_tgt - cy_box)
+            t_new[0] += du * zc / fx
+            t_new[1] += dv * zc / fy
+
+        u2, v2, valid2 = _project_points_numpy(verts, K_new, R, t_new)
+        if int(valid2.sum()) < 32:
+            continue
+        uu2 = u2[valid2]
+        vv2 = v2[valid2]
+        bw2 = max(1.0, float(uu2.max() - uu2.min()))
+        bh2 = max(1.0, float(vv2.max() - vv2.min()))
+
+        sx = (fill * float(W)) / bw2
+        sy = (fill * float(H)) / bh2
+        s_fit = min(sx, sy)
+        # only zoom out to avoid clipping; do not zoom in automatically
+        if s_fit < 1.0:
+            K_new[0, 0] *= float(s_fit)
+            K_new[1, 1] *= float(s_fit)
+
+    return K_new, t_new
+
+
 def _rasterize_mesh_mask(
     verts: np.ndarray,
     faces: np.ndarray | None,
@@ -898,6 +986,9 @@ def main():
     view_yaw_deg = float(render_cfg.get("view_yaw_deg", 0.0))
     view_pitch_deg = float(render_cfg.get("view_pitch_deg", 0.0))
     view_roll_deg = float(render_cfg.get("view_roll_deg", 0.0))
+    view_axis_mode = str(render_cfg.get("view_axis_mode", "legacy")).strip().lower()
+    if view_axis_mode not in ("legacy", "z_up"):
+        raise ValueError(f"render.view_axis_mode must be legacy|z_up. Got: {view_axis_mode}")
     file_suffix = str(render_cfg.get("file_suffix", "")).strip()
     if file_suffix and (not file_suffix.startswith("_")):
         file_suffix = f"_{file_suffix}"
@@ -1100,15 +1191,20 @@ def main():
     center_subject_use_mesh = bool(render_cfg.get("center_subject_use_mesh", True))
     center_subject_depth_min = float(render_cfg.get("center_subject_depth_min", 0.1))
     center_subject_joint_idx = int(render_cfg.get("center_subject_joint_idx", 0))
+    subject_fit_enabled = bool(render_cfg.get("subject_fit_enabled", True))
+    subject_fit_fill = float(render_cfg.get("subject_fit_fill", 0.82))
+    subject_fit_iters = int(render_cfg.get("subject_fit_iters", 2))
     real_align_to_person_mask = bool(render_cfg.get("real_align_to_person_mask", True))
     real_align_alpha_threshold = float(render_cfg.get("real_align_alpha_threshold", 0.05))
     real_align_scale_min = float(render_cfg.get("real_align_scale_min", 0.4))
     real_align_scale_max = float(render_cfg.get("real_align_scale_max", 2.5))
     person_masks_npz_cfg = render_cfg.get("person_masks_npz", "outputs/stage1/person_masks.npz")
     fg_only_alpha_threshold = float(render_cfg.get("fg_only_alpha_threshold", 0.0))
-    fg_only_alpha_gamma = float(render_cfg.get("fg_only_alpha_gamma", 0.65))
+    fg_only_alpha_gamma = float(render_cfg.get("fg_only_alpha_gamma", 1.0))
     tpose_alpha_threshold = float(render_cfg.get("tpose_alpha_threshold", fg_only_alpha_threshold))
     tpose_alpha_gamma = float(render_cfg.get("tpose_alpha_gamma", fg_only_alpha_gamma))
+    fg_only_alpha_gain_max = float(render_cfg.get("fg_only_alpha_gain_max", 1.0))
+    tpose_alpha_gain_max = float(render_cfg.get("tpose_alpha_gain_max", 1.0))
     vis_rgb_raw = render_cfg.get("vis_rgb", None)
     vis_rgb = None
     if isinstance(vis_rgb_raw, (list, tuple)) and len(vis_rgb_raw) == 3:
@@ -1806,7 +1902,7 @@ def main():
                             invalid_bind_warned = True
 
         center_world_joint = None
-        if smpl_joints_map is not None:
+        if center_subject_joint_idx >= 0 and smpl_joints_map is not None:
             joints_center = smpl_joints_map.get(frames[i], None)
             if joints_center is not None:
                 joints_center = np.asarray(joints_center, dtype=np.float32).copy()
@@ -1903,6 +1999,19 @@ def main():
                     [x_tgt - xc[0], y_tgt - xc[1], torch.zeros((), device=device, dtype=torch.float32)],
                     dim=0,
                 )
+        if center_subject and subject_fit_enabled and (verts_t is not None) and (verts_t.numel() > 0):
+            K_np_fit, t_np_fit = _fit_subject_camera_numpy(
+                verts=verts_t.detach().cpu().numpy().astype(np.float32),
+                K=K_use.detach().cpu().numpy().astype(np.float32),
+                R=R.detach().cpu().numpy().astype(np.float32),
+                t=t.detach().cpu().numpy().astype(np.float32),
+                H=base_h,
+                W=base_w,
+                fill=float(subject_fit_fill),
+                iters=int(subject_fit_iters),
+            )
+            K_use = torch.from_numpy(K_np_fit).to(device=device, dtype=torch.float32)
+            t = torch.from_numpy(t_np_fit).to(device=device, dtype=torch.float32)
         if debug_point_render:
             skeleton_segments = None
             if debug_bind_to_google_skeleton and debug_kpt_json_path is not None:
@@ -2136,7 +2245,7 @@ def main():
                 fg_mask_mesh = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
                 fg_mask = fg_mask * fg_mask_mesh
             alpha_src = fg_nobg_alpha.clamp(min=1e-4)
-            gain = (fg_mask / alpha_src).clamp(min=0.0, max=4.0)
+            gain = (fg_mask / alpha_src).clamp(min=0.0, max=float(fg_only_alpha_gain_max))
             fg_rgb_adj = (fg_nobg_rgb * gain).clamp(0.0, 1.0)
             bg_fill_fg = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(fg_nobg_rgb)
             pred_fg_only = _composite_premultiplied(fg_rgb=fg_rgb_adj, fg_alpha=fg_mask, bg_rgb=bg_fill_fg)
@@ -2331,7 +2440,7 @@ def main():
 
             if center_subject:
                 tp_center_world = None
-                if tpose_joints_cam_np is not None:
+                if center_subject_joint_idx >= 0 and tpose_joints_cam_np is not None:
                     joints_tp_center = np.asarray(tpose_joints_cam_np, dtype=np.float32).copy()
                     if joints_tp_center.ndim == 2 and joints_tp_center.shape[1] == 3 and joints_tp_center.shape[0] > 0:
                         if bind_rigid_align_apply_cfg is not None:
@@ -2355,6 +2464,20 @@ def main():
                     [x_tgt_tp - xc_tp[0], y_tgt_tp - xc_tp[1], torch.zeros((), device=device, dtype=torch.float32)],
                     dim=0,
                 )
+
+            if center_subject and subject_fit_enabled and (verts_tpose is not None) and (verts_tpose.numel() > 0):
+                K_tp_np, t_tp_np = _fit_subject_camera_numpy(
+                    verts=verts_tpose.detach().cpu().numpy().astype(np.float32),
+                    K=K_tp.detach().cpu().numpy().astype(np.float32),
+                    R=R_tp.detach().cpu().numpy().astype(np.float32),
+                    t=t_tp.detach().cpu().numpy().astype(np.float32),
+                    H=H_tp,
+                    W=W_tp,
+                    fill=float(subject_fit_fill),
+                    iters=int(subject_fit_iters),
+                )
+                K_tp = torch.from_numpy(K_tp_np).to(device=device, dtype=torch.float32)
+                t_tp = torch.from_numpy(t_tp_np).to(device=device, dtype=torch.float32)
 
             rgb_tp, alpha_tp = render_gaussians_3d(
                 g=g_tp_render,
@@ -2386,7 +2509,7 @@ def main():
                 tp_mask_mesh = torch.from_numpy(mask_tp_np).to(device=device, dtype=torch.float32).unsqueeze(0)
                 tp_mask = tp_mask * tp_mask_mesh
             alpha_tp_src = alpha_tp.clamp(min=1e-4)
-            gain_tp = (tp_mask / alpha_tp_src).clamp(min=0.0, max=4.0)
+            gain_tp = (tp_mask / alpha_tp_src).clamp(min=0.0, max=float(tpose_alpha_gain_max))
             rgb_tp_adj = (rgb_tp * gain_tp).clamp(0.0, 1.0)
             bg_fill_tp = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(rgb_tp)
             pred_tpose = _composite_premultiplied(fg_rgb=rgb_tp_adj, fg_alpha=tp_mask, bg_rgb=bg_fill_tp)

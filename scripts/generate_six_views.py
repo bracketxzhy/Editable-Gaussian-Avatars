@@ -98,6 +98,15 @@ def _base_overrides(args, out_dir: Path, yaw: float, pitch: float, suffix: str) 
         "render.smpl_skeleton_source=joints",
         f"render.smpl_skeleton_joint_radius={args.joint_radius}",
         "render.smpl_skeleton_line_thickness=0",
+        "render.view_axis_mode=z_up",
+        "render.center_subject_joint_idx=-1",
+        "render.fg_only_alpha_gamma=1.0",
+        "render.tpose_alpha_gamma=1.0",
+        "render.fg_only_alpha_gain_max=1.0",
+        "render.tpose_alpha_gain_max=1.0",
+        "render.subject_fit_enabled=true",
+        "render.subject_fit_fill=0.82",
+        "render.subject_fit_iters=2",
     ]
 
 
