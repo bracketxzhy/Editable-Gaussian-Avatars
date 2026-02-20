@@ -294,9 +294,7 @@ def main() -> None:
     frame_stem = Path(frame_name).stem
     mesh_candidates = [
         stage1_dir / "smpl_mesh_tpose.obj",
-        stage1_dir / f"{frame_stem}.obj",
         stage1_dir / "sequence" / f"{frame_stem}.obj",
-        stage1_dir / "000000.obj",
         stage1_dir / "final" / "last_frame_smplx_cam.obj",
         stage1_dir / "final" / "last_frame_smplx.obj",
         stage1_dir / "final" / "last_frame_pose_local.obj",

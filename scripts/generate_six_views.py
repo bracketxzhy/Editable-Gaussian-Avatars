@@ -156,13 +156,14 @@ def main() -> None:
         "render.save_fg_nobg_skeleton=false",
         "render.render_tpose_image=false",
         "render.real_out_subdir=.",
+        "render.center_subject=false",
+        "render.k_scale=1.0",
     ]
     _run_render(args.config, overrides)
     src = _pick_suffix_png(real_dir, name)
     dst = real_dir / "front.png"
     if src != dst:
-        _safe_unlink(dst)
-        src.replace(dst)
+        _move_or_copy(src, dst)
 
     # Validate output counts.
     expected_views = [n for n, _, _ in VIEWS]

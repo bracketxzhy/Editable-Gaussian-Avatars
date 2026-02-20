@@ -24,7 +24,27 @@ from avatar_gs.gaussian.rigid_align import (
     normalize_rigid_align_config,
 )
 from avatar_gs.renderer.gaussian_renderer import render_gaussians_3d
-
+from avatar_gs.binding.barycentric_binding import (
+    apply_barycentric_binding_per_frame,
+    init_barycentric_binding,
+)
+from avatar_gs.losses import (
+    canonical_offset_l2,
+    compute_robust_photo_loss,
+    covariance_penalty,
+    opacity_prior_loss,
+)
+from avatar_gs.training import FrameResidualEMA, frame_weight_from_residual
+from avatar_gs.visibility import (
+    build_border_attenuation,
+    compute_gaussian_visibility,
+    sample_border_weight,
+)
+from avatar_gs.densify import (
+    GaussianDensifyStats,
+    select_densify_candidates,
+    update_densify_stats,
+)
 
 def read_image_rgb(path: str | Path) -> torch.Tensor:
     """Read an image and return float tensor in [0,1], shape (3,H,W)."""
@@ -203,35 +223,29 @@ def train_gaussians_3d_learnable_camera(
     lr_gauss: float = 1e-2,
     lr_cam: float = 1e-3,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
-    # ---- New knobs (safe defaults) ----
-    bg_rgb: tuple[float, float, float] = (1.0, 1.0, 1.0),  # match your white-ish dataset background
-    cam_warmup_iters: int = 5000,  # freeze camera for first N iterations
-    l1_weight: float = 0.25,       # add L1 to reduce blur
-    use_alpha_mask: bool = True,   # suppress background learning
-    alpha_threshold: float = 0.15, # mask threshold
-    # ---- Camera mode / regularization ----
-    camera_mode: str = "learnable",  # learnable | fixed
+    bg_rgb: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    cam_warmup_iters: int = 5000,
+    l1_weight: float = 0.25,
+    use_alpha_mask: bool = True,
+    alpha_threshold: float = 0.15,
+    camera_mode: str = "learnable",
     cam_t_prior: tuple[float, float, float] = (0.0, 0.0, 0.0),
     cam_reg_weight: float = 0.0,
-    # ---- Keypoint bbox mask ----
     keypoints_json: str | Path | None = None,
     kpt_conf_min: float = 0.2,
     kpt_box_pad: float = 0.15,
     use_kpt_bbox_mask: bool = True,
-    # ---- Face emphasis (uses keypoints, no hard mask) ----
     face_weight: float = 1.0,
     face_conf_min: float = 0.3,
     face_box_pad: float = 0.2,
     face_use_ears: bool = False,
-    # ---- Frame sampling / weighting ----
     frame_weights: list[float] | None = None,
     frame_loss_weights: list[float] | None = None,
-    # ---- Temporal reference for current frame ----
     temporal_ref_window: int = 0,
     temporal_ref_decay: float = 0.85,
-    temporal_ref_anchor: str = "sample",  # sample | last
-    # ---- Dynamic binding to SMPL mesh sequence ----
+    temporal_ref_anchor: str = "sample",
     bind_mesh_dir: str | Path | None = None,
+    bind_mesh_paths: list[str] | None = None,
     bind_vertex_indices: torch.Tensor | None = None,
     bind_mesh_indices: list[int] | None = None,
     bind_cache_size: int = 8,
@@ -240,14 +254,13 @@ def train_gaussians_3d_learnable_camera(
     bind_tpose_obj: str | Path | None = None,
     bind_mesh_to_camera: bool = False,
     bind_inverse_export_upright: bool = True,
-    bind_mesh_obj_space: str = "auto",  # auto | camera | blender
+    bind_mesh_obj_space: str = "auto",
     bind_align_quat_to_mesh_normals: bool = True,
     bind_quat_normal_blend: float = 1.0,
     bind_surface_aniso_weight: float = 0.0,
     bind_surface_aniso_margin: float = 0.15,
     bind_mesh_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
     bind_rigid_align: dict | None = None,
-    # ---- SMPL silhouette supervision for bound human gaussians ----
     use_smpl_silhouette_mask: bool = False,
     smpl_mask_dilate_px: int = 0,
     smpl_mask_erode_px: int = 0,
@@ -256,31 +269,40 @@ def train_gaussians_3d_learnable_camera(
     smpl_mask_override_alpha: bool = True,
     smpl_mask_precompute: bool = True,
     smpl_mask_precompute_max_frames: int = 64,
-    # ---- Stage1 person-mask supervision (dataset-agnostic foreground separation) ----
     person_masks_npz: str | Path | None = None,
     use_person_mask: bool = False,
     person_mask_dilate_px: int = 0,
     person_mask_erode_px: int = 0,
-    person_mask_fuse_mode: str = "intersect",  # intersect | union | replace
+    person_mask_fuse_mode: str = "intersect",
     separate_fg_bg_training: bool = False,
     fg_region_weight: float = 1.0,
     bg_region_weight: float = 1.0,
-    # ---- Background behavior for unbound gaussians ----
     bg_grad_scale: float = 1.0,
     bg_opacity_logit_max: float | None = None,
     bg_log_scale_min: float | None = None,
     bg_log_scale_max: float | None = None,
-    # ---- Foreground (bound) constraints ----
     fg_opacity_logit_max: float | None = None,
     fg_log_scale_min: float | None = None,
     fg_log_scale_max: float | None = None,
-    # ---- Early stopping ----
     early_stop_enable: bool = False,
     early_stop_patience: int = 0,
     early_stop_min_delta: float = 0.0,
     early_stop_warmup_iters: int = 0,
-    # ---- Full gaussian binding mode ----
     binding: dict | None = None,
+    tau_vis: float = 0.15,
+    frame_weight_k: float = 4.0,
+    use_robust_loss: bool = True,
+    robust_loss_type: str = "charbonnier",
+    alpha_prior_weight: float = 0.1,
+    cov_min: float = 5e-4,
+    cov_max: float = 2.5e-1,
+    cov_penalty_weight: float = 0.05,
+    use_border_attenuation: bool = True,
+    border_attenuation_width: int = 8,
+    V_min: int = 8,
+    densify_top_percent: float = 10.0,
+    phase0_ratio: float = 0.15,
+    phase2_ratio: float = 0.15,
 ):
     """
     Stage2: optimize 3D Gaussians + (optional) per-frame learnable camera.
@@ -497,7 +519,7 @@ def train_gaussians_3d_learnable_camera(
                 m = cv2.erode(m, k_e, iterations=1)
             person_masks_frames[i] = torch.from_numpy(m.astype(np.float32)).to(device=device).unsqueeze(0)
 
-    # Optional: small robustness—randomize frame order sampling
+    # Optional: small robustness鈥攔andomize frame order sampling
     # Optional: frame sampling weights (e.g., emphasize the last frame)
     frame_weights_t = None
     frame_loss_weights_t = None
@@ -595,15 +617,32 @@ def train_gaussians_3d_learnable_camera(
         bind_mesh_dir = Path(bind_mesh_dir)
         if not bind_mesh_dir.exists():
             raise FileNotFoundError(f"bind_mesh_dir not found: {bind_mesh_dir}")
-        mesh_ids = []
-        for p in bind_mesh_dir.glob("*.obj"):
-            stem = p.stem
+        def _parse_mesh_frame_idx(p: Path) -> int | None:
+            stem = p.stem.strip().lower()
             if stem.isdigit():
-                mesh_ids.append(int(stem))
+                return int(stem)
+            if stem.startswith("frame_") and stem[6:].isdigit():
+                return int(stem[6:])
+            return None
+
+        mesh_path_map: dict[int, Path] = {}
+        for p in bind_mesh_dir.glob("*.obj"):
+            idx = _parse_mesh_frame_idx(p)
+            if idx is None:
+                continue
+            old_p = mesh_path_map.get(idx, None)
+            if old_p is None:
+                mesh_path_map[idx] = p
+            else:
+                old_is_canonical = old_p.stem.lower().startswith("frame_")
+                new_is_canonical = p.stem.lower().startswith("frame_")
+                if new_is_canonical and (not old_is_canonical):
+                    mesh_path_map[idx] = p
+        mesh_ids = sorted(mesh_path_map.keys())
         if len(mesh_ids) == 0:
-            raise FileNotFoundError(f"No numeric OBJ meshes found in bind_mesh_dir: {bind_mesh_dir}")
+            raise FileNotFoundError(f"No sequence OBJ meshes found in bind_mesh_dir: {bind_mesh_dir}")
         mesh_ids_set = set(mesh_ids)
-        fallback_mesh_idx = int(max(mesh_ids))
+        fallback_mesh_idx = int(mesh_ids[-1])
         if verts_seq_np is not None:
             missing_seq_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in verts_seq_ids_set]
             if len(missing_seq_ids) > 0:
@@ -634,9 +673,9 @@ def train_gaussians_3d_learnable_camera(
             if len(bind_mesh_indices) == 0:
                 raise RuntimeError("use_smpl_silhouette_mask=true but bind_mesh_indices is empty.")
             first_mesh_idx = int(bind_mesh_indices[0]) if int(bind_mesh_indices[0]) in mesh_ids_set else fallback_mesh_idx
-            first_obj = bind_mesh_dir / f"{first_mesh_idx:06d}.obj"
-            if not first_obj.exists():
-                raise FileNotFoundError(f"Mesh frame not found for silhouette mask: {first_obj}")
+            first_obj = mesh_path_map.get(first_mesh_idx, None)
+            if first_obj is None:
+                raise FileNotFoundError(f"Mesh frame not found for silhouette mask index: {first_mesh_idx}")
             _, bind_faces_np = load_obj_mesh(first_obj)
             if bind_faces_np is None or len(bind_faces_np) == 0:
                 if bool(use_smpl_silhouette_mask):
@@ -688,9 +727,9 @@ def train_gaussians_3d_learnable_camera(
             if verts_seq_np is not None:
                 verts_np = np.asarray(verts_seq_np[mesh_idx_use], dtype=np.float32)
             else:
-                obj_path = bind_mesh_dir / f"{mesh_idx_use:06d}.obj"
-                if not obj_path.exists():
-                    raise FileNotFoundError(f"Mesh frame not found: {obj_path}")
+                obj_path = mesh_path_map.get(mesh_idx_use, None)
+                if obj_path is None:
+                    raise FileNotFoundError(f"Mesh frame index not found: {mesh_idx_use}")
                 verts_np = load_obj_vertices(obj_path)
                 if bind_mesh_to_camera and (not bool(mesh_obj_in_camera_space)):
                     if bind_inverse_export_upright:
@@ -1300,4 +1339,8 @@ def train_gaussians_3d_learnable_camera(
         },
         out_ckpt,
     )
+
+
+
+
 

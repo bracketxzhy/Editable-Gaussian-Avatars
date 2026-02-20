@@ -179,12 +179,18 @@ def render_gaussians_3d(
     return_alpha: bool = False,
     packed: bool = True,
     ref_image: Optional[torch.Tensor] = None,
-) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    gaussian_weights: Optional[torch.Tensor] = None,
+    return_meta: bool = False,
+) -> Union[
+    torch.Tensor,
+    Tuple[torch.Tensor, torch.Tensor],
+    Tuple[torch.Tensor, dict],
+    Tuple[torch.Tensor, torch.Tensor, dict],
+]:
     """
     Render Gaussian3D with gsplat (v1.x compatible).
 
     If H/W are None, infer them from ref_image (recommended) or bg tensor shape.
-    This enables "render output size equals input frame size" without hard-coding H/W.
     """
     device = g.xyz.device
     dtype = g.xyz.dtype
@@ -201,18 +207,21 @@ def render_gaussians_3d(
 
     viewmats_b = _make_viewmats(Rs_b, ts_b)             # (B,4,4)
 
-    # gsplat expects explicit camera dimension C
     viewmats = viewmats_b[:, None, :, :]  # (B,1,4,4)
     Ks = Ks_b[:, None, :, :]              # (B,1,3,3)
 
-    # Prepare gaussians
     means = g.xyz[None, ...].contiguous()                      # (1,N,3)
     scales = g.scales()[None, ...].contiguous()                # (1,N,3)
     quats = g.normalized_quat()[None, ...].contiguous()        # (1,N,4)
     opacities = g.opacity().view(-1)[None, ...].contiguous()   # (1,N)
+    if gaussian_weights is not None:
+        gw = gaussian_weights.to(device=device, dtype=dtype).view(-1).clamp(0.0, 1.0)
+        if int(gw.numel()) != int(opacities.shape[1]):
+            raise ValueError(f"gaussian_weights length mismatch: {gw.numel()} vs {opacities.shape[1]}")
+        opacities = (opacities * gw.view(1, -1)).contiguous()
     colors = g.rgb()[None, ...].contiguous()                   # (1,N,3)
 
-    render_colors, render_alphas, _meta = gsplat.rasterization(
+    render_colors, render_alphas, meta = gsplat.rasterization(
         means=means,
         quats=quats,
         scales=scales,
@@ -225,7 +234,7 @@ def render_gaussians_3d(
         near_plane=near_plane,
         far_plane=far_plane,
         packed=packed,
-        backgrounds=None,     # avoid strict asserts
+        backgrounds=None,
         render_mode="RGB",
     )
 
@@ -245,6 +254,10 @@ def render_gaussians_3d(
     rgb = render_colors.permute(2, 0, 1).contiguous()   # (3,H,W)
     alpha = render_alphas.permute(2, 0, 1).contiguous() # (1,H,W)
 
+    if return_alpha and return_meta:
+        return rgb, alpha, meta
     if return_alpha:
         return rgb, alpha
+    if return_meta:
+        return rgb, meta
     return rgb

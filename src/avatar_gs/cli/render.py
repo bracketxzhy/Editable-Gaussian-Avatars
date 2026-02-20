@@ -582,6 +582,84 @@ def _rasterize_mesh_mask(
     return mask
 
 
+def _mask_bbox(mask_u8: np.ndarray) -> np.ndarray | None:
+    ys, xs = np.where(mask_u8 > 0)
+    if ys.size <= 0 or xs.size <= 0:
+        return None
+    return np.asarray([xs.min(), ys.min(), xs.max(), ys.max()], dtype=np.float32)
+
+
+def _load_person_mask_map(npz_path: Path) -> dict[str, np.ndarray]:
+    out: dict[str, np.ndarray] = {}
+    if not npz_path.exists():
+        return out
+    seq = np.load(str(npz_path), allow_pickle=True)
+    if "frame_names" not in seq.files or "masks" not in seq.files:
+        return out
+    names = [str(x) for x in seq["frame_names"].tolist()]
+    masks = np.asarray(seq["masks"], dtype=np.uint8)
+    if masks.ndim != 3 or masks.shape[0] != len(names):
+        return out
+    for i, n in enumerate(names):
+        out[n] = ((masks[i] > 0).astype(np.uint8) * 255)
+    return out
+
+
+def _align_premultiplied_fg_to_person_bbox(
+    fg_rgb_chw: torch.Tensor,
+    fg_alpha_chw: torch.Tensor,
+    person_mask_u8: np.ndarray | None,
+    alpha_threshold: float = 0.05,
+    scale_min: float = 0.4,
+    scale_max: float = 2.5,
+) -> tuple[torch.Tensor, torch.Tensor, dict]:
+    if person_mask_u8 is None:
+        return fg_rgb_chw, fg_alpha_chw, {"applied": False, "reason": "missing_person_mask"}
+
+    fg_alpha_np = fg_alpha_chw.detach().cpu().numpy()[0]
+    fg_mask_u8 = ((fg_alpha_np > float(alpha_threshold)).astype(np.uint8) * 255)
+    b_s = _mask_bbox(fg_mask_u8)
+    b_p = _mask_bbox((person_mask_u8 > 0).astype(np.uint8) * 255)
+    if b_s is None or b_p is None:
+        return fg_rgb_chw, fg_alpha_chw, {"applied": False, "reason": "empty_bbox"}
+
+    ws = float(max(1.0, b_s[2] - b_s[0] + 1.0))
+    hs = float(max(1.0, b_s[3] - b_s[1] + 1.0))
+    wp = float(max(1.0, b_p[2] - b_p[0] + 1.0))
+    hp = float(max(1.0, b_p[3] - b_p[1] + 1.0))
+
+    csx = float(0.5 * (b_s[0] + b_s[2]))
+    csy = float(0.5 * (b_s[1] + b_s[3]))
+    cpx = float(0.5 * (b_p[0] + b_p[2]))
+    cpy = float(0.5 * (b_p[1] + b_p[3]))
+
+    s = float(0.5 * (wp / ws + hp / hs))
+    s = float(np.clip(s, scale_min, scale_max))
+
+    tx = cpx - s * csx
+    ty = cpy - s * csy
+    M = np.asarray([[s, 0.0, tx], [0.0, s, ty]], dtype=np.float32)
+
+    fg_rgb_np = fg_rgb_chw.detach().cpu().numpy().transpose(1, 2, 0).astype(np.float32)
+    fg_alpha_np = fg_alpha_chw.detach().cpu().numpy()[0].astype(np.float32)
+    H, W = fg_alpha_np.shape[:2]
+
+    rgb_w = cv2.warpAffine(fg_rgb_np, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
+    a_w = cv2.warpAffine(fg_alpha_np, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
+
+    rgb_t = torch.from_numpy(np.asarray(rgb_w, dtype=np.float32)).permute(2, 0, 1).to(device=fg_rgb_chw.device, dtype=fg_rgb_chw.dtype)
+    a_t = torch.from_numpy(np.asarray(a_w, dtype=np.float32)).unsqueeze(0).to(device=fg_alpha_chw.device, dtype=fg_alpha_chw.dtype).clamp(0.0, 1.0)
+
+    return rgb_t, a_t, {
+        "applied": True,
+        "scale": s,
+        "center_src": [csx, csy],
+        "center_tgt": [cpx, cpy],
+        "bbox_src": b_s.tolist(),
+        "bbox_tgt": b_p.tolist(),
+    }
+
+
 def _scale_intrinsics(K: torch.Tensor, scale: float) -> torch.Tensor:
     """Scale camera intrinsics for image size change (or FOV scaling)."""
     if scale == 1.0:
@@ -602,6 +680,31 @@ def _resize_chw(x: torch.Tensor, H: int, W: int) -> torch.Tensor:
     if mode == "area":
         return F.interpolate(x.unsqueeze(0), size=(H, W), mode=mode).squeeze(0)
     return F.interpolate(x.unsqueeze(0), size=(H, W), mode=mode, align_corners=False).squeeze(0)
+
+
+def _composite_premultiplied(
+    fg_rgb: torch.Tensor,
+    fg_alpha: torch.Tensor,
+    bg_rgb: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Composite premultiplied foreground over background:
+      C = C_fg + (1 - A_fg) * C_bg
+    """
+    return fg_rgb + (1.0 - fg_alpha) * bg_rgb
+
+
+def _alpha_to_mask(
+    alpha: torch.Tensor,
+    threshold: float = 0.0,
+    gamma: float = 1.0,
+) -> torch.Tensor:
+    a = alpha.clamp(0.0, 1.0)
+    if float(gamma) != 1.0:
+        a = torch.pow(a, float(gamma))
+    if float(threshold) > 0.0:
+        a = (a > float(threshold)).to(dtype=a.dtype)
+    return a
 
 
 def _select_gaussians(g: Gaussian3D, mask: torch.Tensor) -> Gaussian3D:
@@ -996,6 +1099,16 @@ def main():
     center_subject = bool(render_cfg.get("center_subject", True))
     center_subject_use_mesh = bool(render_cfg.get("center_subject_use_mesh", True))
     center_subject_depth_min = float(render_cfg.get("center_subject_depth_min", 0.1))
+    center_subject_joint_idx = int(render_cfg.get("center_subject_joint_idx", 0))
+    real_align_to_person_mask = bool(render_cfg.get("real_align_to_person_mask", True))
+    real_align_alpha_threshold = float(render_cfg.get("real_align_alpha_threshold", 0.05))
+    real_align_scale_min = float(render_cfg.get("real_align_scale_min", 0.4))
+    real_align_scale_max = float(render_cfg.get("real_align_scale_max", 2.5))
+    person_masks_npz_cfg = render_cfg.get("person_masks_npz", "outputs/stage1/person_masks.npz")
+    fg_only_alpha_threshold = float(render_cfg.get("fg_only_alpha_threshold", 0.0))
+    fg_only_alpha_gamma = float(render_cfg.get("fg_only_alpha_gamma", 0.65))
+    tpose_alpha_threshold = float(render_cfg.get("tpose_alpha_threshold", fg_only_alpha_threshold))
+    tpose_alpha_gamma = float(render_cfg.get("tpose_alpha_gamma", fg_only_alpha_gamma))
     vis_rgb_raw = render_cfg.get("vis_rgb", None)
     vis_rgb = None
     if isinstance(vis_rgb_raw, (list, tuple)) and len(vis_rgb_raw) == 3:
@@ -1013,6 +1126,26 @@ def main():
     if bound_opacity_min < 0.0 or bound_opacity_min >= 1.0:
         raise ValueError(
             f"render.bound_opacity_min must be in [0,1). Got {bound_opacity_min}"
+        )
+    if fg_only_alpha_threshold < 0.0 or fg_only_alpha_threshold >= 1.0:
+        raise ValueError(
+            f"render.fg_only_alpha_threshold must be in [0,1). Got {fg_only_alpha_threshold}"
+        )
+    if tpose_alpha_threshold < 0.0 or tpose_alpha_threshold >= 1.0:
+        raise ValueError(
+            f"render.tpose_alpha_threshold must be in [0,1). Got {tpose_alpha_threshold}"
+        )
+    if fg_only_alpha_gamma <= 0.0 or tpose_alpha_gamma <= 0.0:
+        raise ValueError(
+            f"render alpha gamma must be > 0. Got fg_only/tpose={fg_only_alpha_gamma}/{tpose_alpha_gamma}"
+        )
+    if real_align_alpha_threshold < 0.0 or real_align_alpha_threshold >= 1.0:
+        raise ValueError(
+            f"render.real_align_alpha_threshold must be in [0,1). Got {real_align_alpha_threshold}"
+        )
+    if real_align_scale_min <= 0.0 or real_align_scale_max <= 0.0 or real_align_scale_min > real_align_scale_max:
+        raise ValueError(
+            f"Invalid render.real_align_scale_min/max: {real_align_scale_min}/{real_align_scale_max}"
         )
     if fg_mask_mode not in ("none", "smpl", "mesh"):
         raise ValueError(f"Unsupported fg_mask_mode: {fg_mask_mode}. Use one of: none|smpl|mesh")
@@ -1263,15 +1396,32 @@ def main():
                     f"{bind_vertices_npz} missing verts_cam; fallback to OBJ sequence binding."
                 )
 
-        mesh_ids = []
-        for p in bind_mesh_dir.glob("*.obj"):
-            stem = p.stem
+        def _parse_mesh_frame_idx(p: Path) -> int | None:
+            stem = p.stem.strip().lower()
             if stem.isdigit():
-                mesh_ids.append(int(stem))
+                return int(stem)
+            if stem.startswith("frame_") and stem[6:].isdigit():
+                return int(stem[6:])
+            return None
+
+        mesh_path_map: dict[int, Path] = {}
+        for p in bind_mesh_dir.glob("*.obj"):
+            idx = _parse_mesh_frame_idx(p)
+            if idx is None:
+                continue
+            old_p = mesh_path_map.get(idx, None)
+            if old_p is None:
+                mesh_path_map[idx] = p
+            else:
+                old_is_canonical = old_p.stem.lower().startswith("frame_")
+                new_is_canonical = p.stem.lower().startswith("frame_")
+                if new_is_canonical and (not old_is_canonical):
+                    mesh_path_map[idx] = p
+        mesh_ids = sorted(mesh_path_map.keys())
         if len(mesh_ids) == 0:
-            raise FileNotFoundError(f"No numeric OBJ meshes found in {bind_mesh_dir}")
+            raise FileNotFoundError(f"No sequence OBJ meshes found in {bind_mesh_dir}")
         mesh_ids_set = set(mesh_ids)
-        fallback_mesh_idx = int(max(mesh_ids))
+        fallback_mesh_idx = int(mesh_ids[-1])
         if verts_seq_np is not None:
             missing_seq_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in verts_seq_ids_set]
             if len(missing_seq_ids) > 0:
@@ -1303,9 +1453,9 @@ def main():
             if len(bind_mesh_indices) == 0:
                 raise RuntimeError("fg_mask_mode=smpl requires non-empty bind_mesh_indices.")
             first_mesh_idx = int(bind_mesh_indices[0]) if int(bind_mesh_indices[0]) in mesh_ids_set else fallback_mesh_idx
-            first_obj = bind_mesh_dir / f"{first_mesh_idx:06d}.obj"
-            if not first_obj.exists():
-                raise FileNotFoundError(f"Mesh frame not found for fg mask: {first_obj}")
+            first_obj = mesh_path_map.get(first_mesh_idx, None)
+            if first_obj is None:
+                raise FileNotFoundError(f"Mesh frame not found for fg mask index: {first_mesh_idx}")
             _, bind_faces_np = load_obj_mesh(first_obj)
             if bind_faces_np is None or len(bind_faces_np) == 0:
                 if fg_mask_mode in ("smpl", "mesh"):
@@ -1450,9 +1600,9 @@ def main():
                 mesh_idx_use = fallback_mesh_idx
             if mesh_idx_use in mesh_cache:
                 return mesh_cache[mesh_idx_use], mesh_normal_cache.get(mesh_idx_use, None), mesh_idx_use
-            obj_path = bind_mesh_dir / f"{mesh_idx_use:06d}.obj"
-            if not obj_path.exists():
-                raise FileNotFoundError(f"Mesh frame not found: {obj_path}")
+            obj_path = mesh_path_map.get(mesh_idx_use, None)
+            if obj_path is None:
+                raise FileNotFoundError(f"Mesh frame index not found: {mesh_idx_use}")
             verts_np = load_obj_vertices(obj_path)
             if bind_mesh_to_camera and (not bool(mesh_obj_in_camera_space)):
                 if bind_inverse_export_upright:
@@ -1655,13 +1805,25 @@ def main():
                             )
                             invalid_bind_warned = True
 
+        center_world_joint = None
+        if smpl_joints_map is not None:
+            joints_center = smpl_joints_map.get(frames[i], None)
+            if joints_center is not None:
+                joints_center = np.asarray(joints_center, dtype=np.float32).copy()
+                if joints_center.ndim == 2 and joints_center.shape[1] == 3 and joints_center.shape[0] > 0:
+                    if bind_rigid_align_apply_cfg is not None:
+                        joints_center = apply_rigid_transform_np(joints_center, bind_rigid_align_apply_cfg)
+                    joints_center = joints_center + bind_mesh_offset_np
+                    j_idx = int(np.clip(center_subject_joint_idx, 0, joints_center.shape[0] - 1))
+                    center_world_joint = torch.from_numpy(joints_center[j_idx]).to(device=device, dtype=torch.float32)
+
         # Orbit view should rotate around subject pivot instead of world origin.
         # Otherwise side/back views can move subject behind camera and become blank.
         if view_orbit_enabled and R_delta_view is not None:
-            pivot_world = None
-            if center_subject_use_mesh and (verts_t is not None) and (verts_t.numel() > 0):
+            pivot_world = center_world_joint
+            if pivot_world is None and center_subject_use_mesh and (verts_t is not None) and (verts_t.numel() > 0):
                 pivot_world = verts_t.mean(dim=0)
-            elif g.xyz is not None and g.xyz.numel() > 0:
+            elif pivot_world is None and g.xyz is not None and g.xyz.numel() > 0:
                 if (g.bind_idx is not None) and bool((g.bind_idx >= 0).any()):
                     pivot_world = g.xyz[g.bind_idx >= 0].mean(dim=0)
                 else:
@@ -1718,10 +1880,10 @@ def main():
 
         # Keep subject centered in image to avoid out-of-frame blank renders.
         if center_subject:
-            center_world = None
-            if center_subject_use_mesh and (verts_t is not None) and (verts_t.numel() > 0):
+            center_world = center_world_joint
+            if center_world is None and center_subject_use_mesh and (verts_t is not None) and (verts_t.numel() > 0):
                 center_world = verts_t.mean(dim=0)
-            elif g.xyz is not None and g.xyz.numel() > 0:
+            elif center_world is None and g.xyz is not None and g.xyz.numel() > 0:
                 if (g.bind_idx is not None) and bool((g.bind_idx >= 0).any()):
                     center_world = g.xyz[g.bind_idx >= 0].mean(dim=0)
                 else:
@@ -1855,7 +2017,7 @@ def main():
                 m[:, int(y0):int(y1) + 1, int(x0):int(x1) + 1] = 1.0
                 pred = fg_rgb * m + bg_rgb * (1.0 - m)
             else:
-                pred = fg_rgb * fg_alpha + bg_rgb * (1.0 - fg_alpha)
+                pred = _composite_premultiplied(fg_rgb=fg_rgb, fg_alpha=fg_alpha, bg_rgb=bg_rgb)
 
         if (
             fg_mask_mode in ("smpl", "mesh")
@@ -1949,7 +2111,11 @@ def main():
                 bg=None,
                 return_alpha=True,
             )
-            fg_mask = fg_nobg_alpha.clamp(0.0, 1.0)
+            fg_mask = _alpha_to_mask(
+                fg_nobg_alpha,
+                threshold=fg_only_alpha_threshold,
+                gamma=fg_only_alpha_gamma,
+            )
             if (
                 fg_mask_mode in ("smpl", "mesh")
                 and binding_enabled
@@ -1967,9 +2133,13 @@ def main():
                     dilate_px=int(fg_mask_dilate_px),
                     erode_px=int(fg_mask_erode_px),
                 )
-                fg_mask = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                fg_mask_mesh = torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                fg_mask = fg_mask * fg_mask_mesh
+            alpha_src = fg_nobg_alpha.clamp(min=1e-4)
+            gain = (fg_mask / alpha_src).clamp(min=0.0, max=4.0)
+            fg_rgb_adj = (fg_nobg_rgb * gain).clamp(0.0, 1.0)
             bg_fill_fg = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(fg_nobg_rgb)
-            pred_fg_only = fg_nobg_rgb * fg_mask + bg_fill_fg * (1.0 - fg_mask)
+            pred_fg_only = _composite_premultiplied(fg_rgb=fg_rgb_adj, fg_alpha=fg_mask, bg_rgb=bg_fill_fg)
             if overlay_smpl_skeleton and smpl_joints_map is not None:
                 joints_vis = smpl_joints_map.get(frames[i], None)
                 if joints_vis is not None and bind_rigid_align_apply_cfg is not None:
@@ -2158,6 +2328,34 @@ def main():
             t_tp = tpose_ctx["t"]
             H_tp = int(tpose_ctx["H"])
             W_tp = int(tpose_ctx["W"])
+
+            if center_subject:
+                tp_center_world = None
+                if tpose_joints_cam_np is not None:
+                    joints_tp_center = np.asarray(tpose_joints_cam_np, dtype=np.float32).copy()
+                    if joints_tp_center.ndim == 2 and joints_tp_center.shape[1] == 3 and joints_tp_center.shape[0] > 0:
+                        if bind_rigid_align_apply_cfg is not None:
+                            joints_tp_center = apply_rigid_transform_np(joints_tp_center, bind_rigid_align_apply_cfg)
+                        joints_tp_center = joints_tp_center + bind_mesh_offset_np
+                        j_idx_tp = int(np.clip(center_subject_joint_idx, 0, joints_tp_center.shape[0] - 1))
+                        tp_center_world = torch.from_numpy(joints_tp_center[j_idx_tp]).to(device=device, dtype=torch.float32)
+                if tp_center_world is None:
+                    tp_center_world = verts_tpose.mean(dim=0)
+                xc_tp = (R_tp @ tp_center_world.view(3, 1)).view(3) + t_tp
+                zc_tp = torch.clamp(xc_tp[2], min=float(center_subject_depth_min))
+                fx_tp = K_tp[0, 0]
+                fy_tp = K_tp[1, 1]
+                cx_tp = K_tp[0, 2]
+                cy_tp = K_tp[1, 2]
+                u_tgt_tp = torch.tensor((W_tp - 1) * 0.5, device=device, dtype=torch.float32)
+                v_tgt_tp = torch.tensor((H_tp - 1) * 0.5, device=device, dtype=torch.float32)
+                x_tgt_tp = (u_tgt_tp - cx_tp) * zc_tp / fx_tp
+                y_tgt_tp = (v_tgt_tp - cy_tp) * zc_tp / fy_tp
+                t_tp = t_tp + torch.stack(
+                    [x_tgt_tp - xc_tp[0], y_tgt_tp - xc_tp[1], torch.zeros((), device=device, dtype=torch.float32)],
+                    dim=0,
+                )
+
             rgb_tp, alpha_tp = render_gaussians_3d(
                 g=g_tp_render,
                 K=K_tp,
@@ -2168,7 +2366,11 @@ def main():
                 bg=None,
                 return_alpha=True,
             )
-            tp_mask = alpha_tp.clamp(0.0, 1.0)
+            tp_mask = _alpha_to_mask(
+                alpha_tp,
+                threshold=tpose_alpha_threshold,
+                gamma=tpose_alpha_gamma,
+            )
             if bind_faces_np is not None:
                 mask_tp_np = _rasterize_mesh_mask(
                     verts=verts_tpose.detach().cpu().numpy(),
@@ -2181,9 +2383,13 @@ def main():
                     dilate_px=int(fg_mask_dilate_px),
                     erode_px=int(fg_mask_erode_px),
                 )
-                tp_mask = torch.from_numpy(mask_tp_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                tp_mask_mesh = torch.from_numpy(mask_tp_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                tp_mask = tp_mask * tp_mask_mesh
+            alpha_tp_src = alpha_tp.clamp(min=1e-4)
+            gain_tp = (tp_mask / alpha_tp_src).clamp(min=0.0, max=4.0)
+            rgb_tp_adj = (rgb_tp * gain_tp).clamp(0.0, 1.0)
             bg_fill_tp = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(rgb_tp)
-            pred_tpose = rgb_tp * tp_mask + bg_fill_tp * (1.0 - tp_mask)
+            pred_tpose = _composite_premultiplied(fg_rgb=rgb_tp_adj, fg_alpha=tp_mask, bg_rgb=bg_fill_tp)
             if overlay_smpl_skeleton:
                 frame_name = str(tpose_ctx["frame_name"])
                 joints_tpose_use = tpose_joints_cam_np

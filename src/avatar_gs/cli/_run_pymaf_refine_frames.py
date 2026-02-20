@@ -18,8 +18,8 @@ def _list_frames(frames_dir: Path) -> list[Path]:
 
 
 def _parse_indices(raw: str, n: int) -> list[int]:
-    s = str(raw).strip()
-    if s == "":
+    s = str(raw).strip().lower()
+    if s in ("", "-1", "all", "*"):
         return list(range(n))
 
     chunks = s.replace(",", " ").split()

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # This script is borrowed and extended from https://github.com/mkocabas/VIBE/blob/master/demo.py and https://github.com/nkolot/SPIN/blob/master/demo.py
 # Max-Planck-Gesellschaft zur F枚rderung der Wissenschaften e.V. (MPG) is
 # holder of all proprietary rights on this computer program.
@@ -332,8 +332,9 @@ def run_demo(args):
                       'vis_lhand': [],
                       'vis_rhand': [],
                      }
-        person_id_list = list(tracking_results.keys())
-        for person_id in person_id_list:
+        track_ids = list(tracking_results.keys())
+        person_id_list = []
+        for person_id in track_ids:
             if args.tracking_method == 'bbox':
                 raise NotImplementedError
             elif args.tracking_method == 'pose':
@@ -345,7 +346,9 @@ def run_demo(args):
                 wb_kps['vis_rhand'].extend(tracking_results[person_id]['vis_rhand'])
                 wb_kps['vis_face'].extend(tracking_results[person_id]['vis_face'])
 
-            frames.extend(tracking_results[person_id]['frames'])
+            frames_i = tracking_results[person_id]['frames']
+            frames.extend(frames_i)
+            person_id_list.extend([person_id] * len(frames_i))
 
         if args.pre_load_imgs:
             dataset = Inference(

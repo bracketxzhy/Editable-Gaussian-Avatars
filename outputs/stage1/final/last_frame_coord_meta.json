@@ -1,10 +1,10 @@
 {
-  "frame_name": "000756.jpg",
+  "frame_name": "000750.jpg",
   "model_type": "smplx",
   "cam_t": [
-    0.0651339441537857,
-    0.38010042905807495,
-    10.518167495727539
+    0.06340158730745316,
+    0.38056838512420654,
+    10.55129623413086
   ],
   "pose_local_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_pose_local.obj",
   "camera_world_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_smplx_cam.obj",

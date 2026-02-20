@@ -21,6 +21,7 @@ from avatar_gs.gaussian.rigid_align import (
     normalize_rigid_align_config,
 )
 from avatar_gs.gaussian.train_loop import train_gaussians_3d_learnable_camera
+from avatar_gs.data.sequence_mesh import SequenceMeshProvider
 try:
     from avatar_gs.data.h36m import resolve_h36m_image_paths
 except Exception:
@@ -157,24 +158,25 @@ def _maybe_pre_stage2_rigid_align(
     R_eval = np.eye(3, dtype=np.float32)
     t_eval = np.asarray(cam_t_prior, dtype=np.float32).reshape(3,)
 
-    mesh_ids = []
-    for p in bind_mesh_dir.glob("*.obj"):
-        if p.stem.isdigit():
-            mesh_ids.append(int(p.stem))
-    if len(mesh_ids) == 0:
+    try:
+        seq_provider = SequenceMeshProvider(bind_mesh_dir)
+        seq_provider.scan()
+    except Exception:
         logger.warning(
-            "bind_rigid_align pre-stage2 skipped: no numeric OBJ meshes found. "
+            "bind_rigid_align pre-stage2 skipped: no readable sequence OBJ meshes found. "
             "Will fallback to in-train auto align."
         )
         return cfg
+    mesh_ids = seq_provider.get_frame_ids()
     mesh_ids_set = set(mesh_ids)
-    fallback_mesh_idx = int(max(mesh_ids))
+    fallback_mesh_idx = int(mesh_ids[-1])
 
     first_mesh_idx = int(bind_mesh_indices[0])
     if first_mesh_idx not in mesh_ids_set:
         first_mesh_idx = fallback_mesh_idx
-    first_obj = bind_mesh_dir / f"{first_mesh_idx:06d}.obj"
-    if not first_obj.exists():
+    try:
+        first_obj = seq_provider.get_path(first_mesh_idx)
+    except Exception:
         logger.warning(
             "bind_rigid_align pre-stage2 skipped: first mesh OBJ missing. "
             "Will fallback to in-train auto align."
@@ -260,7 +262,7 @@ def _maybe_pre_stage2_rigid_align(
         if verts_seq_np is not None:
             verts_np = np.asarray(verts_seq_np[mesh_idx_use], dtype=np.float32)
         else:
-            obj_path = bind_mesh_dir / f"{mesh_idx_use:06d}.obj"
+            obj_path = seq_provider.get_path(mesh_idx_use)
             verts_np = load_obj_vertices(obj_path)
             if bind_mesh_to_camera and (not bool(mesh_obj_in_camera_space)):
                 if bind_inverse_export_upright:
@@ -582,12 +584,24 @@ def main():
     init_mesh_cfg = str(stage2_cfg.get("init_mesh_obj", ""))
     mesh_obj = Path(init_mesh_cfg)
     if not mesh_obj.is_absolute():
-        # Prefer project-root relative path, fallback to stage1_dir relative path.
-        mesh_obj_project = project_root / mesh_obj
-        if mesh_obj_project.exists():
-            mesh_obj = mesh_obj_project
+        cand_paths = [
+            Path(init_mesh_cfg),
+            project_root / mesh_obj,
+            stage1_dir / mesh_obj,
+            stage1_dir / mesh_obj.name,
+        ]
+        picked = None
+        for cp in cand_paths:
+            try:
+                if cp.exists():
+                    picked = cp
+                    break
+            except Exception:
+                continue
+        if picked is not None:
+            mesh_obj = picked
         else:
-            mesh_obj = stage1_dir / mesh_obj
+            mesh_obj = project_root / mesh_obj
     if (not str(init_mesh_cfg).strip()) or (not mesh_obj.exists()):
         fallback_mesh = None
         tpose_cands = sorted(stage1_dir.glob("*_t-pose.obj"))
@@ -602,21 +616,18 @@ def main():
             if fallback_mesh is None:
                 seq_dir = stage1_dir / "sequence"
                 if seq_dir.exists():
-                    seq_objs = [p for p in seq_dir.glob("*.obj") if p.is_file()]
-                    if len(seq_objs) > 0:
-                        seq_objs.sort(key=lambda p: (not p.stem.isdigit(), int(p.stem) if p.stem.isdigit() else p.stem))
-                        fallback_mesh = seq_objs[-1]
-            # Also support numeric OBJs directly under outputs/stage1/*.obj.
-            if fallback_mesh is None:
-                root_objs = [p for p in stage1_dir.glob("*.obj") if p.is_file()]
-                if len(root_objs) > 0:
-                    root_objs.sort(key=lambda p: (not p.stem.isdigit(), int(p.stem) if p.stem.isdigit() else p.stem))
-                    fallback_mesh = root_objs[-1]
+                    try:
+                        seq_provider = SequenceMeshProvider(seq_dir)
+                        seq_provider.scan()
+                        seq_ids = seq_provider.get_frame_ids()
+                        fallback_mesh = seq_provider.get_path(seq_ids[-1])
+                    except Exception:
+                        fallback_mesh = None
         if fallback_mesh is None:
             raise FileNotFoundError(
                 f"init mesh not found: {mesh_obj}. "
                 f"Checked fallback: {stage1_dir / '*_t-pose.obj'}, {stage1_dir / 'smpl_mesh_tpose.obj'}, {stage1_dir / 'smpl_mesh.obj'}, "
-                f"{stage1_dir / 'sequence' / '*.obj'} and {stage1_dir / '*.obj'}."
+                f"{stage1_dir / 'sequence' / '*.obj'}."
             )
         mesh_obj = fallback_mesh
 
@@ -641,7 +652,29 @@ def main():
 
     # Frame selection strategy
     frame_select = str(stage2_cfg.get("frame_select", "first")).lower()
-    if frame_select == "last":
+    if frame_select == "stage1_sequence":
+        seq_npz_cfg = stage2_cfg.get("bind_sequence_npz", str(stage1_dir / "smpl_params_sequence.npz"))
+        seq_npz_path = _resolve_project_path(project_root, seq_npz_cfg)
+        if seq_npz_path is None or (not seq_npz_path.exists()):
+            raise FileNotFoundError(
+                f"frame_select=stage1_sequence requires bind_sequence_npz, missing: {seq_npz_path}"
+            )
+        seq = np.load(seq_npz_path, allow_pickle=True)
+        if "frame_names" not in seq.files:
+            raise RuntimeError(f"bind_sequence_npz has no frame_names: {seq_npz_path}")
+        seq_names = [str(x) for x in seq["frame_names"].tolist()]
+        frame_set = set(frames)
+        picked = [n for n in seq_names if n in frame_set]
+        if len(picked) == 0:
+            # basename fallback
+            by_name = {Path(f).name: f for f in frames}
+            picked = [by_name[Path(n).name] for n in seq_names if Path(n).name in by_name]
+        if len(picked) == 0:
+            raise RuntimeError(
+                "frame_select=stage1_sequence matched zero frames between data/frames and stage1 sequence frame_names."
+            )
+        frames = picked
+    elif frame_select == "last":
         frames = [frames[-1]]
     elif frame_select == "last_k":
         k = max(1, int(n_frames))
@@ -675,7 +708,7 @@ def main():
         if n_frames > 0:
             frames = frames[:n_frames]
     else:
-        raise ValueError(f"Unsupported frame_select: {frame_select}. Use first|last|last_k|uniform_k|indices")
+        raise ValueError(f"Unsupported frame_select: {frame_select}. Use first|last|last_k|uniform_k|indices|stage1_sequence")
 
     logger.info(f"Mesh: {mesh_obj}")
     logger.info(f"Frames: {len(frames)} used for training")
@@ -743,6 +776,11 @@ def main():
 
         seq_npz_cfg = cfg["stage2"].get("bind_sequence_npz", str(stage1_dir / "smpl_params_sequence.npz"))
         bind_seq_npz_path = _resolve_project_path(project_root, seq_npz_cfg)
+        seq_provider = SequenceMeshProvider(bind_mesh_dir)
+        seq_provider.scan()
+        seq_frame_ids = seq_provider.get_frame_ids()
+        seq_avail_set = set(seq_frame_ids)
+        seq_fallback_idx = int(seq_frame_ids[-1])
         if bind_seq_npz_path is None or (not bind_seq_npz_path.exists()):
             raise FileNotFoundError(
                 f"Missing bind sequence npz: {bind_seq_npz_path}. "
@@ -779,8 +817,7 @@ def main():
         if missing:
             # If there are numeric OBJ files in bind_mesh_dir (e.g. outputs/stage1/sequence),
             # prefer a sequential fallback mapping rather than failing hard.
-            mesh_files_here = [p for p in bind_mesh_dir.glob("*.obj") if p.stem.isdigit()]
-            if len(mesh_files_here) > 0:
+            if len(seq_frame_ids) > 0:
                 logger.warning(
                     "Some frame names not found in smpl_params_sequence.npz; "
                     "falling back to sequential mesh indices from bind_mesh_sequence_dir."
@@ -817,20 +854,13 @@ def main():
                 )
                 bind_vertices_npz_path = None
         if bind_vertices_npz_path is None:
-            mesh_files = []
-            for p in bind_mesh_dir.glob("*.obj"):
-                stem = p.stem
-                if stem.isdigit():
-                    mesh_files.append(int(stem))
-            if len(mesh_files) == 0:
-                raise FileNotFoundError(f"No numeric OBJ meshes found in {bind_mesh_dir}")
-            avail_set = set(mesh_files)
-            fallback_idx = max(mesh_files)
+            avail_set = set(seq_avail_set)
+            fallback_idx = int(seq_fallback_idx)
             missing_mesh = [mi for mi in bind_mesh_indices if mi not in avail_set]
             if len(missing_mesh) > 0:
                 logger.warning(
                     "Some bind mesh indices are missing from sequence; "
-                    f"falling back to mesh {fallback_idx:06d}.obj for {len(missing_mesh)} frames."
+                    f"falling back to frame_{fallback_idx:06d}.obj for {len(missing_mesh)} frames."
                 )
                 bind_mesh_indices = [mi if mi in avail_set else fallback_idx for mi in bind_mesh_indices]
 

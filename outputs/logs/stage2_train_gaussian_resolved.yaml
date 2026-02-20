@@ -5,7 +5,7 @@ data:
   frames_dir: data/frames/input
 stage2:
   stage1_dir: outputs/stage1
-  out_dir: outputs/stage2
+  out_dir: outputs/stage2_smoke
   init_mesh_obj: sequence/000756.obj
   enable_tf32: true
   cudnn_benchmark: true
@@ -28,7 +28,7 @@ stage2:
   fg_opacity_logit_max: 3.2
   fg_log_scale_min: -6.5
   fg_log_scale_max: -4.6
-  iters: 3000
+  iters: 0
   lr_gauss: 0.002
   lr_cam: 0.0
   camera_mode: fixed
@@ -80,7 +80,7 @@ stage2:
     min_iou_after: 0.7
     max_outside_after: 0.2
     init_from_bbox: true
-    use_best_if_quality_fail: true
+    use_best_if_quality_fail: false
     person_masks_npz: outputs/stage1/person_masks.npz
     sample_frames: 8
     eval_downsample: 0.5
@@ -97,6 +97,7 @@ stage2:
     - 0.35
     - 0.35
     - 0.45
+    enabled: false
   binding:
     mode: games_face
     hybrid_weight: 0.0
@@ -131,21 +132,21 @@ stage2:
   early_stop_warmup_iters: 8000
   frame_indices: 756
   bind_rigid_align_effective:
-    enabled: true
-    auto: false
+    enabled: false
+    auto: true
     pre_stage2: true
     require_pre_stage2: true
     require_quality: true
     min_iou_after: 0.7
     max_outside_after: 0.2
     init_from_bbox: true
-    use_best_if_quality_fail: true
+    use_best_if_quality_fail: false
     rx_deg: 0.0
     ry_deg: 0.0
-    rz_deg: 1.5
-    tx: -0.0233955078125
-    ty: -0.24401812744140625
-    tz: -0.405
+    rz_deg: 0.0
+    tx: 0.0
+    ty: 0.0
+    tz: 0.0
     sample_frames: 8
     eval_downsample: 0.5
     outside_weight: 2.0
