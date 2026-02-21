@@ -12,7 +12,7 @@ stage2:
   n_frames: 16
   n_gaussians: 120000
   sample_on_surface: true
-  n_gaussians_bg: 30000
+  n_gaussians_bg: 0
   bg_extent:
   - 4.0
   - 4.0
@@ -28,7 +28,7 @@ stage2:
   fg_opacity_logit_max: 3.2
   fg_log_scale_min: -6.5
   fg_log_scale_max: -4.6
-  iters: 3000
+  iters: 12000
   lr_gauss: 0.002
   lr_cam: 0.0
   camera_mode: fixed
@@ -80,7 +80,7 @@ stage2:
     min_iou_after: 0.7
     max_outside_after: 0.2
     init_from_bbox: true
-    use_best_if_quality_fail: false
+    use_best_if_quality_fail: true
     person_masks_npz: outputs/stage1/person_masks.npz
     sample_frames: 8
     eval_downsample: 0.5
@@ -139,7 +139,7 @@ stage2:
     min_iou_after: 0.7
     max_outside_after: 0.2
     init_from_bbox: true
-    use_best_if_quality_fail: false
+    use_best_if_quality_fail: true
     rx_deg: 0.0
     ry_deg: 0.0
     rz_deg: 0.0

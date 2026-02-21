@@ -710,8 +710,25 @@ def _extract_tpose_cam_from_smplx(
     transl_t = torch.from_numpy(np.asarray(cam_t, dtype=np.float32).reshape(1, 3))
 
     def _run_tpose_for_model(model_type: str, model_root: Path) -> tuple[np.ndarray, np.ndarray]:
+        # Accept both root styles:
+        # 1) assets/{smpl,smplx}
+        # 2) direct folder with model files (e.g. assets/smplx)
+        if model_type == "smplx":
+            direct_candidates = [
+                model_root / "SMPLX_NEUTRAL.npz",
+                model_root / "SMPLX_NEUTRAL_2020.npz",
+            ]
+        else:
+            direct_candidates = [
+                model_root / "SMPL_NEUTRAL.npz",
+                model_root / "SMPL_N_model.npz",
+                model_root / "SMPL_M_model.npz",
+                model_root / "SMPL_F_model.npz",
+            ]
+        model_root_for_create = model_root.parent if any(pp.exists() for pp in direct_candidates) else model_root
+
         model = smplx.create(
-            model_path=str(model_root),
+            model_path=str(model_root_for_create),
             model_type=model_type,
             gender=gender,
             use_pca=False,

@@ -6,7 +6,7 @@
   "wham_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\wham",
   "pymaf_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\pymaf\\selected_frames",
   "final_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final",
-  "last_frame_name": "000750.jpg",
+  "last_frame_name": "000756.jpg",
   "last_frame_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_smplx.obj",
   "last_frame_pose_local_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_pose_local.obj",
   "last_frame_cam_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final\\last_frame_smplx_cam.obj",
@@ -38,5 +38,5 @@
     "smpl_vertices_sequence_npz": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smpl_vertices_sequence.npz",
     "sequence_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\sequence"
   },
-  "stage1_sequence_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\sequence\\frame_000750.obj"
+  "stage1_sequence_obj": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\sequence\\frame_000756.obj"
 }

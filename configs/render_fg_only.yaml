@@ -1,72 +1,64 @@
 ﻿project_root: .
-seed: 42
 log_dir: outputs/logs
 
 render:
   stage2_dir: outputs/stage2
-  out_dir: outputs/renders
+  out_dir: outputs/renders/fg_only
+
+  mode: fg_only
   save_main_image: false
-  save_real_image: true
-  real_out_subdir: real
+  save_real_image: false
   save_fg_nobg_skeleton: true
-  fg_nobg_out_subdir: fg_only
-  render_tpose_image: true
-  tpose_out_subdir: t-pose
-  tpose_mesh_obj: ""
-  tpose_frame_source: last
-  tpose_frame_index: -1
-  clear_out_dir_pngs: true
+  deform_render_image: false
+
+  clear_out_dir_pngs: false
   frames_dir: data/frames/input
   frame_select: last
   max_frames: 1
+
   bg: [1.0, 1.0, 1.0]
   k_scale: 1.0
   fg_scale: 1.0
   bg_scale: 1.0
-  split_by_bind: false
-  render_bound_only: false
+
   fg_only_render_bound_only: true
-  tpose_render_bound_only: true
-  bound_alpha_threshold: 0.22
-  bound_opacity_min: 0.05
+  render_bound_only: false
+  bound_alpha_threshold: 0.28
+  bound_opacity_min: 0.10
+
+  fg_only_alpha_threshold: 0.04
+
   fg_mask_mode: smpl
   fg_mask_dilate_px: 0
-  fg_mask_erode_px: 3
-  visualize_bound_gaussians: false
-  debug_point_render: false
-  debug_point_radius: 1
-  debug_point_alpha: 0.95
-  debug_use_gaussian_color: false
-  debug_point_color: [0.15, 0.45, 0.95]
-  debug_surface_only: true
-  debug_bind_to_google_skeleton: false
-  debug_skeleton_band_px: 10.0
-  debug_overlay_keypoints: false
-  debug_draw_skeleton: false
-  debug_overlay_body_only: true
-  debug_overlay_smpl_skeleton: false
-  debug_smpl_joints_npz: outputs/stage1/smpl_joints_sequence.npz
-  debug_smpl_color_bgr: [0, 255, 0]
-  debug_smpl_line_thickness: 2
-  debug_smpl_joint_radius: 3
+  fg_mask_erode_px: 1
+
   overlay_smpl_skeleton: true
-  smpl_skeleton_source: theta
+  smpl_skeleton_source: joints
   smpl_skeleton_npz: outputs/stage1/smpl_skeleton_sequence.npz
   smpl_joints_npz: outputs/stage1/smpl_joints_sequence.npz
   smpl_skeleton_color_bgr: [0, 255, 0]
-  smpl_skeleton_line_thickness: 2
+  smpl_skeleton_line_thickness: 0
   smpl_skeleton_joint_radius: 3
-  debug_keypoints_json: outputs/stage1/keypoints.json
-  debug_kpt_conf_min: 0.2
-  debug_kpt_radius: 3
+
   use_gt_background: false
+
   bind_mesh_sequence_dir: outputs/stage1
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
   bind_mesh_obj_space: auto
-  tpose_mesh_obj_space: auto
   bind_align_quat_to_mesh_normals: true
   bind_quat_normal_blend: 1.0
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
+
+  bind_rigid_align:
+    enabled: false
   bind_mesh_offset: [0.0, 0.0, 0.0]
 
+  center_subject: true
+  center_subject_use_mesh: true
+  center_subject_depth_min: 0.1
+  center_subject_joint_idx: -1
+  subject_fit_enabled: true
+  subject_fit_fill: 0.90
+  subject_fit_iters: 2
+  view_axis_mode: legacy

@@ -25,6 +25,14 @@ class Gaussian3D:
     bind_bary: torch.Tensor | None = None
     # (N,1) optional per-gaussian hybrid blend weight in [0,1]
     bind_hybrid_w: torch.Tensor | None = None
+    # (N,3) optional local offset in bound face tangent frame [t1, t2, n]
+    bind_face_offset_local: torch.Tensor | None = None
+    # (N,) optional shell layer id: 0=inner, 1=outer
+    shell_layer: torch.Tensor | None = None
+    # (N,1) optional adaptive mix weight in [0,1] for hybrid binding
+    bind_mix_weight: torch.Tensor | None = None
+    # (N,) optional prune/freezing state: 0=active, 1=soft-frozen, 2=hard-pruned
+    prune_state: torch.Tensor | None = None
 
     def to(self, device: str):
         return Gaussian3D(
@@ -38,6 +46,10 @@ class Gaussian3D:
             bind_face_idx=self.bind_face_idx.to(device) if self.bind_face_idx is not None else None,
             bind_bary=self.bind_bary.to(device) if self.bind_bary is not None else None,
             bind_hybrid_w=self.bind_hybrid_w.to(device) if self.bind_hybrid_w is not None else None,
+            bind_face_offset_local=self.bind_face_offset_local.to(device) if self.bind_face_offset_local is not None else None,
+            shell_layer=self.shell_layer.to(device) if self.shell_layer is not None else None,
+            bind_mix_weight=self.bind_mix_weight.to(device) if self.bind_mix_weight is not None else None,
+            prune_state=self.prune_state.to(device) if self.prune_state is not None else None,
         )
 
     def state_dict(self):
@@ -58,6 +70,14 @@ class Gaussian3D:
             sd["bind_bary"] = self.bind_bary
         if self.bind_hybrid_w is not None:
             sd["bind_hybrid_w"] = self.bind_hybrid_w
+        if self.bind_face_offset_local is not None:
+            sd["bind_face_offset_local"] = self.bind_face_offset_local
+        if self.shell_layer is not None:
+            sd["shell_layer"] = self.shell_layer
+        if self.bind_mix_weight is not None:
+            sd["bind_mix_weight"] = self.bind_mix_weight
+        if self.prune_state is not None:
+            sd["prune_state"] = self.prune_state
         return sd
 
     @staticmethod
@@ -73,6 +93,10 @@ class Gaussian3D:
             bind_face_idx=sd.get("bind_face_idx", None),
             bind_bary=sd.get("bind_bary", None),
             bind_hybrid_w=sd.get("bind_hybrid_w", None),
+            bind_face_offset_local=sd.get("bind_face_offset_local", None),
+            shell_layer=sd.get("shell_layer", None),
+            bind_mix_weight=sd.get("bind_mix_weight", None),
+            prune_state=sd.get("prune_state", None),
         )
 
     def rgb(self):

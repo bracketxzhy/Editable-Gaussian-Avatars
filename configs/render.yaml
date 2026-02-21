@@ -9,8 +9,20 @@ render:
   real_out_subdir: real
   save_fg_nobg_skeleton: true
   fg_nobg_out_subdir: fg_only
-  render_tpose_image: true
-  tpose_out_subdir: t-pose
+  deform_render_image: true
+  deform_out_subdir: deform
+  deform_use_sequence_frame: false
+  deform_sequence_frame_index: -1
+  deform_sequence_frame_name: ""
+  deform_source: smplx_params
+  deform_smplx_params_npz: outputs/stage1/smpl_params_sequence.npz
+  deform_smplx_frame_index: -1
+  deform_smplx_frame_name: ""
+  deform_smplx_model_type: smplx
+  deform_smplx_gender: neutral
+  deform_smplx_model_root: ""
+  deform_smplx_use_standard_pose: false
+  deform_alpha_threshold: 0.04
   clear_out_dir_pngs: false
   frames_dir: data/frames/input
   frame_select: last
@@ -22,9 +34,10 @@ render:
   split_by_bind: false
   render_bound_only: false
   fg_only_render_bound_only: true
-  tpose_render_bound_only: true
+  deform_render_bound_only: true
   bound_alpha_threshold: 0.28
-  bound_opacity_min: 0.05
+  bound_opacity_min: 0.10
+  fg_only_alpha_threshold: 0.04
   fg_mask_mode: smpl
   fg_mask_dilate_px: 0
   fg_mask_erode_px: 3
@@ -39,7 +52,7 @@ render:
   bind_mesh_sequence_dir: outputs/stage1
   bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
   bind_mesh_obj_space: auto
-  tpose_mesh_obj_space: auto
+  deform_mesh_obj_space: auto
   bind_align_quat_to_mesh_normals: true
   bind_quat_normal_blend: 1.0
   bind_mesh_to_camera: true
@@ -51,4 +64,7 @@ render:
   center_subject: true
   center_subject_use_mesh: true
   center_subject_depth_min: 0.1
+  view_axis_mode: legacy
+
+
 

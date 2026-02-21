@@ -45,6 +45,14 @@ from avatar_gs.densify import (
     select_densify_candidates,
     update_densify_stats,
 )
+from avatar_gs.gaussian.shell_policy import (
+    compute_shell_score,
+    estimate_outer_budget,
+    select_inner_hardprune_candidates,
+    select_inner_softfreeze_candidates,
+    select_outer_prune_candidates,
+    select_outer_spawn_candidates,
+)
 
 def read_image_rgb(path: str | Path) -> torch.Tensor:
     """Read an image and return float tensor in [0,1], shape (3,H,W)."""
@@ -142,6 +150,25 @@ def _project_points_numpy(
         zv = z[valid]
         u[valid] = K[0, 0] * (Xcv[:, 0] / zv) + K[0, 2]
         v[valid] = K[1, 1] * (Xcv[:, 1] / zv) + K[1, 2]
+    return u, v, valid
+
+
+def _project_points_torch(
+    xyz: torch.Tensor,
+    K: torch.Tensor,
+    R: torch.Tensor,
+    t: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    Xc = (xyz @ R.transpose(0, 1)) + t.view(1, 3)
+    z = Xc[:, 2]
+    valid = z > 1e-6
+    u = torch.zeros_like(z)
+    v = torch.zeros_like(z)
+    if bool(valid.any()):
+        xv = Xc[valid]
+        zv = z[valid]
+        u[valid] = K[0, 0] * (xv[:, 0] / zv) + K[0, 2]
+        v[valid] = K[1, 1] * (xv[:, 1] / zv) + K[1, 2]
     return u, v, valid
 
 
@@ -303,6 +330,25 @@ def train_gaussians_3d_learnable_camera(
     densify_top_percent: float = 10.0,
     phase0_ratio: float = 0.15,
     phase2_ratio: float = 0.15,
+    shell_enable: bool = False,
+    shell_max_ratio: float = 0.40,
+    shell_spawn_top_percent: float = 15.0,
+    shell_spawn_every: int = 200,
+    shell_prune_every: int = 400,
+    shell_offset_max_n: float = 0.04,
+    shell_offset_max_t: float = 0.015,
+    shell_offset_reg_weight: float = 0.02,
+    inner_occlusion_soft_enable: bool = True,
+    inner_occlusion_hard_enable: bool = True,
+    inner_soft_vis_th: float = 0.05,
+    inner_soft_contrib_th: float = 0.01,
+    outer_cover_vis_th: float = 0.20,
+    outer_cover_contrib_th: float = 0.03,
+    inner_soft_patience: int = 300,
+    inner_hard_patience: int = 800,
+    inner_soft_lr_scale: float = 0.2,
+    inner_prune_every: int = 400,
+    inner_prune_protect_parts: list[str] | tuple[str, ...] | None = None,
 ):
     """
     Stage2: optimize 3D Gaussians + (optional) per-frame learnable camera.
@@ -348,6 +394,31 @@ def train_gaussians_3d_learnable_camera(
     g.opacity_logit = torch.nn.Parameter(g.opacity_logit)
     g.rgb_logit = torch.nn.Parameter(g.rgb_logit)
 
+    # Optional structured fields (kept backward-compatible with old checkpoints)
+    n_gauss = int(g.xyz.shape[0])
+    if g.bind_face_offset_local is None:
+        g.bind_face_offset_local = torch.zeros((n_gauss, 3), dtype=torch.float32, device=device)
+    else:
+        g.bind_face_offset_local = g.bind_face_offset_local.to(device=device, dtype=torch.float32)
+    if g.shell_layer is None:
+        shell_base = torch.zeros((n_gauss,), dtype=torch.int64, device=device)
+        if g.bind_idx is not None:
+            shell_base[g.bind_idx.to(device=device) < 0] = -1
+        g.shell_layer = shell_base
+    else:
+        g.shell_layer = g.shell_layer.to(device=device, dtype=torch.int64)
+    if g.bind_mix_weight is None:
+        g.bind_mix_weight = torch.full((n_gauss, 1), 0.5, dtype=torch.float32, device=device)
+    else:
+        g.bind_mix_weight = g.bind_mix_weight.to(device=device, dtype=torch.float32)
+    if g.prune_state is None:
+        g.prune_state = torch.zeros((n_gauss,), dtype=torch.int64, device=device)
+    else:
+        g.prune_state = g.prune_state.to(device=device, dtype=torch.int64)
+
+    # Learnable local face offset for shell/deformation branch.
+    g.bind_face_offset_local = torch.nn.Parameter(g.bind_face_offset_local)
+
     # Camera per-frame (axis-angle + translation)
     nF = len(frames_list)
     ref_window = int(temporal_ref_window)
@@ -390,7 +461,7 @@ def train_gaussians_3d_learnable_camera(
         cam_t = torch.nn.Parameter(cam_t)
 
     # Optimizer (we will dynamically freeze/unfreeze camera by toggling requires_grad)
-    gauss_params = [g.log_scales, g.quat, g.opacity_logit, g.rgb_logit]
+    gauss_params = [g.log_scales, g.quat, g.opacity_logit, g.rgb_logit, g.bind_face_offset_local]
     if not binding_enabled:
         gauss_params = [g.xyz] + gauss_params
     param_groups = [{"params": gauss_params, "lr": lr_gauss}]
@@ -1003,8 +1074,43 @@ def train_gaussians_3d_learnable_camera(
                     torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
                 )
 
+    # ---- Adaptive training helpers ----
+    phase0_end = max(1, int(round(float(iters) * float(np.clip(phase0_ratio, 0.0, 0.9)))))
+    phase2_start = max(phase0_end + 1, int(round(float(iters) * float(1.0 - np.clip(phase2_ratio, 0.0, 0.9)))))
+    phase2_lr_scale = 0.35
+
+    binding_raw = binding if isinstance(binding, dict) else {}
+    hybrid_dynamic = bool(binding_raw.get("hybrid_dynamic", getattr(binding_cfg, "hybrid_dynamic", False)))
+    mix_w_min = float(binding_raw.get("mix_w_min", getattr(binding_cfg, "mix_w_min", 0.05)))
+    mix_w_max = float(binding_raw.get("mix_w_max", getattr(binding_cfg, "mix_w_max", 0.95)))
+    mix_coef_curv = float(binding_raw.get("mix_coef_curv", 1.0))
+    mix_coef_edge = float(binding_raw.get("mix_coef_edge", 0.8))
+    mix_coef_residual = float(binding_raw.get("mix_coef_residual", 0.7))
+    mix_coef_normal_var = float(binding_raw.get("mix_coef_normal_var", 0.6))
+    mix_bias = float(binding_raw.get("mix_bias", 1.1))
+
+    frame_residual_ema: dict[int, FrameResidualEMA] = {i: FrameResidualEMA(alpha=0.9) for i in range(nF)}
+    densify_stats = GaussianDensifyStats.create(n_gaussians=n_gauss, device=device)
+    border_att_cache: dict[int, np.ndarray] = {}
+
+    inner_soft_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
+    inner_hard_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
+
     for it in tqdm(range(iters), desc="Stage2 3DGS (learnable camera)"):
         opt.zero_grad(set_to_none=True)
+
+        # Training phase schedule
+        if it < phase0_end:
+            phase_tag = "phase0"
+        elif it >= phase2_start:
+            phase_tag = "phase2"
+        else:
+            phase_tag = "phase1"
+
+        for pg in opt.param_groups:
+            base_lr = float(pg.get("initial_lr", pg["lr"]))
+            pg.setdefault("initial_lr", base_lr)
+            pg["lr"] = base_lr * (phase2_lr_scale if phase_tag == "phase2" else 1.0)
 
         # Enable camera learning after warmup
         if learn_cam and it == cam_warmup_iters:
@@ -1020,8 +1126,8 @@ def train_gaussians_3d_learnable_camera(
 
         # Build temporal reference set: current frame + previous frames with decay.
         if ref_window > 0:
-            start = max(0, fi - ref_window)
-            ctx_indices = list(range(start, fi + 1))
+            start_idx = max(0, fi - ref_window)
+            ctx_indices = list(range(start_idx, fi + 1))
             raw_w = np.asarray([ref_decay ** (fi - fj) for fj in ctx_indices], dtype=np.float32)
             raw_w = raw_w / float(raw_w.sum() + 1e-8)
             ctx_weights = raw_w.tolist()
@@ -1030,6 +1136,8 @@ def train_gaussians_3d_learnable_camera(
             ctx_weights = [1.0]
 
         loss_value = 0.0
+        vis_accum: list[torch.Tensor] = []
+
         for fj, wj in zip(ctx_indices, ctx_weights):
             gt = gts[fj]  # (3,H,W)
 
@@ -1042,6 +1150,7 @@ def train_gaussians_3d_learnable_camera(
             verts_t = None
             normals_t = None
             bind_mask_curr = bind_mask if binding_enabled else None
+            frame_data = None
             if binding_enabled:
                 mesh_idx = int(bind_mesh_indices[fj])
                 verts_t, normals_t, mesh_idx_use = _load_mesh_verts(mesh_idx)
@@ -1063,6 +1172,46 @@ def train_gaussians_3d_learnable_camera(
                                     g.quat[bind_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
                     else:
                         frame_data = _load_binding_frame(mesh_idx_use)
+
+                        # Dynamic hybrid binding weight per gaussian (position-adaptive).
+                        if hybrid_dynamic and str(binding_cfg.mode).lower() == "hybrid":
+                            with torch.no_grad():
+                                b_ids = torch.nonzero(bind_mask, as_tuple=False).view(-1)
+                                if int(b_ids.numel()) > 0:
+                                    if bind_face_idx_t is not None and bind_bary_t is not None and frame_data.faces_t is not None:
+                                        f_idx_all = bind_face_idx_t.index_select(0, b_ids)
+                                        bary_all = bind_bary_t.index_select(0, b_ids)
+                                        f_valid = f_idx_all >= 0
+                                        curv_sig = torch.zeros((int(b_ids.numel()),), dtype=torch.float32, device=device)
+                                        if bool(f_valid.any()):
+                                            f_idx = f_idx_all[f_valid].long()
+                                            face_vid = frame_data.faces_t.index_select(0, f_idx)
+                                            curv_v = frame_data.curv_conf_t.index_select(0, face_vid.reshape(-1)).view(-1, 3)
+                                            curv_sig[f_valid] = (curv_v * bary_all[f_valid]).sum(dim=1)
+                                    else:
+                                        v_idx = bind_idx_t.index_select(0, b_ids).clamp(min=0)
+                                        curv_sig = frame_data.curv_conf_t.index_select(0, v_idx)
+
+                                    residual_sig = densify_stats.residual_ema.index_select(0, b_ids)
+                                    edge_sig = (curv_sig > float(binding_cfg.curv_conf_tau)).float()
+                                    if prev_vertex_dirs is not None and prev_vertex_dirs.shape[0] == frame_data.vertex_n_t.shape[0]:
+                                        v_idx = bind_idx_t.index_select(0, b_ids).clamp(min=0)
+                                        n_now = frame_data.vertex_n_t.index_select(0, v_idx)
+                                        n_prev = prev_vertex_dirs.index_select(0, v_idx)
+                                        normal_var_sig = (1.0 - (n_now * n_prev).sum(dim=1).abs()).clamp(0.0, 1.0)
+                                    else:
+                                        normal_var_sig = torch.zeros_like(curv_sig)
+
+                                    logits = (
+                                        mix_coef_curv * curv_sig
+                                        + mix_coef_edge * edge_sig
+                                        + mix_coef_residual * residual_sig
+                                        + mix_coef_normal_var * normal_var_sig
+                                        - mix_bias
+                                    )
+                                    w_dyn = torch.sigmoid(logits).clamp(min=float(mix_w_min), max=float(mix_w_max))
+                                    g.bind_mix_weight[b_ids, 0] = w_dyn
+
                         prev_vertex_dirs, bind_mask_curr = update_gaussians_with_binding(
                             g=g,
                             frame=frame_data,
@@ -1100,55 +1249,36 @@ def train_gaussians_3d_learnable_camera(
                     if cache_key >= 0:
                         smpl_mask_cache[cache_key] = smpl_mask
 
-            # Render
-            need_alpha = bool(use_alpha_mask or float(smpl_alpha_leak_weight) > 0.0)
-            if need_alpha:
-                pred_rgb, pred_a = render_gaussians_3d(g, K, R, t, H, W, bg=bg_rgb, return_alpha=True)
-                mask = (pred_a.detach() > alpha_threshold).float() if bool(use_alpha_mask) else None
-            else:
-                pred_rgb = render_gaussians_3d(g, K, R, t, H, W, bg=bg_rgb, return_alpha=False)
-                pred_a = None
-                mask = None
-
-            # Loss: MSE + L1
-            diff = pred_rgb - gt
-            l2 = (diff * diff)
-            l1 = diff.abs()
-
+            # Common mask/weight builders.
+            mask = None
             if use_kpt_bbox_mask and kpt_boxes is not None and kpt_boxes[fj] is not None:
                 x0, y0, x1, y1 = kpt_boxes[fj]
                 m2d = torch.zeros((1, H, W), device=device)
                 m2d[:, int(y0):int(y1) + 1, int(x0):int(x1) + 1] = 1.0
-                mask = m2d if mask is None else (mask * m2d)
+                mask = m2d
+
             person_mask_curr = None
             if person_masks_frames is not None:
                 p_mask = person_masks_frames[fj]
                 person_mask_curr = p_mask
-                if p_mask is not None:
-                    # For separate fg/bg supervision, keep full-image color loss and
-                    # use masks only as region weights (below).
-                    if not sep_fg_bg:
-                        if mask is None:
-                            mask = p_mask
-                        elif person_fuse == "replace":
-                            mask = p_mask
-                        elif person_fuse == "union":
-                            mask = (mask + p_mask).clamp(0.0, 1.0)
-                        else:
-                            mask = mask * p_mask
+                if p_mask is not None and not sep_fg_bg:
+                    if mask is None:
+                        mask = p_mask
+                    elif person_fuse == "replace":
+                        mask = p_mask
+                    elif person_fuse == "union":
+                        mask = (mask + p_mask).clamp(0.0, 1.0)
+                    else:
+                        mask = mask * p_mask
+
             smpl_mask_for_color = None
             if smpl_mask is not None:
                 smpl_mask_for_color = smpl_mask
                 if int(smpl_color_mask_erode_px) > 0:
-                    smpl_mask_for_color = _erode_binary_mask_torch(
-                        smpl_mask_for_color, int(smpl_color_mask_erode_px)
-                    )
-                # Keep any existing foreground constraint (alpha/kpt/person) and
-                # intersect with SMPL mask only when override is explicitly enabled.
+                    smpl_mask_for_color = _erode_binary_mask_torch(smpl_mask_for_color, int(smpl_color_mask_erode_px))
                 if (not sep_fg_bg) and bool(smpl_mask_override_alpha):
                     mask = smpl_mask_for_color if mask is None else (mask * smpl_mask_for_color)
 
-            # Optional face emphasis (no hard mask, just higher weight)
             weight = None
             if face_boxes is not None and face_boxes[fj] is not None and float(face_weight) > 1.0:
                 fx0, fy0, fx1, fy1 = face_boxes[fj]
@@ -1156,52 +1286,234 @@ def train_gaussians_3d_learnable_camera(
                 w2d[:, int(fy0):int(fy1) + 1, int(fx0):int(fx1) + 1] = float(face_weight)
                 weight = w2d
 
-            # GaMeS-style region supervision:
-            # use foreground/background regions from silhouette/person mask, but
-            # keep full-image optimization active.
             if sep_fg_bg:
                 region_mask = smpl_mask_for_color if smpl_mask_for_color is not None else person_mask_curr
                 if region_mask is not None:
                     region_w = (bg_w + (fg_w - bg_w) * region_mask).clamp(min=0.0)
                     weight = region_w if weight is None else (weight * region_w)
 
-            # Combine mask + weight into one weight map
             if mask is not None:
                 weight = mask if weight is None else (weight * mask)
-            if weight is not None:
-                w = weight.expand_as(pred_rgb)
-                l2 = (l2 * w).sum() / (w.sum() + 1e-6)
-                l1 = (l1 * w).sum() / (w.sum() + 1e-6)
-            else:
-                l2 = l2.mean()
-                l1 = l1.mean()
 
-            frame_loss = l2 + l1_weight * l1
+            # Pass-1 render: estimate visibility and frame residual.
+            pred_rgb_p1, pred_a_p1, meta_p1 = render_gaussians_3d(
+                g, K, R, t, H, W, bg=bg_rgb, return_alpha=True, return_meta=True
+            )
+            diff_p1 = pred_rgb_p1 - gt
+            residual_scalar = float(diff_p1.abs().mean().detach().cpu())
+            residual_ema_val = frame_residual_ema[fj].update(residual_scalar)
+            frame_w_scalar = float(frame_weight_from_residual(residual_ema_val, frame_weight_k))
+
+            visibility = compute_gaussian_visibility(
+                xyz=g.xyz.detach(),
+                K=K,
+                R=R,
+                t=t,
+                image_h=H,
+                image_w=W,
+                alpha_map=pred_a_p1.detach(),
+                person_mask=person_mask_curr,
+                renderer_meta=meta_p1,
+                min_alpha=max(float(alpha_threshold), 0.01),
+            )
+
+            if bool(use_border_attenuation) and person_mask_curr is not None and int(border_attenuation_width) > 0:
+                if fj not in border_att_cache:
+                    pm_np = (person_mask_curr[0].detach().cpu().numpy() > 0.5).astype(np.uint8)
+                    border_att_cache[fj] = build_border_attenuation(pm_np, int(border_attenuation_width))
+                u_proj, v_proj, valid_proj = _project_points_torch(g.xyz.detach(), K, R, t)
+                uv_proj = torch.stack([u_proj, v_proj], dim=1)
+                border_w = sample_border_weight(border_att_cache[fj], uv_proj, valid_proj)
+                visibility = visibility * border_w
+
+            active_mask = (g.prune_state != 2)
+            visibility = visibility * active_mask.float()
+            visibility = visibility * frame_w_scalar
+            visibility = visibility.clamp(0.0, 1.0)
+            vis_accum.append(visibility.detach())
+
+            # Densify stats (module hooks for policy).
+            update_densify_stats(densify_stats, visibility.detach(), residual_scalar, float(tau_vis))
+            _ = select_densify_candidates(
+                densify_stats,
+                visibility.detach(),
+                int(V_min),
+                float(densify_top_percent),
+            )
+
+            # Pass-2 render with per-gaussian visibility weighting.
+            pred_rgb, pred_a = render_gaussians_3d(
+                g, K, R, t, H, W, bg=bg_rgb, return_alpha=True, gaussian_weights=visibility.detach()
+            )
+
+            diff = pred_rgb - gt
+            if bool(use_robust_loss):
+                photo_map = compute_robust_photo_loss(
+                    diff,
+                    loss_type=robust_loss_type,
+                    huber_delta=0.02,
+                    charbonnier_eps=1e-3,
+                )
+            else:
+                photo_map = diff * diff
+            l1_map = diff.abs()
+
+            if weight is not None:
+                w_map = weight.expand_as(pred_rgb)
+                photo = (photo_map * w_map).sum() / (w_map.sum() + 1e-6)
+                l1 = (l1_map * w_map).sum() / (w_map.sum() + 1e-6)
+            else:
+                photo = photo_map.mean()
+                l1 = l1_map.mean()
+
+            frame_loss = photo + float(l1_weight) * l1
+
             leak_mask = smpl_mask
             if leak_mask is None and person_masks_frames is not None:
                 leak_mask = person_masks_frames[fj]
-            if pred_a is not None and leak_mask is not None and float(smpl_alpha_leak_weight) > 0.0:
+            if leak_mask is not None and float(smpl_alpha_leak_weight) > 0.0:
                 outside = (1.0 - leak_mask).clamp(0.0, 1.0)
                 leak = (pred_a * outside).sum() / (outside.sum() + 1e-6)
                 frame_loss = frame_loss + float(smpl_alpha_leak_weight) * leak
+
             if frame_loss_weights_t is not None:
                 frame_loss = frame_loss * float(frame_loss_weights_t[fj].item())
             frame_loss = float(wj) * frame_loss
+
             loss_value += float(frame_loss.detach().cpu())
             frame_loss.backward()
+
             if (
                 binding_enabled
                 and bind_mask_curr is not None
                 and bool(bind_mask_curr.any())
                 and bind_surface_aniso_weight > 0.0
             ):
-                # Surface-aware anisotropy: keep normal axis compact, tangent axes elongated.
                 ls = g.log_scales[bind_mask_curr]
                 tang_max = torch.maximum(ls[:, 0], ls[:, 1])
                 pen = F.relu(ls[:, 2] - tang_max + float(bind_surface_aniso_margin))
                 aniso_loss = float(bind_surface_aniso_weight) * float(wj) * (pen * pen).mean()
                 loss_value += float(aniso_loss.detach().cpu())
                 aniso_loss.backward()
+
+        vis_mean = torch.stack(vis_accum, dim=0).mean(dim=0) if len(vis_accum) > 0 else torch.ones((n_gauss,), device=device)
+
+        # Shell/occlusion policy updates (state-based, non-destructive).
+        if bool(shell_enable):
+            inner_mask = (g.shell_layer == 0)
+            outer_mask = (g.shell_layer == 1)
+            active_mask = (g.prune_state != 2)
+
+            outer_vis_scalar = float(vis_mean[outer_mask].mean().detach().cpu()) if bool(outer_mask.any()) else 0.0
+            outer_cov_vec = torch.full_like(vis_mean, outer_vis_scalar)
+
+            inner_soft_cond = select_inner_softfreeze_candidates(
+                inner_mask=inner_mask,
+                inner_vis=vis_mean,
+                inner_contrib=vis_mean,
+                outer_cover_vis=outer_cov_vec,
+                outer_cover_contrib=outer_cov_vec,
+                soft_vis_th=float(inner_soft_vis_th),
+                soft_contrib_th=float(inner_soft_contrib_th),
+                outer_vis_th=float(outer_cover_vis_th),
+                outer_contrib_th=float(outer_cover_contrib_th),
+            )
+            inner_soft_counter = torch.where(inner_soft_cond, inner_soft_counter + 1.0, torch.zeros_like(inner_soft_counter))
+            inner_hard_counter = torch.where(inner_soft_cond, inner_hard_counter + 1.0, torch.zeros_like(inner_hard_counter))
+
+            if bool(inner_occlusion_soft_enable):
+                to_soft = inner_mask & (inner_soft_counter >= float(max(int(inner_soft_patience), 1)))
+                g.prune_state[to_soft] = 1
+
+            if bool(inner_occlusion_hard_enable) and int(inner_prune_every) > 0 and ((it + 1) % int(inner_prune_every) == 0):
+                to_hard = select_inner_hardprune_candidates(
+                    inner_mask=inner_mask,
+                    soft_counter=inner_soft_counter,
+                    hard_counter=inner_hard_counter,
+                    soft_patience=int(inner_soft_patience),
+                    hard_patience=int(inner_hard_patience),
+                )
+                g.prune_state[to_hard] = 2
+
+            # Outer score / prune policy.
+            edge_metric = (g.bind_mix_weight.view(-1).detach() - 0.5).abs() * 2.0
+            shell_score = compute_shell_score(
+                residual_ema=densify_stats.residual_ema,
+                edge=edge_metric,
+                curv_conf=g.bind_mix_weight.view(-1).detach(),
+                leak=(1.0 - vis_mean.detach()).clamp(0.0, 1.0),
+            )
+
+            if int(shell_prune_every) > 0 and ((it + 1) % int(shell_prune_every) == 0):
+                to_prune_outer = select_outer_prune_candidates(
+                    outer_mask=outer_mask,
+                    outer_vis=vis_mean,
+                    outer_score=shell_score,
+                    low_vis_th=0.02,
+                    low_score_percent=10.0,
+                )
+                if int(to_prune_outer.numel()) > 0:
+                    g.prune_state[to_prune_outer] = 2
+
+            if int(shell_spawn_every) > 0 and ((it + 1) % int(shell_spawn_every) == 0):
+                n_inner_active = int((inner_mask & active_mask).sum().item())
+                n_outer_active = int((outer_mask & active_mask).sum().item())
+                _outer_init_budget, outer_budget = estimate_outer_budget(
+                    n_inner=max(n_inner_active, 1),
+                    init_ratio=0.15,
+                    max_ratio=float(shell_max_ratio),
+                )
+                max_new = max(0, outer_budget - n_outer_active)
+                if max_new > 0:
+                    spawn_src = select_outer_spawn_candidates(
+                        shell_score=shell_score,
+                        visibility=vis_mean,
+                        vis_count=densify_stats.vis_count,
+                        V_min=int(V_min),
+                        tau_vis=float(tau_vis),
+                        top_percent=float(shell_spawn_top_percent),
+                        max_new=max_new,
+                        active_mask=active_mask,
+                    )
+                    # Reuse previously hard-pruned outer slots to keep tensor shapes stable.
+                    spawn_slots = torch.nonzero((g.shell_layer == 1) & (g.prune_state == 2), as_tuple=False).view(-1)
+                    n_spawn = min(int(spawn_src.numel()), int(spawn_slots.numel()))
+                    if n_spawn > 0:
+                        src = spawn_src[:n_spawn]
+                        dst = spawn_slots[:n_spawn]
+                        with torch.no_grad():
+                            g.log_scales[dst] = g.log_scales[src]
+                            g.quat[dst] = g.quat[src]
+                            g.opacity_logit[dst] = g.opacity_logit[src]
+                            g.rgb_logit[dst] = g.rgb_logit[src]
+                            if g.bind_idx is not None:
+                                g.bind_idx[dst] = g.bind_idx[src]
+                            if g.bind_offset is not None:
+                                g.bind_offset[dst] = g.bind_offset[src]
+                            if g.bind_face_idx is not None:
+                                g.bind_face_idx[dst] = g.bind_face_idx[src]
+                            if g.bind_bary is not None:
+                                g.bind_bary[dst] = g.bind_bary[src]
+                            g.bind_face_offset_local.data[dst] = g.bind_face_offset_local.data[src]
+                            g.bind_face_offset_local.data[dst, 2] = g.bind_face_offset_local.data[dst, 2].clamp(
+                                -float(shell_offset_max_n), float(shell_offset_max_n)
+                            )
+                            g.prune_state[dst] = 0
+
+        # Global regularizers (stronger on low-visibility gaussians).
+        low_vis_boost = 1.0 + float((1.0 - vis_mean).mean().detach().cpu())
+        phase_alpha_mul = 2.0 if phase_tag == "phase0" else 1.0
+        reg_opacity = (
+            float(alpha_prior_weight)
+            * phase_alpha_mul
+            * low_vis_boost
+            * opacity_prior_loss(g.opacity(), target=0.5)
+        )
+        reg_cov = float(cov_penalty_weight) * low_vis_boost * covariance_penalty(g.scales(), float(cov_min), float(cov_max))
+        reg_offset = float(shell_offset_reg_weight) * canonical_offset_l2(g.bind_face_offset_local)
+        reg_total = reg_opacity + reg_cov + reg_offset
+        loss_value += float(reg_total.detach().cpu())
+        reg_total.backward()
 
         if learn_cam and cam_reg_weight > 0:
             # Keep camera near prior (prevents drift)
@@ -1217,6 +1529,25 @@ def train_gaussians_3d_learnable_camera(
                     if p.grad is None:
                         continue
                     p.grad[bg_mask] *= float(bg_grad_scale)
+
+        soft_mask = g.prune_state == 1
+        hard_mask = g.prune_state == 2
+        if bool(soft_mask.any()) or bool(hard_mask.any()):
+            with torch.no_grad():
+                for p in (g.log_scales, g.quat, g.opacity_logit, g.rgb_logit, g.bind_face_offset_local):
+                    if p.grad is None:
+                        continue
+                    if bool(soft_mask.any()):
+                        p.grad[soft_mask] *= float(inner_soft_lr_scale)
+                    if bool(hard_mask.any()):
+                        p.grad[hard_mask] = 0.0
+
+        if phase_tag == "phase0":
+            with torch.no_grad():
+                if g.log_scales.grad is not None:
+                    g.log_scales.grad.zero_()
+                if g.bind_face_offset_local.grad is not None:
+                    g.bind_face_offset_local.grad.zero_()
         opt.step()
 
         # Mild regularization: keep parameters in a reasonable range
@@ -1249,6 +1580,12 @@ def train_gaussians_3d_learnable_camera(
             # Optional: keep translations in a sane range to prevent explosion
             if learn_cam:
                 cam_t[:, 2].clamp_(min=0.5, max=10.0)
+            g.bind_mix_weight.clamp_(min=float(mix_w_min), max=float(mix_w_max))
+            g.bind_face_offset_local[:, 0].clamp_(min=-float(shell_offset_max_t), max=float(shell_offset_max_t))
+            g.bind_face_offset_local[:, 1].clamp_(min=-float(shell_offset_max_t), max=float(shell_offset_max_t))
+            g.bind_face_offset_local[:, 2].clamp_(min=-float(shell_offset_max_n), max=float(shell_offset_max_n))
+            if bool((g.prune_state == 2).any()):
+                g.opacity_logit[g.prune_state == 2] = g.opacity_logit[g.prune_state == 2].clamp(max=-6.0)
 
         if es_enable:
             if loss_value + es_min_delta < es_best:

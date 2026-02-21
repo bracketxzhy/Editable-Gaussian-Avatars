@@ -1,0 +1,20 @@
+# Deprecated joint-source mixing (archived)
+
+This file archives the previously active behavior that caused fg_only/deform
+joint inconsistency.
+
+Deprecated behavior snippet (do not reuse):
+- scripts/generate_six_views.py forced:
+  render.smpl_skeleton_source=theta
+- src/avatar_gs/cli/render.py selected joints source dynamically by:
+  joints_key = "joints_cam_theta" if (prefer_theta and has_theta) else ("joints_cam" if has_joints else "joints_cam_theta")
+- src/avatar_gs/cli/render.py default config parsing accepted both theta|joints.
+
+Why deprecated:
+- fg_only and deform could visualize joints from different sources with different
+  layouts/counts, making overlays inconsistent.
+
+Current active behavior:
+- Unified overlay source is joints_cam (SMPL-X joints)
+- theta is accepted only as backward-compatible alias and remapped to joints
+- Both fg_only and deform are normalized to the same overlay joint count.

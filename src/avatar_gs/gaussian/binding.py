@@ -286,6 +286,9 @@ def slerp_quat_torch(q0: torch.Tensor, q1: torch.Tensor, w: float | torch.Tensor
 class BindingModeConfig:
     mode: str = "games_face"
     hybrid_weight: float = 0.0
+    hybrid_dynamic: bool = False
+    mix_w_min: float = 0.05
+    mix_w_max: float = 0.95
     eps_normal: float = 1e-3
     curv_conf_tau: float = 0.2
     curv_degen_tau: float = 1e-4
@@ -524,6 +527,17 @@ def update_gaussians_with_binding(
     target_quat = _normalize_torch(quat_old.clone(), eps=1e-8)
     target_scale = scales_old.clone()
     w = float(np.clip(float(cfg.hybrid_weight), 0.0, 1.0))
+    if bool(cfg.hybrid_dynamic):
+        if g.bind_mix_weight is not None:
+            w_dyn = g.bind_mix_weight.index_select(0, bound_ids).view(-1)
+            w_dyn = w_dyn.clamp(min=float(cfg.mix_w_min), max=float(cfg.mix_w_max))
+        elif g.bind_hybrid_w is not None:
+            w_dyn = g.bind_hybrid_w.index_select(0, bound_ids).view(-1)
+            w_dyn = w_dyn.clamp(min=float(cfg.mix_w_min), max=float(cfg.mix_w_max))
+        else:
+            w_dyn = torch.full((n_bound,), float(w), dtype=target_mu.dtype, device=target_mu.device)
+    else:
+        w_dyn = torch.full((n_bound,), float(w), dtype=target_mu.dtype, device=target_mu.device)
 
     if mode == "games_face":
         use_face = f_valid
@@ -563,9 +577,10 @@ def update_gaussians_with_binding(
             q_v = quat_vert.index_select(0, idx)
             s_f = scale_face.index_select(0, idx)
             s_v = scale_vert.index_select(0, idx)
-            target_mu[idx] = (1.0 - w) * mu_f + w * mu_v
-            target_quat[idx] = slerp_quat_torch(q_f, q_v, w)
-            target_scale[idx] = (1.0 - w) * s_f + w * s_v
+            w_loc = w_dyn.index_select(0, idx).view(-1, 1)
+            target_mu[idx] = (1.0 - w_loc) * mu_f + w_loc * mu_v
+            target_quat[idx] = slerp_quat_torch(q_f, q_v, w_loc.view(-1))
+            target_scale[idx] = (1.0 - w_loc) * s_f + w_loc * s_v
         if bool(only_face.any()):
             idx = torch.nonzero(only_face, as_tuple=False).view(-1)
             target_mu[idx] = mu_face.index_select(0, idx)
@@ -576,6 +591,21 @@ def update_gaussians_with_binding(
             target_mu[idx] = mu_vert.index_select(0, idx)
             target_quat[idx] = quat_vert.index_select(0, idx)
             target_scale[idx] = scale_vert.index_select(0, idx)
+
+    # Optional extra local shell offset in face tangent frame.
+    if g.bind_face_offset_local is not None and have_face_meta and bool(f_valid.any()):
+        local = torch.nonzero(f_valid, as_tuple=False).view(-1)
+        fs = f_idx.index_select(0, local)
+        off_local = g.bind_face_offset_local.index_select(0, bound_ids.index_select(0, local))
+        t1 = frame.face_t1_t.index_select(0, fs)
+        t2 = frame.face_t2_t.index_select(0, fs)
+        nf = frame.face_n_t.index_select(0, fs)
+        dxyz = (
+            off_local[:, 0:1] * t1
+            + off_local[:, 1:2] * t2
+            + off_local[:, 2:3] * nf
+        )
+        target_mu[local] = target_mu.index_select(0, local) + dxyz
 
     target_scale = target_scale.clamp(
         min=float(cfg.scale_clamp_min),
@@ -617,6 +647,9 @@ def parse_binding_mode_config(
     return BindingModeConfig(
         mode=mode,
         hybrid_weight=float(d.get("hybrid_weight", 0.0)),
+        hybrid_dynamic=bool(d.get("hybrid_dynamic", False)),
+        mix_w_min=float(d.get("mix_w_min", 0.05)),
+        mix_w_max=float(d.get("mix_w_max", 0.95)),
         eps_normal=float(d.get("eps_normal", 1e-3)),
         curv_conf_tau=float(d.get("curv_conf_tau", 0.2)),
         curv_degen_tau=float(d.get("curv_degen_tau", 1e-4)),
@@ -633,6 +666,9 @@ def export_binding_mode_config(cfg: BindingModeConfig) -> dict[str, object]:
     return {
         "mode": str(cfg.mode),
         "hybrid_weight": float(cfg.hybrid_weight),
+        "hybrid_dynamic": bool(cfg.hybrid_dynamic),
+        "mix_w_min": float(cfg.mix_w_min),
+        "mix_w_max": float(cfg.mix_w_max),
         "eps_normal": float(cfg.eps_normal),
         "curv_conf_tau": float(cfg.curv_conf_tau),
         "curv_degen_tau": float(cfg.curv_degen_tau),

@@ -7,6 +7,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+try:
+    import smplx
+except Exception:
+    smplx = None
+
 from avatar_gs.utils.cfg import load_yaml, apply_overrides, parse_args_base, resolve_path
 from avatar_gs.utils.io import ensure_dir
 from avatar_gs.utils.log import setup_logger
@@ -25,6 +30,7 @@ from avatar_gs.gaussian.rigid_align import (
     apply_rigid_transform_np,
     normalize_rigid_align_config,
 )
+from avatar_gs.data.sequence_mesh import SequenceMeshProvider
 from avatar_gs.renderer.gaussian_renderer import render_gaussians_3d
 
 
@@ -44,6 +50,420 @@ SMPL_SKELETON_CONNECTIONS = [
     (1, 4), (4, 7), (7, 10),
     (2, 5), (5, 8), (8, 11),
 ]
+SMPLX_OVERLAY_JOINT_COUNT = 49
+
+
+def _parse_frame_idx_from_name(frame_name: str) -> int | None:
+    stem = Path(str(frame_name)).stem.strip().lower()
+    if stem.isdigit():
+        return int(stem)
+    if stem.startswith("frame_") and stem[6:].isdigit():
+        return int(stem[6:])
+    return None
+
+
+def _build_pose_drive_indices(
+    *,
+    frame_names: list[str],
+    base_indices: list[int],
+    available_ids: list[int],
+    mode: str,
+    fixed_index: int,
+    loop: bool,
+) -> list[int]:
+    if len(base_indices) != len(frame_names):
+        raise ValueError("base_indices and frame_names length mismatch.")
+    if len(available_ids) == 0:
+        raise RuntimeError("pose-drive source has no available frame indices.")
+    avail = sorted(int(x) for x in available_ids)
+    avail_set = set(avail)
+    fallback = int(avail[-1])
+    mode_l = str(mode).strip().lower()
+    out: list[int] = []
+    for i, fn in enumerate(frame_names):
+        idx = None
+        if mode_l in ("frame_name", "name"):
+            parsed = _parse_frame_idx_from_name(fn)
+            if parsed is not None and parsed in avail_set:
+                idx = int(parsed)
+            elif bool(loop):
+                idx = int(avail[i % len(avail)])
+        elif mode_l in ("bind", "bind_index"):
+            base_idx = int(base_indices[i])
+            if base_idx in avail_set:
+                idx = base_idx
+            elif bool(loop):
+                idx = int(avail[i % len(avail)])
+        elif mode_l in ("sequential", "seq"):
+            idx = int(avail[i % len(avail)]) if bool(loop) else (int(avail[i]) if i < len(avail) else fallback)
+        elif mode_l in ("fixed", "single"):
+            if int(fixed_index) in avail_set:
+                idx = int(fixed_index)
+            else:
+                idx = fallback
+        else:
+            raise ValueError(
+                "render.pose_drive_index_mode must be one of: frame_name|bind|sequential|fixed. "
+                f"Got: {mode}"
+            )
+        if idx is None:
+            idx = fallback
+        out.append(int(idx))
+    return out
+
+
+def _pick_param_key(npz_obj, candidates: list[str]) -> str | None:
+    for k in candidates:
+        if k in npz_obj.files:
+            return k
+    return None
+
+
+def _resolve_npz_row_index(npz_obj, frame_index: int = -1, frame_name: str = "") -> int:
+    n_rows = None
+    for k in ("global_orient", "body_pose", "betas", "transl", "cam_t"):
+        if k in npz_obj.files:
+            arr = np.asarray(npz_obj[k])
+            if arr.ndim >= 2:
+                n_rows = int(arr.shape[0])
+                break
+    if n_rows is None:
+        return 0
+
+    name = str(frame_name).strip()
+    if name and "frame_names" in npz_obj.files:
+        names = [str(x) for x in np.asarray(npz_obj["frame_names"]).reshape(-1).tolist()]
+        if name in names:
+            return int(names.index(name))
+        # compatible with basename-only matches
+        stem_name = Path(name).stem
+        for i, nm in enumerate(names):
+            if Path(str(nm)).stem == stem_name:
+                return int(i)
+
+    idx = int(frame_index)
+    if idx < 0:
+        idx = n_rows + idx
+    idx = int(np.clip(idx, 0, max(n_rows - 1, 0)))
+    return idx
+
+
+def _read_param_row(npz_obj, key: str, row_idx: int) -> np.ndarray | None:
+    if key not in npz_obj.files:
+        return None
+    arr = np.asarray(npz_obj[key], dtype=np.float32)
+    if arr.ndim == 0:
+        return arr.reshape(1)
+    if arr.ndim == 1:
+        return arr.astype(np.float32)
+    ridx = int(np.clip(int(row_idx), 0, max(int(arr.shape[0]) - 1, 0)))
+    return np.asarray(arr[ridx], dtype=np.float32)
+
+
+def _fit_param_dim(vec: np.ndarray | None, dim: int, default: float = 0.0) -> np.ndarray:
+    if dim <= 0:
+        return np.zeros((0,), dtype=np.float32)
+    if vec is None:
+        return np.full((dim,), float(default), dtype=np.float32)
+    x = np.asarray(vec, dtype=np.float32).reshape(-1)
+    if x.shape[0] < dim:
+        x = np.pad(x, (0, dim - x.shape[0]), constant_values=float(default))
+    elif x.shape[0] > dim:
+        x = x[:dim]
+    return x.astype(np.float32)
+
+
+def _load_deform_smplx_vertices_from_npz(
+    *,
+    params_npz_path: Path,
+    frame_index: int,
+    frame_name: str,
+    model_type_default: str,
+    gender_default: str,
+    model_root_cfg: str,
+    project_root: Path,
+    assets_dir: Path,
+    ref_vertices_npz_path: Path | None = None,
+    use_standard_pose: bool = False,
+) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+    if not params_npz_path.exists():
+        raise FileNotFoundError(f"deform_smplx_params_npz not found: {params_npz_path}")
+
+    z = np.load(params_npz_path, allow_pickle=True)
+    row_idx = _resolve_npz_row_index(z, frame_index=frame_index, frame_name=frame_name)
+
+    def _direct_joints_tpose() -> np.ndarray:
+        if "joints_tpose_cam" not in z.files:
+            return np.zeros((0, 3), dtype=np.float32)
+        jt = np.asarray(z["joints_tpose_cam"], dtype=np.float32)
+        if jt.ndim == 3 and jt.shape[0] == 1:
+            jt = jt[0]
+        if jt.ndim == 2 and jt.shape[1] == 3:
+            return jt.astype(np.float32)
+        return np.zeros((0, 3), dtype=np.float32)
+
+    def _direct_joints_row() -> np.ndarray:
+        if "joints_cam" not in z.files:
+            return np.zeros((0, 3), dtype=np.float32)
+        jc = np.asarray(z["joints_cam"], dtype=np.float32)
+        if jc.ndim == 3 and jc.shape[2] == 3 and jc.shape[0] > 0:
+            ridx = int(np.clip(int(row_idx), 0, int(jc.shape[0]) - 1))
+            return np.asarray(jc[ridx], dtype=np.float32)
+        return np.zeros((0, 3), dtype=np.float32)
+
+    def _match_direct_space_to_reference(
+        verts: np.ndarray,
+        joints: np.ndarray,
+        ref_verts: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        v = np.asarray(verts, dtype=np.float32).copy()
+        j = np.asarray(joints, dtype=np.float32).copy() if joints is not None and joints.size > 0 else np.zeros((0, 3), dtype=np.float32)
+        ref = np.asarray(ref_verts, dtype=np.float32)
+
+        sign = np.ones((3,), dtype=np.float32)
+        mu_v = v.mean(axis=0)
+        mu_ref = ref.mean(axis=0)
+        for ax in range(3):
+            tv = float(mu_v[ax])
+            rv = float(mu_ref[ax])
+            if abs(tv) < 1e-6 or abs(rv) < 1e-6:
+                continue
+            if abs((-tv) - rv) + 1e-6 < abs(tv - rv):
+                sign[ax] = -1.0
+
+        v = v * sign.reshape(1, 3)
+        if j.size > 0:
+            j = j * sign.reshape(1, 3)
+
+        delta = (mu_ref - v.mean(axis=0)).astype(np.float32)
+        v = v + delta.reshape(1, 3)
+        if j.size > 0:
+            j = j + delta.reshape(1, 3)
+
+        return v.astype(np.float32), j.astype(np.float32), sign.astype(np.float32), delta.astype(np.float32)
+
+    def _load_ref_verts_row_external() -> np.ndarray | None:
+        p_ref = ref_vertices_npz_path
+        if p_ref is None:
+            return None
+        p_ref = Path(p_ref)
+        if not p_ref.exists():
+            return None
+        try:
+            rz = np.load(p_ref, allow_pickle=True)
+        except Exception:
+            return None
+        if "verts_cam" not in rz.files:
+            return None
+        vc = np.asarray(rz["verts_cam"], dtype=np.float32)
+        if vc.ndim != 3 or vc.shape[2] != 3 or vc.shape[0] <= 0:
+            return None
+
+        ridx = None
+        req_name = str(frame_name).strip()
+        if req_name and ("frame_names" in rz.files):
+            try:
+                names = [str(x) for x in np.asarray(rz["frame_names"]).reshape(-1).tolist()]
+                if req_name in names:
+                    ridx = int(names.index(req_name))
+                else:
+                    req_stem = Path(req_name).stem
+                    for ii, nm in enumerate(names):
+                        if Path(str(nm)).stem == req_stem:
+                            ridx = int(ii)
+                            break
+            except Exception:
+                ridx = None
+
+        if ridx is None:
+            idx_try = int(frame_index)
+            if idx_try < 0:
+                idx_try = int(row_idx)
+            ridx = int(np.clip(idx_try, 0, int(vc.shape[0]) - 1))
+
+        return np.asarray(vc[ridx], dtype=np.float32)
+
+    def _load_direct_vertices() -> tuple[np.ndarray, np.ndarray, dict[str, object]] | None:
+        vc_all = None
+        vc_row = None
+        if "verts_cam" in z.files:
+            vc_all = np.asarray(z["verts_cam"], dtype=np.float32)
+            if vc_all.ndim == 3 and vc_all.shape[2] == 3 and vc_all.shape[0] > 0:
+                ridx = int(np.clip(int(row_idx), 0, int(vc_all.shape[0]) - 1))
+                vc_row = np.asarray(vc_all[ridx], dtype=np.float32)
+
+        if vc_row is None:
+            vc_row = _load_ref_verts_row_external()
+
+        if bool(use_standard_pose) and ("verts_tpose_cam" in z.files):
+            vv = np.asarray(z["verts_tpose_cam"], dtype=np.float32)
+            if vv.ndim == 2 and vv.shape[1] == 3:
+                jj = _direct_joints_tpose()
+                meta = {
+                    "row_idx": int(row_idx),
+                    "model_type": "direct",
+                    "gender": "direct",
+                    "model_root": "direct_npz",
+                    "params_npz": str(params_npz_path),
+                    "source": "verts_tpose_cam",
+                }
+                if vc_row is not None:
+                    vv_m, jj_m, sign, delta = _match_direct_space_to_reference(vv, jj, vc_row)
+                    meta["space_matched_to"] = "verts_cam"
+                    meta["space_match_sign"] = sign.tolist()
+                    meta["space_match_delta"] = delta.tolist()
+                    return vv_m, jj_m, meta
+                return vv, jj, meta
+
+        if vc_row is not None:
+            return vc_row, _direct_joints_row(), {
+                "row_idx": int(np.clip(int(row_idx), 0, int(vc_row.shape[0]) - 1)) if vc_all is not None else int(row_idx),
+                "model_type": "direct",
+                "gender": "direct",
+                "model_root": "direct_npz",
+                "params_npz": str(params_npz_path),
+                "source": "verts_cam",
+            }
+
+        return None
+
+    param_keys = [
+        "global_orient", "root_orient", "body_pose", "pose_body",
+        "betas", "shape", "transl", "translation", "cam_t",
+    ]
+    has_model_params = any(k in z.files for k in param_keys)
+
+    # If stage1 did not export explicit SMPL-X parameters, fallback to direct vertices in npz.
+    if not has_model_params:
+        direct = _load_direct_vertices()
+        if direct is not None:
+            return direct
+        raise RuntimeError(
+            "deform_smplx_params_npz has no SMPL-X parameter arrays and no usable direct verts "
+            "(expected one of: verts_tpose_cam / verts_cam)."
+        )
+
+    if smplx is None:
+        raise RuntimeError("smplx is not installed, cannot use deform_source=smplx_params")
+
+    model_type = str(model_type_default).strip().lower() or "smplx"
+    gender = str(gender_default).strip().lower() or "neutral"
+    if "model_type" in z.files:
+        mt_arr = np.asarray(z["model_type"]).reshape(-1)
+        if mt_arr.size > 0:
+            model_type = str(mt_arr[min(row_idx, mt_arr.size - 1)]).strip().lower() or model_type
+    if "gender" in z.files:
+        gd_arr = np.asarray(z["gender"]).reshape(-1)
+        if gd_arr.size > 0:
+            gender = str(gd_arr[min(row_idx, gd_arr.size - 1)]).strip().lower() or gender
+    if model_type not in ("smpl", "smplx"):
+        model_type = "smplx"
+    if gender not in ("neutral", "male", "female"):
+        gender = "neutral"
+
+    if str(model_root_cfg).strip():
+        cfg_path = Path(resolve_path(str(model_root_cfg)))
+        if cfg_path.is_absolute():
+            model_root = cfg_path
+        else:
+            proj_candidate = project_root / cfg_path
+            if proj_candidate.exists():
+                model_root = proj_candidate
+            else:
+                model_root = assets_dir / cfg_path
+    else:
+        model_root = assets_dir
+    if not model_root.exists():
+        raise FileNotFoundError(f"SMPL model root not found for deform_source=smplx_params: {model_root}")
+
+    if model_type == "smplx":
+        direct_file = model_root / "SMPLX_NEUTRAL.npz"
+    else:
+        direct_file = model_root / "SMPL_NEUTRAL.npz"
+    model_root_for_create = model_root.parent if direct_file.exists() else model_root
+
+    model = smplx.create(
+        model_path=str(model_root_for_create),
+        model_type=model_type,
+        gender=gender,
+        use_pca=False,
+        flat_hand_mean=True,
+        batch_size=1,
+    ).to(device="cpu")
+
+    body_j = int(getattr(model, "NUM_BODY_JOINTS", 21 if model_type == "smplx" else 23))
+    body_pose_dim = int(max(3, body_j * 3))
+    num_betas = int(getattr(model, "num_betas", 10))
+
+    go = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["global_orient", "root_orient"]) or "", row_idx), 3)
+    bp = _fit_param_dim(
+        _read_param_row(z, _pick_param_key(z, ["body_pose", "pose_body"]) or "", row_idx),
+        body_pose_dim,
+    )
+    bt = _fit_param_dim(
+        _read_param_row(z, _pick_param_key(z, ["betas", "shape"]) or "", row_idx),
+        num_betas,
+    )
+    tr = _fit_param_dim(
+        _read_param_row(z, _pick_param_key(z, ["transl", "translation", "cam_t"]) or "", row_idx),
+        3,
+    )
+
+    if use_standard_pose:
+        # Backward-compatible flag: no render-time pose/orient/depth overrides.
+        # Deform is driven by provided SMPL-X params (or direct verts fallback above).
+        pass
+
+    kwargs = {
+        "betas": torch.from_numpy(bt.reshape(1, num_betas)).to(dtype=torch.float32),
+        "global_orient": torch.from_numpy(go.reshape(1, 3)).to(dtype=torch.float32),
+        "body_pose": torch.from_numpy(bp.reshape(1, body_pose_dim)).to(dtype=torch.float32),
+        "transl": torch.from_numpy(tr.reshape(1, 3)).to(dtype=torch.float32),
+        "return_verts": True,
+    }
+
+    if model_type == "smplx":
+        lh = _fit_param_dim(
+            _read_param_row(z, _pick_param_key(z, ["left_hand_pose"]) or "", row_idx),
+            45,
+        )
+        rh = _fit_param_dim(
+            _read_param_row(z, _pick_param_key(z, ["right_hand_pose"]) or "", row_idx),
+            45,
+        )
+        jaw = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["jaw_pose"]) or "", row_idx), 3)
+        le = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["leye_pose"]) or "", row_idx), 3)
+        re = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["reye_pose"]) or "", row_idx), 3)
+        num_expr = int(getattr(model, "num_expression_coeffs", 10))
+        expr = _fit_param_dim(
+            _read_param_row(z, _pick_param_key(z, ["expression", "expr"]) or "", row_idx),
+            num_expr,
+        )
+        kwargs.update(
+            {
+                "left_hand_pose": torch.from_numpy(lh.reshape(1, 45)).to(dtype=torch.float32),
+                "right_hand_pose": torch.from_numpy(rh.reshape(1, 45)).to(dtype=torch.float32),
+                "jaw_pose": torch.from_numpy(jaw.reshape(1, 3)).to(dtype=torch.float32),
+                "leye_pose": torch.from_numpy(le.reshape(1, 3)).to(dtype=torch.float32),
+                "reye_pose": torch.from_numpy(re.reshape(1, 3)).to(dtype=torch.float32),
+                "expression": torch.from_numpy(expr.reshape(1, num_expr)).to(dtype=torch.float32),
+            }
+        )
+
+    with torch.no_grad():
+        out = model(**kwargs)
+    verts = out.vertices[0].detach().cpu().numpy().astype(np.float32)
+    joints = out.joints[0].detach().cpu().numpy().astype(np.float32)
+    meta = {
+        "row_idx": int(row_idx),
+        "model_type": model_type,
+        "gender": gender,
+        "model_root": str(model_root),
+        "params_npz": str(params_npz_path),
+        "source": "smplx_rebuild",
+    }
+    return verts, joints, meta
+
 
 
 def read_image_rgb(path: str | Path) -> torch.Tensor:
@@ -465,7 +885,6 @@ def _build_parent_connections(joint_parents: np.ndarray | None, joint_count: int
 
 def _load_smpl_skeleton_map(
     npz_path: Path,
-    prefer_theta: bool = True,
 ) -> tuple[dict[str, np.ndarray], list[tuple[int, int]], str]:
     if not npz_path.exists():
         raise FileNotFoundError(f"SMPL skeleton sequence not found: {npz_path}")
@@ -473,12 +892,12 @@ def _load_smpl_skeleton_map(
     if "frame_names" not in seq.files:
         raise RuntimeError(f"{npz_path} missing frame_names")
 
-    has_theta = "joints_cam_theta" in seq.files
     has_joints = "joints_cam" in seq.files
-    if not has_theta and not has_joints:
+    has_theta = "joints_cam_theta" in seq.files
+    if not has_joints and not has_theta:
         raise RuntimeError(f"{npz_path} missing joints_cam_theta/joints_cam")
 
-    joints_key = "joints_cam_theta" if (prefer_theta and has_theta) else ("joints_cam" if has_joints else "joints_cam_theta")
+    joints_key = "joints_cam" if has_joints else "joints_cam_theta"
     frame_names = [str(x) for x in seq["frame_names"].tolist()]
     joints_cam = np.asarray(seq[joints_key], dtype=np.float32)
     if joints_cam.ndim != 3 or joints_cam.shape[0] != len(frame_names) or joints_cam.shape[2] != 3:
@@ -489,6 +908,19 @@ def _load_smpl_skeleton_map(
     if len(connections) == 0:
         connections = list(SMPL_SKELETON_CONNECTIONS)
     return {fn: joints_cam[i] for i, fn in enumerate(frame_names)}, connections, joints_key
+
+
+def _normalize_smplx_body_joints(joints_cam: np.ndarray | None) -> np.ndarray | None:
+    if joints_cam is None:
+        return None
+    arr = np.asarray(joints_cam, dtype=np.float32)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        return None
+    # Use one fixed SMPL-X visualization subset so fg_only/deform always show same joint count.
+    body_joint_count = min(int(arr.shape[0]), int(SMPLX_OVERLAY_JOINT_COUNT))
+    if body_joint_count <= 0:
+        return None
+    return arr[:body_joint_count].astype(np.float32, copy=True)
 
 
 def _overlay_smpl_skeleton(
@@ -502,9 +934,8 @@ def _overlay_smpl_skeleton(
     thickness: int = 2,
     radius: int = 3,
 ) -> torch.Tensor:
-    if joints_cam is None:
-        return rgb_chw
-    if joints_cam.ndim != 2 or joints_cam.shape[1] != 3:
+    joints_use = _normalize_smplx_body_joints(joints_cam)
+    if joints_use is None:
         return rgb_chw
 
     img = (rgb_chw.detach().clamp(0.0, 1.0).permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
@@ -514,11 +945,11 @@ def _overlay_smpl_skeleton(
     K_np = K.detach().cpu().numpy().astype(np.float32)
     R_np = R.detach().cpu().numpy().astype(np.float32)
     t_np = t.detach().cpu().numpy().astype(np.float32).reshape(1, 3)
-    Xc = joints_cam.astype(np.float32) @ R_np.T + t_np
+    Xc = joints_use.astype(np.float32) @ R_np.T + t_np
     z = Xc[:, 2]
     valid = z > 1e-6
-    u = np.zeros((joints_cam.shape[0],), dtype=np.float32)
-    v = np.zeros((joints_cam.shape[0],), dtype=np.float32)
+    u = np.zeros((joints_use.shape[0],), dtype=np.float32)
+    v = np.zeros((joints_use.shape[0],), dtype=np.float32)
     if np.any(valid):
         Xcv = Xc[valid]
         zv = z[valid]
@@ -537,7 +968,6 @@ def _overlay_smpl_skeleton(
 
     out_rgb = torch.from_numpy(bgr[..., ::-1].copy()).float() / 255.0
     return out_rgb.permute(2, 0, 1).contiguous()
-
 
 def _project_points_numpy(
     xyz: np.ndarray,
@@ -945,44 +1375,47 @@ def main():
     save_main_image = bool(render_cfg.get("save_main_image", False))
     save_real_image = bool(render_cfg.get("save_real_image", True))
     save_fg_nobg_skeleton = bool(render_cfg.get("save_fg_nobg_skeleton", True))
-    render_tpose_image = bool(render_cfg.get("render_tpose_image", True))
+    render_deform_image = bool(render_cfg.get("deform_render_image", render_cfg.get("render_tpose_image", True)))
 
     render_mode = str(render_cfg.get("mode", "")).strip().lower()
+    if render_mode in ("tpose", "t-pose", "t_pose"):
+        logger.warning("render.mode=%s is deprecated; use render.mode=deform.", render_mode)
+        render_mode = "deform"
     if render_mode in ("fg", "fg_only"):
         save_main_image = False
         save_real_image = False
         save_fg_nobg_skeleton = True
-        render_tpose_image = False
-    elif render_mode in ("tpose", "t-pose", "t_pose"):
+        render_deform_image = False
+    elif render_mode == "deform":
         save_main_image = False
         save_real_image = False
         save_fg_nobg_skeleton = False
-        render_tpose_image = True
+        render_deform_image = True
 
     real_out_subdir = str(render_cfg.get("real_out_subdir", "real")).strip()
     fg_nobg_out_subdir = str(render_cfg.get("fg_nobg_out_subdir", "fg_only")).strip()
-    tpose_out_subdir = str(render_cfg.get("tpose_out_subdir", "t-pose")).strip()
+    deform_out_subdir = str(render_cfg.get("deform_out_subdir", render_cfg.get("tpose_out_subdir", "deform"))).strip()
 
     # In single-mode rendering, default to writing directly into out_dir (no nested subfolders).
     if render_mode in ("fg", "fg_only") and fg_nobg_out_subdir == "fg_only":
         fg_nobg_out_subdir = "."
-    if render_mode in ("tpose", "t-pose", "t_pose") and tpose_out_subdir == "t-pose":
-        tpose_out_subdir = "."
+    if render_mode == "deform" and deform_out_subdir in ("t-pose", "tpose"):
+        deform_out_subdir = "."
 
     real_out_dir = ensure_dir(out_dir / Path(real_out_subdir)) if save_real_image else out_dir
     fg_nobg_out_dir = ensure_dir(out_dir / Path(fg_nobg_out_subdir)) if save_fg_nobg_skeleton else out_dir
 
-    tpose_out_cfg = render_cfg.get("tpose_out_dir", None)
-    if render_tpose_image:
-        if tpose_out_cfg is None or not str(tpose_out_cfg).strip():
-            tpose_out_dir = ensure_dir(out_dir / Path(tpose_out_subdir))
+    deform_out_cfg = render_cfg.get("deform_out_dir", render_cfg.get("tpose_out_dir", None))
+    if render_deform_image:
+        if deform_out_cfg is None or not str(deform_out_cfg).strip():
+            deform_out_dir = ensure_dir(out_dir / Path(deform_out_subdir))
         else:
-            tpose_out_dir = Path(resolve_path(str(tpose_out_cfg)))
-            if not tpose_out_dir.is_absolute():
-                tpose_out_dir = project_root / tpose_out_dir
-            tpose_out_dir = ensure_dir(tpose_out_dir)
+            deform_out_dir = Path(resolve_path(str(deform_out_cfg)))
+            if not deform_out_dir.is_absolute():
+                deform_out_dir = project_root / deform_out_dir
+            deform_out_dir = ensure_dir(deform_out_dir)
     else:
-        tpose_out_dir = out_dir
+        deform_out_dir = out_dir
     view_yaw_deg = float(render_cfg.get("view_yaw_deg", 0.0))
     view_pitch_deg = float(render_cfg.get("view_pitch_deg", 0.0))
     view_roll_deg = float(render_cfg.get("view_roll_deg", 0.0))
@@ -998,7 +1431,7 @@ def main():
         removed += _clear_image_files(out_dir)
         removed += _clear_image_files(real_out_dir)
         removed += _clear_image_files(fg_nobg_out_dir)
-        removed += _clear_image_files(tpose_out_dir)
+        removed += _clear_image_files(deform_out_dir)
         if removed > 0:
             logger.info(f"Cleared {removed} existing render image(s) in output folders")
 
@@ -1123,7 +1556,7 @@ def main():
         logger.info(f"Selected frame range: first={frames[0]}, last={frames[-1]}")
     logger.info(
         f"Render outputs: main={save_main_image}, real={save_real_image}, "
-        f"fg_only={save_fg_nobg_skeleton}, tpose={render_tpose_image}"
+        f"fg_only={save_fg_nobg_skeleton}, deform={render_deform_image}"
     )
 
     fg_scale = float(render_cfg.get("fg_scale", 1.0))
@@ -1132,7 +1565,7 @@ def main():
     split_by_bind = bool(render_cfg.get("split_by_bind", False))
     render_bound_only = bool(render_cfg.get("render_bound_only", False))
     fg_only_render_bound_only = bool(render_cfg.get("fg_only_render_bound_only", True))
-    tpose_render_bound_only = bool(render_cfg.get("tpose_render_bound_only", True))
+    deform_render_bound_only = bool(render_cfg.get("deform_render_bound_only", render_cfg.get("tpose_render_bound_only", True)))
     bound_alpha_threshold = float(render_cfg.get("bound_alpha_threshold", 0.0))
     bound_opacity_min = float(render_cfg.get("bound_opacity_min", 0.0))
     fg_mask_mode = str(render_cfg.get("fg_mask_mode", "none")).lower()
@@ -1162,10 +1595,16 @@ def main():
     overlay_smpl_skeleton = bool(
         render_cfg.get("overlay_smpl_skeleton", render_cfg.get("debug_overlay_smpl_skeleton", False))
     )
-    smpl_skeleton_source = str(render_cfg.get("smpl_skeleton_source", "theta")).strip().lower()
-    if smpl_skeleton_source not in ("theta", "joints"):
+    smpl_skeleton_source = str(render_cfg.get("smpl_skeleton_source", "joints")).strip().lower()
+    if smpl_skeleton_source == "theta":
+        logger.warning(
+            "render.smpl_skeleton_source=theta is deprecated for overlay consistency; "
+            "forcing joints_cam (SMPL-X unified joints)."
+        )
+        smpl_skeleton_source = "joints"
+    if smpl_skeleton_source != "joints":
         raise ValueError(
-            f"render.smpl_skeleton_source must be one of: theta|joints. Got: {smpl_skeleton_source}"
+            f"render.smpl_skeleton_source must be: joints. Got: {smpl_skeleton_source}"
         )
     smpl_skeleton_npz_cfg = render_cfg.get("smpl_skeleton_npz", None)
     smpl_joints_npz_cfg = render_cfg.get("smpl_joints_npz", render_cfg.get("debug_smpl_joints_npz", None))
@@ -1201,10 +1640,42 @@ def main():
     person_masks_npz_cfg = render_cfg.get("person_masks_npz", "outputs/stage1/person_masks.npz")
     fg_only_alpha_threshold = float(render_cfg.get("fg_only_alpha_threshold", 0.0))
     fg_only_alpha_gamma = float(render_cfg.get("fg_only_alpha_gamma", 1.0))
-    tpose_alpha_threshold = float(render_cfg.get("tpose_alpha_threshold", fg_only_alpha_threshold))
-    tpose_alpha_gamma = float(render_cfg.get("tpose_alpha_gamma", fg_only_alpha_gamma))
+    deform_alpha_threshold = float(render_cfg.get("deform_alpha_threshold", render_cfg.get("tpose_alpha_threshold", fg_only_alpha_threshold)))
+    deform_alpha_gamma = float(render_cfg.get("deform_alpha_gamma", render_cfg.get("tpose_alpha_gamma", fg_only_alpha_gamma)))
     fg_only_alpha_gain_max = float(render_cfg.get("fg_only_alpha_gain_max", 1.0))
-    tpose_alpha_gain_max = float(render_cfg.get("tpose_alpha_gain_max", 1.0))
+    deform_alpha_gain_max = float(render_cfg.get("deform_alpha_gain_max", render_cfg.get("tpose_alpha_gain_max", 1.0)))
+    deform_use_sequence_frame = bool(render_cfg.get("deform_use_sequence_frame", render_cfg.get("tpose_use_sequence_frame", False)))
+    deform_sequence_frame_index = int(render_cfg.get("deform_sequence_frame_index", render_cfg.get("tpose_sequence_frame_index", -1)))
+    deform_sequence_frame_name = str(render_cfg.get("deform_sequence_frame_name", render_cfg.get("tpose_sequence_frame_name", ""))).strip()
+    deform_source_raw = str(render_cfg.get("deform_source", "smplx_params")).strip().lower()
+    deform_smplx_params_npz_cfg = str(render_cfg.get("deform_smplx_params_npz", "")).strip()
+    deform_smplx_frame_index = int(render_cfg.get("deform_smplx_frame_index", -1))
+    deform_smplx_frame_name = str(render_cfg.get("deform_smplx_frame_name", "")).strip()
+    deform_smplx_model_type = str(render_cfg.get("deform_smplx_model_type", "smplx")).strip().lower()
+    deform_smplx_gender = str(render_cfg.get("deform_smplx_gender", "neutral")).strip().lower()
+    deform_smplx_model_root = str(render_cfg.get("deform_smplx_model_root", "")).strip()
+    deform_smplx_use_standard_pose = bool(render_cfg.get("deform_smplx_use_standard_pose", render_cfg.get("deform_smplx_use_standard_tpose", False)))
+
+    deform_source = deform_source_raw
+    if deform_source in ("tpose", "t-pose", "t_pose"):
+        logger.warning(
+            "render.deform_source=%s is deprecated; use render.deform_source=smplx_params + deform_smplx_use_standard_pose=true.",
+            deform_source,
+        )
+        deform_source = "smplx_params"
+        deform_smplx_use_standard_pose = True
+    if deform_source not in ("smplx_params", "sequence"):
+        raise ValueError(
+            "render.deform_source must be one of: smplx_params|sequence. "
+            f"Got: {deform_source_raw}"
+        )
+    if render_mode == "deform" and deform_source != "smplx_params":
+        logger.warning(
+            "render.mode=deform now enforces SMPL-X parameter source; "
+            "forcing deform_source=smplx_params."
+        )
+        deform_source = "smplx_params"
+
     vis_rgb_raw = render_cfg.get("vis_rgb", None)
     vis_rgb = None
     if isinstance(vis_rgb_raw, (list, tuple)) and len(vis_rgb_raw) == 3:
@@ -1227,13 +1698,13 @@ def main():
         raise ValueError(
             f"render.fg_only_alpha_threshold must be in [0,1). Got {fg_only_alpha_threshold}"
         )
-    if tpose_alpha_threshold < 0.0 or tpose_alpha_threshold >= 1.0:
+    if deform_alpha_threshold < 0.0 or deform_alpha_threshold >= 1.0:
         raise ValueError(
-            f"render.tpose_alpha_threshold must be in [0,1). Got {tpose_alpha_threshold}"
+            f"render.deform_alpha_threshold must be in [0,1). Got {deform_alpha_threshold}"
         )
-    if fg_only_alpha_gamma <= 0.0 or tpose_alpha_gamma <= 0.0:
+    if fg_only_alpha_gamma <= 0.0 or deform_alpha_gamma <= 0.0:
         raise ValueError(
-            f"render alpha gamma must be > 0. Got fg_only/tpose={fg_only_alpha_gamma}/{tpose_alpha_gamma}"
+            f"render alpha gamma must be > 0. Got fg_only/deform={fg_only_alpha_gamma}/{deform_alpha_gamma}"
         )
     if real_align_alpha_threshold < 0.0 or real_align_alpha_threshold >= 1.0:
         raise ValueError(
@@ -1252,9 +1723,21 @@ def main():
         )
     logger.info(
         f"Bind-only flags: real={render_bound_only}, fg_only={fg_only_render_bound_only}, "
-        f"tpose={tpose_render_bound_only}"
+        f"deform={deform_render_bound_only}"
     )
-
+    logger.info(f"Deform source: {deform_source}")
+    if deform_source == "sequence" or deform_use_sequence_frame:
+        logger.info(
+            "Deform render uses sequence frame: "
+            f"name='{deform_sequence_frame_name}', idx={deform_sequence_frame_index}"
+        )
+    elif deform_source == "smplx_params":
+        logger.info(
+            "Deform render uses SMPL-X params: "
+            f"npz='{deform_smplx_params_npz_cfg or 'outputs/stage1/smpl_params_sequence.npz'}', "
+            f"name='{deform_smplx_frame_name}', idx={deform_smplx_frame_index}, "
+            f"standard_pose={str(bool(deform_smplx_use_standard_pose)).lower()}"
+        )
     if fg_scale != 1.0 or bg_scale != 1.0:
         logger.info(f"Render scales: fg_scale={fg_scale}, bg_scale={bg_scale}")
     if k_scale != 1.0:
@@ -1292,19 +1775,30 @@ def main():
     smpl_skeleton_connections = list(SMPL_SKELETON_CONNECTIONS)
     if overlay_smpl_skeleton:
         if smpl_skeleton_npz_cfg is None or not str(smpl_skeleton_npz_cfg).strip():
-            if smpl_skeleton_source == "theta":
-                smpl_skeleton_npz_cfg = "outputs/stage1/smpl_skeleton_sequence.npz"
-            elif smpl_joints_npz_cfg is not None and str(smpl_joints_npz_cfg).strip():
+            if smpl_joints_npz_cfg is not None and str(smpl_joints_npz_cfg).strip():
                 smpl_skeleton_npz_cfg = smpl_joints_npz_cfg
             else:
                 smpl_skeleton_npz_cfg = "outputs/stage1/smpl_joints_sequence.npz"
         smpl_skeleton_path = Path(resolve_path(str(smpl_skeleton_npz_cfg)))
         if not smpl_skeleton_path.is_absolute():
             smpl_skeleton_path = project_root / smpl_skeleton_path
+        if not smpl_skeleton_path.exists():
+            legacy_fallback = project_root / Path("outputs/stage1/smpl_skeleton_sequence.npz")
+            if legacy_fallback.exists():
+                logger.warning(
+                    "Primary SMPL joints npz missing, fallback to legacy skeleton npz: "
+                    f"{legacy_fallback}"
+                )
+                smpl_skeleton_path = legacy_fallback
         smpl_joints_map, smpl_skeleton_connections, loaded_joint_key = _load_smpl_skeleton_map(
             smpl_skeleton_path,
-            prefer_theta=bool(smpl_skeleton_source == "theta"),
         )
+        if loaded_joint_key != "joints_cam":
+            logger.warning(
+                "Loaded legacy joint key for overlay: %s. "
+                "For strict fg_only/deform joint consistency, use npz with joints_cam.",
+                loaded_joint_key,
+            )
         logger.info(
             f"Loaded SMPL skeleton sequence: {smpl_skeleton_path} "
             f"(source={loaded_joint_key}, edges={len(smpl_skeleton_connections)})"
@@ -1329,6 +1823,12 @@ def main():
     bind_seq_npz = render_cfg.get("bind_sequence_npz", ckpt.get("bind_sequence_npz", None))
     bind_vertices_npz = render_cfg.get("bind_vertices_npz", ckpt.get("bind_vertices_npz", None))
     strict_binding_topology = bool(render_cfg.get("strict_binding_topology", True))
+    pose_drive_enabled = bool(render_cfg.get("pose_drive_enabled", False))
+    pose_drive_mesh_dir_cfg = render_cfg.get("pose_drive_mesh_sequence_dir", "")
+    pose_drive_vertices_npz_cfg = render_cfg.get("pose_drive_vertices_npz", "")
+    pose_drive_index_mode = str(render_cfg.get("pose_drive_index_mode", "frame_name")).strip().lower()
+    pose_drive_fixed_index = int(render_cfg.get("pose_drive_fixed_index", -1))
+    pose_drive_loop = bool(render_cfg.get("pose_drive_loop", True))
     bind_mesh_indices = ckpt.get("bind_mesh_indices", None)
     if not bind_to_mesh:
         bind_mesh_dir = None
@@ -1346,6 +1846,15 @@ def main():
             )
             bind_mesh_indices = None
     binding_enabled = bind_to_mesh and bind_mesh_dir is not None and g.bind_idx is not None
+    if pose_drive_enabled:
+        logger.info(
+            "Pose-drive enabled: source(mesh_dir=%s, verts_npz=%s), mode=%s, fixed=%d, loop=%s",
+            str(pose_drive_mesh_dir_cfg),
+            str(pose_drive_vertices_npz_cfg),
+            pose_drive_index_mode,
+            int(pose_drive_fixed_index),
+            str(bool(pose_drive_loop)).lower(),
+        )
     if fg_mask_mode in ("smpl", "mesh") and not binding_enabled:
         raise ValueError("fg_mask_mode=smpl requires bind_mesh_sequence_dir and bound gaussians.")
     bind_mesh_to_camera = bool(render_cfg.get("bind_mesh_to_camera", False))
@@ -1355,15 +1864,15 @@ def main():
         raise ValueError(
             f"render.bind_mesh_obj_space must be auto|camera|blender. Got: {bind_mesh_obj_space_mode}"
         )
-    tpose_mesh_obj_space_mode = str(
-        render_cfg.get("tpose_mesh_obj_space", bind_mesh_obj_space_mode)
+    deform_mesh_obj_space_mode = str(
+        render_cfg.get("deform_mesh_obj_space", render_cfg.get("tpose_mesh_obj_space", bind_mesh_obj_space_mode))
     ).strip().lower()
-    if tpose_mesh_obj_space_mode not in ("auto", "camera", "blender"):
+    if deform_mesh_obj_space_mode not in ("auto", "camera", "blender"):
         raise ValueError(
-            f"render.tpose_mesh_obj_space must be auto|camera|blender. Got: {tpose_mesh_obj_space_mode}"
+            f"render.deform_mesh_obj_space must be auto|camera|blender. Got: {deform_mesh_obj_space_mode}"
         )
     mesh_obj_in_camera_space = bool(bind_mesh_obj_space_mode == "camera")
-    tpose_mesh_obj_in_camera_space = bool(tpose_mesh_obj_space_mode == "camera")
+    deform_mesh_obj_in_camera_space = bool(deform_mesh_obj_space_mode == "camera")
     bind_align_quat_to_mesh_normals = bool(render_cfg.get("bind_align_quat_to_mesh_normals", True))
     bind_quat_normal_blend = float(np.clip(render_cfg.get("bind_quat_normal_blend", 1.0), 0.0, 1.0))
     binding_cfg_dict = render_cfg.get("binding", ckpt.get("binding", None))
@@ -1437,8 +1946,8 @@ def main():
     exp_floor_z = 0.0
     exp_has_center_xy = False
     exp_has_floor = False
-    tpose_verts_cam_np: np.ndarray | None = None
-    tpose_joints_cam_np: np.ndarray | None = None
+    deform_verts_cam_np: np.ndarray | None = None
+    deform_default_joints_cam_np: np.ndarray | None = None
     if binding_enabled:
         bind_mesh_dir = Path(resolve_path(str(bind_mesh_dir)))
         if not bind_mesh_dir.is_absolute():
@@ -1458,7 +1967,11 @@ def main():
                 import numpy as _np
                 seq = _np.load(bind_seq_npz, allow_pickle=True)
                 seq_names = [str(x) for x in seq["frame_names"].tolist()]
-                name_to_idx = {n: i for i, n in enumerate(seq_names)}
+                seq_ids = []
+                for i_s, n_s in enumerate(seq_names):
+                    pidx = _parse_frame_idx_from_name(n_s)
+                    seq_ids.append(int(pidx) if pidx is not None else int(i_s))
+                name_to_idx = {n: int(seq_ids[i]) for i, n in enumerate(seq_names)}
                 bind_mesh_indices = []
                 missing = []
                 for fn in frames:
@@ -1467,14 +1980,16 @@ def main():
                     else:
                         missing.append(fn)
                 if missing and len(seq_names) == len(frames):
-                    bind_mesh_indices = list(range(len(frames)))
+                    bind_mesh_indices = [int(x) for x in seq_ids[:len(frames)]]
                 elif missing:
                     raise RuntimeError(f"Binding failed: {len(missing)} frames not in {bind_seq_npz}")
             else:
-                bind_mesh_indices = list(range(len(frames)))
+                bind_mesh_indices = [int(i) for i in range(len(frames))]
 
         verts_seq_np = None
         verts_seq_ids_set: set[int] = set()
+        verts_seq_row_map: dict[int, int] = {}
+        verts_seq_row_to_frame: dict[int, int] = {}
         verts_seq_fallback_idx = 0
         if bind_vertices_npz is not None and bind_vertices_npz.exists():
             vseq = np.load(bind_vertices_npz, allow_pickle=True)
@@ -1484,9 +1999,29 @@ def main():
                     raise RuntimeError(
                         f"Bad verts_cam shape in {bind_vertices_npz}: {verts_seq_np.shape}"
                     )
-                verts_seq_ids_set = set(range(int(verts_seq_np.shape[0])))
-                verts_seq_fallback_idx = int(max(int(verts_seq_np.shape[0]) - 1, 0))
-                logger.info(f"Using dynamic bind vertices from {bind_vertices_npz}")
+                n_vs = int(verts_seq_np.shape[0])
+                verts_seq_row_map = {}
+                if "frame_names" in vseq.files:
+                    vseq_names = [str(x) for x in np.asarray(vseq["frame_names"]).reshape(-1).tolist()]
+                    for row_i, fn in enumerate(vseq_names[:n_vs]):
+                        parsed_idx = _parse_frame_idx_from_name(fn)
+                        if parsed_idx is None:
+                            parsed_idx = int(row_i)
+                        if int(parsed_idx) not in verts_seq_row_map:
+                            verts_seq_row_map[int(parsed_idx)] = int(row_i)
+                if len(verts_seq_row_map) == 0:
+                    verts_seq_row_map = {int(i): int(i) for i in range(n_vs)}
+                verts_seq_row_to_frame = {}
+                for fid, rid in verts_seq_row_map.items():
+                    rid_i = int(rid)
+                    if rid_i not in verts_seq_row_to_frame:
+                        verts_seq_row_to_frame[rid_i] = int(fid)
+                verts_seq_ids_set = set(int(k) for k in verts_seq_row_map.keys())
+                verts_seq_fallback_idx = int(sorted(verts_seq_ids_set)[-1])
+                logger.info(
+                    f"Using dynamic bind vertices from {bind_vertices_npz} "
+                    f"(frames={len(verts_seq_ids_set)}, rows={n_vs})"
+                )
             else:
                 logger.warning(
                     f"{bind_vertices_npz} missing verts_cam; fallback to OBJ sequence binding."
@@ -1519,6 +2054,23 @@ def main():
         mesh_ids_set = set(mesh_ids)
         fallback_mesh_idx = int(mesh_ids[-1])
         if verts_seq_np is not None:
+            remapped_row_ids = 0
+            remapped_bind_indices: list[int] = []
+            for mi in bind_mesh_indices:
+                mii = int(mi)
+                if mii in verts_seq_ids_set:
+                    remapped_bind_indices.append(mii)
+                elif mii in verts_seq_row_to_frame:
+                    remapped_bind_indices.append(int(verts_seq_row_to_frame[mii]))
+                    remapped_row_ids += 1
+                else:
+                    remapped_bind_indices.append(int(verts_seq_fallback_idx))
+            if remapped_row_ids > 0:
+                logger.info(
+                    "Detected row-index bind mesh ids in checkpoint; remapped %d entries to frame ids.",
+                    remapped_row_ids,
+                )
+            bind_mesh_indices = remapped_bind_indices
             missing_seq_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in verts_seq_ids_set]
             if len(missing_seq_ids) > 0:
                 logger.warning(
@@ -1571,35 +2123,35 @@ def main():
                 mesh_obj_in_camera_space = True
             elif bind_mesh_obj_space_mode == "blender":
                 mesh_obj_in_camera_space = False
-            if tpose_mesh_obj_space_mode == "auto" and fit_strategy_hint in ("stage1_motion_prior", "vibe"):
-                tpose_mesh_obj_in_camera_space = True
-            elif tpose_mesh_obj_space_mode == "blender":
-                tpose_mesh_obj_in_camera_space = False
+            if deform_mesh_obj_space_mode == "auto" and fit_strategy_hint in ("stage1_motion_prior", "vibe"):
+                deform_mesh_obj_in_camera_space = True
+            elif deform_mesh_obj_space_mode == "blender":
+                deform_mesh_obj_in_camera_space = False
             if "verts_tpose_cam" in seq_meta.files:
-                tpose_verts_cam_np = np.asarray(seq_meta["verts_tpose_cam"], dtype=np.float32)
-                if tpose_verts_cam_np.ndim != 2 or tpose_verts_cam_np.shape[1] != 3:
+                deform_verts_cam_np = np.asarray(seq_meta["verts_tpose_cam"], dtype=np.float32)
+                if deform_verts_cam_np.ndim != 2 or deform_verts_cam_np.shape[1] != 3:
                     logger.warning(
-                        f"Ignore malformed verts_tpose_cam in {bind_seq_npz}: {tpose_verts_cam_np.shape}"
+                        f"Ignore malformed verts_tpose_cam in {bind_seq_npz}: {deform_verts_cam_np.shape}"
                     )
-                    tpose_verts_cam_np = None
+                    deform_verts_cam_np = None
                 else:
                     logger.info(
                         f"Loaded camera-space T-pose verts from {bind_seq_npz} "
-                        f"(V={int(tpose_verts_cam_np.shape[0])})"
+                        f"(V={int(deform_verts_cam_np.shape[0])})"
                     )
             if "joints_tpose_cam" in seq_meta.files:
-                tpose_joints_cam_np = np.asarray(seq_meta["joints_tpose_cam"], dtype=np.float32)
-                if tpose_joints_cam_np.ndim == 3 and tpose_joints_cam_np.shape[0] == 1:
-                    tpose_joints_cam_np = tpose_joints_cam_np[0]
-                if tpose_joints_cam_np.ndim != 2 or tpose_joints_cam_np.shape[1] != 3:
+                deform_default_joints_cam_np = np.asarray(seq_meta["joints_tpose_cam"], dtype=np.float32)
+                if deform_default_joints_cam_np.ndim == 3 and deform_default_joints_cam_np.shape[0] == 1:
+                    deform_default_joints_cam_np = deform_default_joints_cam_np[0]
+                if deform_default_joints_cam_np.ndim != 2 or deform_default_joints_cam_np.shape[1] != 3:
                     logger.warning(
-                        f"Ignore malformed joints_tpose_cam in {bind_seq_npz}: {tpose_joints_cam_np.shape}"
+                        f"Ignore malformed joints_tpose_cam in {bind_seq_npz}: {deform_default_joints_cam_np.shape}"
                     )
-                    tpose_joints_cam_np = None
+                    deform_default_joints_cam_np = None
                 else:
                     logger.info(
                         f"Loaded camera-space T-pose joints from {bind_seq_npz} "
-                        f"(J={int(tpose_joints_cam_np.shape[0])})"
+                        f"(J={int(deform_default_joints_cam_np.shape[0])})"
                     )
 
             if bind_mesh_to_camera and bind_inverse_export_upright:
@@ -1654,7 +2206,7 @@ def main():
             )
             if strict_binding_topology:
                 raise RuntimeError(
-                    msg + " Regenerate binding assets (faces/verts/tpose) from the same mesh topology."
+                    msg + " Regenerate binding assets (faces/verts/deform) from the same mesh topology."
                 )
             logger.warning(msg + " Non-strict mode will skip face-dependent operations.")
             return False
@@ -1666,7 +2218,9 @@ def main():
                     mesh_idx_use = verts_seq_fallback_idx
                 if mesh_idx_use in mesh_cache:
                     return mesh_cache[mesh_idx_use], mesh_normal_cache.get(mesh_idx_use, None), mesh_idx_use
-                verts_np = np.asarray(verts_seq_np[mesh_idx_use], dtype=np.float32)
+                row_idx = int(verts_seq_row_map.get(mesh_idx_use, verts_seq_row_map.get(int(verts_seq_fallback_idx), 0)))
+                row_idx = int(np.clip(row_idx, 0, int(verts_seq_np.shape[0]) - 1))
+                verts_np = np.asarray(verts_seq_np[row_idx], dtype=np.float32)
                 if bind_rigid_align_apply_cfg is not None:
                     verts_np = apply_rigid_transform_np(verts_np, bind_rigid_align_apply_cfg)
                 verts_np = verts_np + bind_mesh_offset_np
@@ -1763,13 +2317,13 @@ def main():
             mesh_binding_cache[mesh_idx_use] = frame
             return frame
 
-    tpose_pick_mode = str(render_cfg.get("tpose_frame_source", "last")).strip().lower()
-    tpose_pick_idx = _resolve_pick_index(
-        mode=tpose_pick_mode,
+    deform_pick_mode = str(render_cfg.get("deform_frame_source", render_cfg.get("tpose_frame_source", "last"))).strip().lower()
+    deform_pick_idx = _resolve_pick_index(
+        mode=deform_pick_mode,
         n=to_render,
-        index=int(render_cfg.get("tpose_frame_index", -1)),
+        index=int(render_cfg.get("deform_frame_index", render_cfg.get("tpose_frame_index", -1))),
     )
-    tpose_ctx: dict[str, object] | None = None
+    deform_ctx: dict[str, object] | None = None
     invalid_bind_warned = False
     for i in range(to_render):
         frame_path = frames_dir / frames[i]
@@ -2268,8 +2822,8 @@ def main():
                     radius=smpl_joint_radius,
                 )
             save_rgb(fg_nobg_out_dir / frame_out_name, pred_fg_only)
-        if render_tpose_image and i == int(tpose_pick_idx):
-            tpose_ctx = {
+        if render_deform_image and i == int(deform_pick_idx):
+            deform_ctx = {
                 "frame_name": frames[i],
                 "H": base_h,
                 "W": base_w,
@@ -2281,84 +2835,144 @@ def main():
         if (i + 1) % 50 == 0:
             logger.info(f"Rendered {i+1}/{to_render} ...")
 
-    if render_tpose_image and tpose_ctx is not None:
+    if render_deform_image and deform_ctx is not None:
         if not binding_enabled:
-            logger.warning("Skip T-pose render: binding is disabled or bind_idx is missing.")
+            logger.warning("Skip deform render: binding is disabled or bind_idx is missing.")
         elif bind_idx_t is None:
-            logger.warning("Skip T-pose render: bind indices unavailable.")
+            logger.warning("Skip deform render: bind indices unavailable.")
         else:
-            if tpose_verts_cam_np is not None:
-                verts_np = np.asarray(tpose_verts_cam_np, dtype=np.float32).copy()
-            else:
-                tpose_mesh_cfg = render_cfg.get(
-                    "tpose_mesh_obj",
-                    ckpt.get("bind_tpose_obj", ""),
+            verts_deform: torch.Tensor | None = None
+            verts_np_bind: np.ndarray | None = None
+            seq_idx_used: int | None = None
+            deform_joints_cam_np: np.ndarray | None = None
+            if deform_source == "smplx_params":
+                params_npz_cfg = deform_smplx_params_npz_cfg
+                if not params_npz_cfg:
+                    if bind_seq_npz is not None:
+                        params_npz_cfg = str(bind_seq_npz)
+                    else:
+                        params_npz_cfg = "outputs/stage1/smpl_params_sequence.npz"
+                params_npz_path = Path(resolve_path(str(params_npz_cfg)))
+                if not params_npz_path.is_absolute():
+                    params_npz_path = project_root / params_npz_path
+                req_frame_name = str(deform_smplx_frame_name).strip() or str(deform_ctx["frame_name"])
+                req_frame_index = int(deform_smplx_frame_index)
+                verts_np, deform_joints_cam_np, deform_meta = _load_deform_smplx_vertices_from_npz(
+                    params_npz_path=params_npz_path,
+                    frame_index=req_frame_index,
+                    frame_name=req_frame_name,
+                    model_type_default=deform_smplx_model_type,
+                    gender_default=deform_smplx_gender,
+                    model_root_cfg=deform_smplx_model_root,
+                    project_root=project_root,
+                    assets_dir=project_root / Path("assets"),
+                    ref_vertices_npz_path=bind_vertices_npz,
+                    use_standard_pose=deform_smplx_use_standard_pose,
                 )
-                tpose_mesh_obj = Path(resolve_path(str(tpose_mesh_cfg)))
-                if not tpose_mesh_obj.is_absolute():
-                    tpose_mesh_obj = project_root / tpose_mesh_obj
-                if (not str(tpose_mesh_cfg).strip()) or (not tpose_mesh_obj.exists()):
-                    cands = sorted((project_root / "outputs/stage1").glob("*_t-pose.obj"))
-                    if len(cands) > 0:
-                        tpose_mesh_obj = cands[-1]
-                if not tpose_mesh_obj.exists():
-                    raise FileNotFoundError(f"T-pose mesh not found: {tpose_mesh_obj}")
+                if bind_rigid_align_apply_cfg is not None:
+                    verts_np = apply_rigid_transform_np(np.asarray(verts_np, dtype=np.float32), bind_rigid_align_apply_cfg)
+                verts_np_bind = (np.asarray(verts_np, dtype=np.float32) + bind_mesh_offset_np).astype(np.float32)
+                if bind_faces_np is not None:
+                    _faces_compatible_with_verts(verts_np_bind, "deform(smplx_params)")
+                verts_deform = torch.from_numpy(verts_np_bind).to(device=device, dtype=torch.float32)
+                logger.info(
+                    "Deform render source=%s row=%s model=%s/%s sign=%s",
+                    str(deform_meta.get("source", "smplx_rebuild")),
+                    str(deform_meta.get("row_idx", "?")),
+                    str(deform_meta.get("model_type", "?")),
+                    str(deform_meta.get("gender", "?")),
+                    str(deform_meta.get("space_match_sign", "[1,1,1]")),
+                )
+            elif deform_source == "sequence" or deform_use_sequence_frame:
+                seq_idx_candidate: int | None = None
+                if deform_sequence_frame_name:
+                    parsed = _parse_frame_idx_from_name(deform_sequence_frame_name)
+                    if parsed is not None:
+                        seq_idx_candidate = int(parsed)
+                if seq_idx_candidate is None:
+                    cfg_idx = int(deform_sequence_frame_index)
+                    if cfg_idx >= 0:
+                        seq_idx_candidate = cfg_idx
+                if seq_idx_candidate is None:
+                    pick_i = int(np.clip(int(deform_pick_idx), 0, max(len(bind_mesh_indices) - 1, 0)))
+                    seq_idx_candidate = int(bind_mesh_indices[pick_i])
+                verts_deform, _, seq_idx_used = _load_mesh_verts(int(seq_idx_candidate))
+                verts_np_bind = verts_deform.detach().cpu().numpy().astype(np.float32)
+                logger.info(f"Deform render uses sequence frame idx: {seq_idx_used}")
 
-                verts_np = load_obj_vertices(tpose_mesh_obj)
-                if bind_mesh_to_camera and (not bool(tpose_mesh_obj_in_camera_space)):
-                    if bind_inverse_export_upright:
-                        if exp_has_center_xy:
-                            verts_np[:, 0] += float(exp_center_xy[0])
-                            verts_np[:, 1] += float(exp_center_xy[1])
-                        if exp_has_floor:
-                            verts_np[:, 2] += float(exp_floor_z)
-                        verts_np = (verts_np @ exp_upright_rot.astype(np.float32))
-                    verts_np = np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(np.float32)
-            if bind_rigid_align_apply_cfg is not None:
-                verts_np = apply_rigid_transform_np(np.asarray(verts_np, dtype=np.float32), bind_rigid_align_apply_cfg)
-            verts_np_bind = (np.asarray(verts_np, dtype=np.float32) + bind_mesh_offset_np).astype(np.float32)
-            if bind_faces_np is not None:
-                _faces_compatible_with_verts(verts_np_bind, "t-pose")
-            verts_tpose = torch.from_numpy(verts_np_bind).to(device=device, dtype=torch.float32)
+            if verts_deform is None:
+                if deform_verts_cam_np is not None:
+                    verts_np = np.asarray(deform_verts_cam_np, dtype=np.float32).copy()
+                else:
+                    deform_mesh_cfg = render_cfg.get(
+                        "deform_mesh_obj",
+                        render_cfg.get("tpose_mesh_obj", ckpt.get("bind_tpose_obj", "")),
+                    )
+                    deform_mesh_obj = Path(resolve_path(str(deform_mesh_cfg)))
+                    if not deform_mesh_obj.is_absolute():
+                        deform_mesh_obj = project_root / deform_mesh_obj
+                    if (not str(deform_mesh_cfg).strip()) or (not deform_mesh_obj.exists()):
+                        cands = sorted((project_root / "outputs/stage1").glob("*_t-pose.obj"))
+                        if len(cands) > 0:
+                            deform_mesh_obj = cands[-1]
+                    if not deform_mesh_obj.exists():
+                        raise FileNotFoundError(f"Deform mesh not found: {deform_mesh_obj}")
 
-            g_tpose = _clone_gaussians(g)
+                    verts_np = load_obj_vertices(deform_mesh_obj)
+                    if bind_mesh_to_camera and (not bool(deform_mesh_obj_in_camera_space)):
+                        if bind_inverse_export_upright:
+                            if exp_has_center_xy:
+                                verts_np[:, 0] += float(exp_center_xy[0])
+                                verts_np[:, 1] += float(exp_center_xy[1])
+                            if exp_has_floor:
+                                verts_np[:, 2] += float(exp_floor_z)
+                            verts_np = (verts_np @ exp_upright_rot.astype(np.float32))
+                        verts_np = np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(np.float32)
+                if bind_rigid_align_apply_cfg is not None:
+                    verts_np = apply_rigid_transform_np(np.asarray(verts_np, dtype=np.float32), bind_rigid_align_apply_cfg)
+                verts_np_bind = (np.asarray(verts_np, dtype=np.float32) + bind_mesh_offset_np).astype(np.float32)
+                if bind_faces_np is not None:
+                    _faces_compatible_with_verts(verts_np_bind, "deform")
+                verts_deform = torch.from_numpy(verts_np_bind).to(device=device, dtype=torch.float32)
+
+            g_deform = _clone_gaussians(g)
             bind_mask = bind_idx_t >= 0
             if bind_mask.any():
                 if str(binding_cfg.mode).lower() == "legacy":
                     bind_idx_use = bind_idx_t[bind_mask]
-                    valid_local = bind_idx_use < int(verts_tpose.shape[0])
+                    valid_local = bind_idx_use < int(verts_deform.shape[0])
                     if bool(valid_local.all()):
-                        xyz_new = verts_tpose.index_select(0, bind_idx_use)
+                        xyz_new = verts_deform.index_select(0, bind_idx_use)
                         if bind_vertex_offset_t is not None:
                             xyz_new = xyz_new + bind_vertex_offset_t[bind_mask]
-                        g_tpose.xyz[bind_mask] = xyz_new
+                        g_deform.xyz[bind_mask] = xyz_new
                     else:
                         valid_mask = bind_mask.clone()
                         valid_mask[bind_mask] = valid_local
                         if not bool(valid_mask.any()):
                             raise RuntimeError(
-                                "T-pose binding failed: all bind indices are out of range for current mesh topology. "
+                                "Deform binding failed: all bind indices are out of range for current mesh topology. "
                                 "Please rerun stage1 and stage2 to refresh bind topology."
                             )
                         bad_n = int((~valid_local).sum().item())
                         if strict_binding_topology:
                             raise RuntimeError(
-                                "T-pose binding found out-of-range bind indices "
+                                "Deform binding found out-of-range bind indices "
                                 f"({bad_n} invalid). Strict mode is enabled."
                             )
                         logger.warning(
-                                "T-pose render skipped %d out-of-range bind indices. "
+                                "Deform render skipped %d out-of-range bind indices. "
                                 "Retrain stage2 for full topology alignment.",
                                 bad_n,
                             )
                         valid_idx = bind_idx_t[valid_mask]
-                        xyz_new = verts_tpose.index_select(0, valid_idx)
+                        xyz_new = verts_deform.index_select(0, valid_idx)
                         if bind_vertex_offset_t is not None:
                             xyz_new = xyz_new + bind_vertex_offset_t[valid_mask]
-                        g_tpose.xyz[valid_mask] = xyz_new
+                        g_deform.xyz[valid_mask] = xyz_new
                     if bool(bind_align_quat_to_mesh_normals) and bind_faces_np is not None and bind_quat_normal_blend > 0.0:
                         normals_tp_np = _compute_vertex_normals_np(
-                            verts_tpose.detach().cpu().numpy(),
+                            verts_deform.detach().cpu().numpy(),
                             bind_faces_np,
                         )
                         normals_tp = torch.from_numpy(normals_tp_np).to(device=device, dtype=torch.float32)
@@ -2372,16 +2986,16 @@ def main():
                                 q_target = _quat_from_normals_torch(normals_tp.index_select(0, bind_idx_t[valid_mask]))
                                 with torch.no_grad():
                                     if bind_quat_normal_blend >= 0.999:
-                                        g_tpose.quat[valid_mask] = q_target
+                                        g_deform.quat[valid_mask] = q_target
                                     else:
-                                        q_old = g_tpose.quat[valid_mask]
+                                        q_old = g_deform.quat[valid_mask]
                                         q_mix = (1.0 - bind_quat_normal_blend) * q_old + bind_quat_normal_blend * q_target
-                                        g_tpose.quat[valid_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
+                                        g_deform.quat[valid_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
                 else:
                     if bind_faces_np is not None:
                         if bind_adjacency is None or len(bind_adjacency) != int(verts_np_bind.shape[0]):
                             bind_adjacency = build_vertex_adjacency(int(verts_np_bind.shape[0]), bind_faces_np)
-                    tpose_frame = build_binding_frame_data(
+                    deform_frame = build_binding_frame_data(
                         verts_np=verts_np_bind,
                         faces_np=bind_faces_np,
                         adjacency=bind_adjacency,
@@ -2389,8 +3003,8 @@ def main():
                         device=device,
                     )
                     _, valid_mask = update_gaussians_with_binding(
-                        g=g_tpose,
-                        frame=tpose_frame,
+                        g=g_deform,
+                        frame=deform_frame,
                         bind_mask=bind_mask,
                         bind_vertex_idx=bind_idx_t,
                         bind_vertex_offset=bind_vertex_offset_t,
@@ -2405,43 +3019,44 @@ def main():
                         if bad_n > 0:
                             if strict_binding_topology:
                                 raise RuntimeError(
-                                    "T-pose render found invalid bindings for current topology "
+                                    "Deform render found invalid bindings for current topology "
                                     f"({bad_n} invalid). Strict mode is enabled."
                                 )
                             logger.warning(
-                                "T-pose render skipped %d invalid bindings for current topology.",
+                                "Deform render skipped %d invalid bindings for current topology.",
                                 bad_n,
                             )
 
-            g_tp_render = g_tpose
-            if tpose_render_bound_only:
-                tp_fg_mask = (g_tpose.bind_idx >= 0) if g_tpose.bind_idx is not None else None
+            g_def_render = g_deform
+            if deform_render_bound_only:
+                tp_fg_mask = (g_deform.bind_idx >= 0) if g_deform.bind_idx is not None else None
                 if tp_fg_mask is None or not tp_fg_mask.any():
                     raise RuntimeError(
-                        "T-pose render requires bound gaussians when tpose_render_bound_only=true."
+                        "Deform render requires bound gaussians when deform_render_bound_only=true."
                     )
-                g_tp_render = _select_gaussians(g_tpose, tp_fg_mask)
+                g_def_render = _select_gaussians(g_deform, tp_fg_mask)
                 if bound_opacity_min > 0.0:
-                    opa = torch.sigmoid(g_tp_render.opacity_logit).squeeze(-1)
+                    opa = torch.sigmoid(g_def_render.opacity_logit).squeeze(-1)
                     keep = opa >= float(bound_opacity_min)
                     if keep.any():
-                        g_tp_render = _select_gaussians(g_tp_render, keep)
+                        g_def_render = _select_gaussians(g_def_render, keep)
                     else:
                         raise RuntimeError(
-                            "T-pose render with bound_opacity_min removed all gaussians. "
+                            "Deform render with bound_opacity_min removed all gaussians. "
                             "Lower render.bound_opacity_min."
                         )
 
-            K_tp = tpose_ctx["K_use"]
-            R_tp = tpose_ctx["R"]
-            t_tp = tpose_ctx["t"]
-            H_tp = int(tpose_ctx["H"])
-            W_tp = int(tpose_ctx["W"])
+            K_def = deform_ctx["K_use"]
+            R_def = deform_ctx["R"]
+            t_def = deform_ctx["t"]
+            H_def = int(deform_ctx["H"])
+            W_def = int(deform_ctx["W"])
 
             if center_subject:
                 tp_center_world = None
-                if center_subject_joint_idx >= 0 and tpose_joints_cam_np is not None:
-                    joints_tp_center = np.asarray(tpose_joints_cam_np, dtype=np.float32).copy()
+                joints_center_src = deform_joints_cam_np if deform_joints_cam_np is not None else deform_default_joints_cam_np
+                if center_subject_joint_idx >= 0 and joints_center_src is not None:
+                    joints_tp_center = np.asarray(joints_center_src, dtype=np.float32).copy()
                     if joints_tp_center.ndim == 2 and joints_tp_center.shape[1] == 3 and joints_tp_center.shape[0] > 0:
                         if bind_rigid_align_apply_cfg is not None:
                             joints_tp_center = apply_rigid_transform_np(joints_tp_center, bind_rigid_align_apply_cfg)
@@ -2449,99 +3064,124 @@ def main():
                         j_idx_tp = int(np.clip(center_subject_joint_idx, 0, joints_tp_center.shape[0] - 1))
                         tp_center_world = torch.from_numpy(joints_tp_center[j_idx_tp]).to(device=device, dtype=torch.float32)
                 if tp_center_world is None:
-                    tp_center_world = verts_tpose.mean(dim=0)
-                xc_tp = (R_tp @ tp_center_world.view(3, 1)).view(3) + t_tp
-                zc_tp = torch.clamp(xc_tp[2], min=float(center_subject_depth_min))
-                fx_tp = K_tp[0, 0]
-                fy_tp = K_tp[1, 1]
-                cx_tp = K_tp[0, 2]
-                cy_tp = K_tp[1, 2]
-                u_tgt_tp = torch.tensor((W_tp - 1) * 0.5, device=device, dtype=torch.float32)
-                v_tgt_tp = torch.tensor((H_tp - 1) * 0.5, device=device, dtype=torch.float32)
-                x_tgt_tp = (u_tgt_tp - cx_tp) * zc_tp / fx_tp
-                y_tgt_tp = (v_tgt_tp - cy_tp) * zc_tp / fy_tp
-                t_tp = t_tp + torch.stack(
-                    [x_tgt_tp - xc_tp[0], y_tgt_tp - xc_tp[1], torch.zeros((), device=device, dtype=torch.float32)],
+                    tp_center_world = verts_deform.mean(dim=0)
+                xc_def = (R_def @ tp_center_world.view(3, 1)).view(3) + t_def
+                zc_def = torch.clamp(xc_def[2], min=float(center_subject_depth_min))
+                fx_def = K_def[0, 0]
+                fy_def = K_def[1, 1]
+                cx_def = K_def[0, 2]
+                cy_def = K_def[1, 2]
+                u_tgt_def = torch.tensor((W_def - 1) * 0.5, device=device, dtype=torch.float32)
+                v_tgt_def = torch.tensor((H_def - 1) * 0.5, device=device, dtype=torch.float32)
+                x_tgt_def = (u_tgt_def - cx_def) * zc_def / fx_def
+                y_tgt_def = (v_tgt_def - cy_def) * zc_def / fy_def
+                t_def = t_def + torch.stack(
+                    [x_tgt_def - xc_def[0], y_tgt_def - xc_def[1], torch.zeros((), device=device, dtype=torch.float32)],
                     dim=0,
                 )
 
-            if center_subject and subject_fit_enabled and (verts_tpose is not None) and (verts_tpose.numel() > 0):
-                K_tp_np, t_tp_np = _fit_subject_camera_numpy(
-                    verts=verts_tpose.detach().cpu().numpy().astype(np.float32),
-                    K=K_tp.detach().cpu().numpy().astype(np.float32),
-                    R=R_tp.detach().cpu().numpy().astype(np.float32),
-                    t=t_tp.detach().cpu().numpy().astype(np.float32),
-                    H=H_tp,
-                    W=W_tp,
+            if center_subject and subject_fit_enabled and (verts_deform is not None) and (verts_deform.numel() > 0):
+                K_def_np, t_def_np = _fit_subject_camera_numpy(
+                    verts=verts_deform.detach().cpu().numpy().astype(np.float32),
+                    K=K_def.detach().cpu().numpy().astype(np.float32),
+                    R=R_def.detach().cpu().numpy().astype(np.float32),
+                    t=t_def.detach().cpu().numpy().astype(np.float32),
+                    H=H_def,
+                    W=W_def,
                     fill=float(subject_fit_fill),
                     iters=int(subject_fit_iters),
                 )
-                K_tp = torch.from_numpy(K_tp_np).to(device=device, dtype=torch.float32)
-                t_tp = torch.from_numpy(t_tp_np).to(device=device, dtype=torch.float32)
+                K_def = torch.from_numpy(K_def_np).to(device=device, dtype=torch.float32)
+                t_def = torch.from_numpy(t_def_np).to(device=device, dtype=torch.float32)
 
-            rgb_tp, alpha_tp = render_gaussians_3d(
-                g=g_tp_render,
-                K=K_tp,
-                R=R_tp,
-                t=t_tp,
-                H=H_tp,
-                W=W_tp,
+            rgb_def, alpha_def = render_gaussians_3d(
+                g=g_def_render,
+                K=K_def,
+                R=R_def,
+                t=t_def,
+                H=H_def,
+                W=W_def,
                 bg=None,
                 return_alpha=True,
             )
-            tp_mask = _alpha_to_mask(
-                alpha_tp,
-                threshold=tpose_alpha_threshold,
-                gamma=tpose_alpha_gamma,
+            deform_mask = _alpha_to_mask(
+                alpha_def,
+                threshold=deform_alpha_threshold,
+                gamma=deform_alpha_gamma,
             )
             if bind_faces_np is not None:
-                mask_tp_np = _rasterize_mesh_mask(
-                    verts=verts_tpose.detach().cpu().numpy(),
+                mask_def_np = _rasterize_mesh_mask(
+                    verts=verts_deform.detach().cpu().numpy(),
                     faces=bind_faces_np,
-                    K=K_tp.detach().cpu().numpy().astype(np.float32),
-                    R=R_tp.detach().cpu().numpy().astype(np.float32),
-                    t=t_tp.detach().cpu().numpy().astype(np.float32),
-                    H=H_tp,
-                    W=W_tp,
+                    K=K_def.detach().cpu().numpy().astype(np.float32),
+                    R=R_def.detach().cpu().numpy().astype(np.float32),
+                    t=t_def.detach().cpu().numpy().astype(np.float32),
+                    H=H_def,
+                    W=W_def,
                     dilate_px=int(fg_mask_dilate_px),
                     erode_px=int(fg_mask_erode_px),
                 )
-                tp_mask_mesh = torch.from_numpy(mask_tp_np).to(device=device, dtype=torch.float32).unsqueeze(0)
-                tp_mask = tp_mask * tp_mask_mesh
-            alpha_tp_src = alpha_tp.clamp(min=1e-4)
-            gain_tp = (tp_mask / alpha_tp_src).clamp(min=0.0, max=float(tpose_alpha_gain_max))
-            rgb_tp_adj = (rgb_tp * gain_tp).clamp(0.0, 1.0)
-            bg_fill_tp = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(rgb_tp)
-            pred_tpose = _composite_premultiplied(fg_rgb=rgb_tp_adj, fg_alpha=tp_mask, bg_rgb=bg_fill_tp)
+                deform_mask_mesh = torch.from_numpy(mask_def_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                deform_mask = deform_mask * deform_mask_mesh
+            alpha_def_src = alpha_def.clamp(min=1e-4)
+            gain_def = (deform_mask / alpha_def_src).clamp(min=0.0, max=float(deform_alpha_gain_max))
+            rgb_def_adj = (rgb_def * gain_def).clamp(0.0, 1.0)
+            bg_fill_def = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(rgb_def)
+            pred_deform = _composite_premultiplied(fg_rgb=rgb_def_adj, fg_alpha=deform_mask, bg_rgb=bg_fill_def)
             if overlay_smpl_skeleton:
-                frame_name = str(tpose_ctx["frame_name"])
-                joints_tpose_use = tpose_joints_cam_np
-                if joints_tpose_use is None and smpl_joints_map is not None:
-                    joints_tpose_use = smpl_joints_map.get(frame_name, None)
-                if joints_tpose_use is not None:
-                    joints_tpose_use = np.asarray(joints_tpose_use, dtype=np.float32).copy()
+                frame_name = str(deform_ctx["frame_name"])
+                joints_deform_use = deform_joints_cam_np if deform_joints_cam_np is not None else deform_default_joints_cam_np
+                if joints_deform_use is None and smpl_joints_map is not None:
+                    joints_deform_use = smpl_joints_map.get(frame_name, None)
+                if joints_deform_use is not None:
+                    joints_deform_use = np.asarray(joints_deform_use, dtype=np.float32).copy()
                     if bind_rigid_align_apply_cfg is not None:
-                        joints_tpose_use = apply_rigid_transform_np(joints_tpose_use, bind_rigid_align_apply_cfg)
-                    joints_tpose_use = joints_tpose_use + bind_mesh_offset_np
-                pred_tpose = _overlay_smpl_skeleton(
-                    rgb_chw=pred_tpose,
-                    joints_cam=joints_tpose_use,
-                    K=K_tp,
-                    R=R_tp,
-                    t=t_tp,
+                        joints_deform_use = apply_rigid_transform_np(joints_deform_use, bind_rigid_align_apply_cfg)
+                    joints_deform_use = joints_deform_use + bind_mesh_offset_np
+                pred_deform = _overlay_smpl_skeleton(
+                    rgb_chw=pred_deform,
+                    joints_cam=joints_deform_use,
+                    K=K_def,
+                    R=R_def,
+                    t=t_def,
                     connections=smpl_skeleton_connections,
                     color_bgr=smpl_color_bgr,
                     thickness=smpl_line_thickness,
                     radius=smpl_joint_radius,
                 )
-            tpose_name = f"{Path(str(tpose_ctx['frame_name'])).stem}{file_suffix}.png"
-            save_rgb(tpose_out_dir / tpose_name, pred_tpose)
+            deform_name = f"{Path(str(deform_ctx['frame_name'])).stem}{file_suffix}.png"
+            save_rgb(deform_out_dir / deform_name, pred_deform)
 
     logger.info("Done.")
 
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
