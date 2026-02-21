@@ -46,6 +46,7 @@ env/
 assets/smplx/SMPLX_FEMALE.npz
 assets/smplx/SMPLX_MALE.npz
 assets/smplx/SMPLX_NEUTRAL.npz
+outputs/stage1/person_masks.npz
 
 # ---- Model checkpoints / weights (usually >100MB) ----
 assets/checkpoints/
