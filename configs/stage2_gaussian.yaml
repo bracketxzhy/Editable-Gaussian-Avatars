@@ -42,7 +42,7 @@ stage2:
   cam_t_prior: [0.0, 0.0, 0.0]
   cam_reg_weight: 0.0
   cam_warmup_iters: 0
-  l1_weight: 0.3
+  l1_weight: 0.6
   use_alpha_mask: false
   alpha_threshold: 0.03
   # Keypoint-guided foreground fitting and face detail emphasis.
@@ -123,17 +123,17 @@ stage2:
   smpl_mask_dilate_px: 0
   smpl_mask_erode_px: 3
   # Inner-mask color supervision: avoid boundary color leakage but keep head/torso details.
-  smpl_color_mask_erode_px: 3
-  smpl_alpha_leak_weight: 0.55
+  smpl_color_mask_erode_px: 1
+  smpl_alpha_leak_weight: 0.35
   smpl_mask_override_alpha: false
   smpl_mask_precompute: true
   smpl_mask_precompute_max_frames: 64
   # Dataset-agnostic person/background separation (not tied to green-screen assumptions).
-  use_person_mask: false
+  use_person_mask: true
   person_masks_npz: outputs/stage1/person_masks.npz
   person_mask_dilate_px: 1
   person_mask_erode_px: 1
-  person_mask_fuse_mode: intersect
+  person_mask_fuse_mode: union
   separate_fg_bg_training: true
   fg_region_weight: 1.35
   bg_region_weight: 1.0
@@ -167,24 +167,24 @@ stage2:
   phase2_ratio: 0.15
 
   shell_enable: true
-  shell_init_ratio: 0.15
-  shell_max_ratio: 0.40
-  shell_spawn_top_percent: 15.0
+  shell_init_ratio: 0.25
+  shell_max_ratio: 0.60
+  shell_spawn_top_percent: 25.0
   shell_spawn_every: 200
   shell_prune_every: 400
-  shell_offset_max_n: 0.04
-  shell_offset_max_t: 0.015
-  shell_offset_reg_weight: 0.02
+  shell_offset_max_n: 0.08
+  shell_offset_max_t: 0.03
+  shell_offset_reg_weight: 0.008
 
   inner_occlusion_soft_enable: true
   inner_occlusion_hard_enable: true
-  inner_soft_vis_th: 0.05
+  inner_soft_vis_th: 0.03
   inner_soft_contrib_th: 0.01
-  outer_cover_vis_th: 0.20
+  outer_cover_vis_th: 0.15
   outer_cover_contrib_th: 0.03
   inner_soft_patience: 300
   inner_hard_patience: 800
-  inner_soft_lr_scale: 0.2
+  inner_soft_lr_scale: 0.3
   inner_prune_every: 400
   inner_prune_protect_parts: [face, hands]
 

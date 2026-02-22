@@ -109,6 +109,14 @@ stage2:
     max_temporal_angle_deg: 75.0
     temporal_alpha: 0.35
     debug_assertions: false
+    hybrid_dynamic: true
+    mix_w_min: 0.05
+    mix_w_max: 0.95
+    mix_coef_curv: 1.0
+    mix_coef_edge: 0.8
+    mix_coef_residual: 0.7
+    mix_coef_normal_var: 0.6
+    mix_bias: 1.1
   use_smpl_silhouette_mask: true
   smpl_mask_dilate_px: 0
   smpl_mask_erode_px: 3
@@ -129,6 +137,47 @@ stage2:
   early_stop_patience: 6000
   early_stop_min_delta: 1.0e-05
   early_stop_warmup_iters: 8000
+  inner_count_auto: true
+  inner_count_kV: 1.2
+  inner_count_kF: 0.35
+  inner_count_min: 80000
+  inner_count_max: 220000
+  tau_vis: 0.15
+  frame_weight_k: 4.0
+  use_robust_loss: true
+  robust_loss_type: charbonnier
+  alpha_prior_weight: 0.1
+  cov_min: 0.0005
+  cov_max: 0.25
+  cov_penalty_weight: 0.05
+  use_border_attenuation: true
+  border_attenuation_width: 8
+  V_min: 8
+  densify_top_percent: 10.0
+  phase0_ratio: 0.15
+  phase2_ratio: 0.15
+  shell_enable: true
+  shell_init_ratio: 0.15
+  shell_max_ratio: 0.4
+  shell_spawn_top_percent: 15.0
+  shell_spawn_every: 200
+  shell_prune_every: 400
+  shell_offset_max_n: 0.04
+  shell_offset_max_t: 0.015
+  shell_offset_reg_weight: 0.02
+  inner_occlusion_soft_enable: true
+  inner_occlusion_hard_enable: true
+  inner_soft_vis_th: 0.05
+  inner_soft_contrib_th: 0.01
+  outer_cover_vis_th: 0.2
+  outer_cover_contrib_th: 0.03
+  inner_soft_patience: 300
+  inner_hard_patience: 800
+  inner_soft_lr_scale: 0.2
+  inner_prune_every: 400
+  inner_prune_protect_parts:
+  - face
+  - hands
   sequence_dir: outputs/stage1/sequence
   bind_rigid_align_effective:
     enabled: true

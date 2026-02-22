@@ -1,0 +1,21 @@
+﻿VIBE residue audit (stage1)
+
+Copied to trash (legacy shim):
+- src/avatar_gs/smpl/fit_from_video.py -> trash/vibe_legacy/fit_from_video.py
+  note: original file is currently locked for move/delete on Windows (access denied), likely by an open editor handle.
+
+Still in codebase (compatibility strings / env alias, not active stage1 backend):
+- src/lib/core/config.py:11
+  AVATAR_GS_VIBE_DATA_DIR env fallback alias.
+- src/avatar_gs/cli/render.py:2174,2178
+  fit_strategy hint accepts ("stage1_motion_prior", "vibe").
+- src/avatar_gs/gaussian/train_loop.py:769
+  fit_strategy hint accepts ("stage1_motion_prior", "vibe").
+- src/avatar_gs/cli/stage2_train_gaussian.py:221
+  fit_strategy hint accepts ("stage1_motion_prior", "vibe").
+- src/lib/THIRD_PARTY_LICENSE_STAGE1_MOTION_PRIOR.txt
+  legacy motion-prior/VIBE third-party license text.
+
+Stage1 process check:
+- active pipeline: src/avatar_gs/cli/stage1_fit_wham_pymaf.py
+- no stage1_vibe import/use in active stage1 run path.

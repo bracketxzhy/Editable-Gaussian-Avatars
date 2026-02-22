@@ -167,7 +167,7 @@ def main() -> None:
     parser.add_argument("--fg_frame_select", type=str, default="last", choices=["first", "last", "indices"])
     parser.add_argument("--fg_frame_indices", type=int, nargs="*", default=None)
 
-    parser.add_argument("--deform_source", type=str, default="smplx_params", choices=["smplx_params", "tpose"])
+    parser.add_argument("--deform_source", type=str, default="smplx_params", choices=["smplx_params", "standard_pose", "tpose"])
     parser.add_argument("--deform_smplx_params_npz", type=str, default="outputs/stage1/smpl_params_sequence.npz")
     parser.add_argument("--deform_smplx_frame_idx", type=int, default=-1)
     parser.add_argument("--deform_smplx_frame_name", type=str, default="")
@@ -218,9 +218,12 @@ def main() -> None:
                 raise RuntimeError(f"fg_only output naming mismatch for view '{name}': {src.name}")
 
     if do_deform:
-        use_standard_pose_preset = str(args.deform_source).strip().lower() == "tpose"
+        deform_source_mode = str(args.deform_source).strip().lower()
+        use_standard_pose_preset = deform_source_mode in ("standard_pose", "tpose")
         if use_standard_pose_preset:
-            print("[INFO] deform uses SMPL-X params + standard pose preset (t-pose as one deform example).")
+            if deform_source_mode == "tpose":
+                print("[WARNING] --deform_source tpose is deprecated; use standard_pose.")
+            print("[INFO] deform uses SMPL-X params + standard pose preset.")
         for name, yaw, pitch in VIEWS:
             overrides = _base_overrides(args, deform_dir, yaw, pitch, name) + [
                 f"render.frame_select={args.fg_frame_select}",
@@ -295,5 +298,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 

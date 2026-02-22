@@ -1356,6 +1356,52 @@ def _resolve_pick_index(mode: str, n: int, index: int = -1) -> int:
     return n - 1
 
 
+def _cfg_with_legacy(
+    cfg: dict,
+    *,
+    primary: str,
+    legacy: tuple[str, ...] = (),
+    default=None,
+    logger=None,
+):
+    if primary in cfg:
+        return cfg.get(primary)
+    for key in legacy:
+        if key in cfg:
+            if logger is not None:
+                logger.warning("render.%s is deprecated; use render.%s.", key, primary)
+            return cfg.get(key)
+    return default
+def _resolve_deform_mesh_cfg(render_cfg: dict, ckpt: dict, logger) -> str:
+    cfg_val = _cfg_with_legacy(
+        render_cfg,
+        primary="deform_mesh_obj",
+        legacy=("tpose_mesh_obj",),
+        default="",
+        logger=logger,
+    )
+    txt = str(cfg_val).strip()
+    if txt:
+        return txt
+    for key in ("bind_deform_obj", "bind_canonical_obj", "bind_tpose_obj"):
+        v = str(ckpt.get(key, "")).strip()
+        if v:
+            if key == "bind_tpose_obj":
+                logger.warning(
+                    "Checkpoint key '%s' is deprecated for deform mesh fallback; prefer bind_deform_obj or bind_canonical_obj.",
+                    key,
+                )
+            return v
+    return ""
+
+
+def _find_deform_mesh_fallback(stage1_dir: Path) -> Path | None:
+    for pat in ("*_deform.obj", "*_canonical.obj", "*_t-pose.obj"):
+        cands = sorted(stage1_dir.glob(pat))
+        if cands:
+            return cands[-1]
+    return None
+
 def main():
     parser = parse_args_base("Render images from Stage2 gaussian checkpoint")
     args = parser.parse_args()
@@ -1375,7 +1421,7 @@ def main():
     save_main_image = bool(render_cfg.get("save_main_image", False))
     save_real_image = bool(render_cfg.get("save_real_image", True))
     save_fg_nobg_skeleton = bool(render_cfg.get("save_fg_nobg_skeleton", True))
-    render_deform_image = bool(render_cfg.get("deform_render_image", render_cfg.get("render_tpose_image", True)))
+    render_deform_image = bool(_cfg_with_legacy(render_cfg, primary="deform_render_image", legacy=("render_tpose_image",), default=True, logger=logger))
 
     render_mode = str(render_cfg.get("mode", "")).strip().lower()
     if render_mode in ("tpose", "t-pose", "t_pose"):
@@ -1394,7 +1440,7 @@ def main():
 
     real_out_subdir = str(render_cfg.get("real_out_subdir", "real")).strip()
     fg_nobg_out_subdir = str(render_cfg.get("fg_nobg_out_subdir", "fg_only")).strip()
-    deform_out_subdir = str(render_cfg.get("deform_out_subdir", render_cfg.get("tpose_out_subdir", "deform"))).strip()
+    deform_out_subdir = str(_cfg_with_legacy(render_cfg, primary="deform_out_subdir", legacy=("tpose_out_subdir",), default="deform", logger=logger)).strip()
 
     # In single-mode rendering, default to writing directly into out_dir (no nested subfolders).
     if render_mode in ("fg", "fg_only") and fg_nobg_out_subdir == "fg_only":
@@ -1405,7 +1451,7 @@ def main():
     real_out_dir = ensure_dir(out_dir / Path(real_out_subdir)) if save_real_image else out_dir
     fg_nobg_out_dir = ensure_dir(out_dir / Path(fg_nobg_out_subdir)) if save_fg_nobg_skeleton else out_dir
 
-    deform_out_cfg = render_cfg.get("deform_out_dir", render_cfg.get("tpose_out_dir", None))
+    deform_out_cfg = _cfg_with_legacy(render_cfg, primary="deform_out_dir", legacy=("tpose_out_dir",), default=None, logger=logger)
     if render_deform_image:
         if deform_out_cfg is None or not str(deform_out_cfg).strip():
             deform_out_dir = ensure_dir(out_dir / Path(deform_out_subdir))
@@ -1565,7 +1611,7 @@ def main():
     split_by_bind = bool(render_cfg.get("split_by_bind", False))
     render_bound_only = bool(render_cfg.get("render_bound_only", False))
     fg_only_render_bound_only = bool(render_cfg.get("fg_only_render_bound_only", True))
-    deform_render_bound_only = bool(render_cfg.get("deform_render_bound_only", render_cfg.get("tpose_render_bound_only", True)))
+    deform_render_bound_only = bool(_cfg_with_legacy(render_cfg, primary="deform_render_bound_only", legacy=("tpose_render_bound_only",), default=True, logger=logger))
     bound_alpha_threshold = float(render_cfg.get("bound_alpha_threshold", 0.0))
     bound_opacity_min = float(render_cfg.get("bound_opacity_min", 0.0))
     fg_mask_mode = str(render_cfg.get("fg_mask_mode", "none")).lower()
@@ -1640,13 +1686,13 @@ def main():
     person_masks_npz_cfg = render_cfg.get("person_masks_npz", "outputs/stage1/person_masks.npz")
     fg_only_alpha_threshold = float(render_cfg.get("fg_only_alpha_threshold", 0.0))
     fg_only_alpha_gamma = float(render_cfg.get("fg_only_alpha_gamma", 1.0))
-    deform_alpha_threshold = float(render_cfg.get("deform_alpha_threshold", render_cfg.get("tpose_alpha_threshold", fg_only_alpha_threshold)))
-    deform_alpha_gamma = float(render_cfg.get("deform_alpha_gamma", render_cfg.get("tpose_alpha_gamma", fg_only_alpha_gamma)))
+    deform_alpha_threshold = float(_cfg_with_legacy(render_cfg, primary="deform_alpha_threshold", legacy=("tpose_alpha_threshold",), default=fg_only_alpha_threshold, logger=logger))
+    deform_alpha_gamma = float(_cfg_with_legacy(render_cfg, primary="deform_alpha_gamma", legacy=("tpose_alpha_gamma",), default=fg_only_alpha_gamma, logger=logger))
     fg_only_alpha_gain_max = float(render_cfg.get("fg_only_alpha_gain_max", 1.0))
-    deform_alpha_gain_max = float(render_cfg.get("deform_alpha_gain_max", render_cfg.get("tpose_alpha_gain_max", 1.0)))
-    deform_use_sequence_frame = bool(render_cfg.get("deform_use_sequence_frame", render_cfg.get("tpose_use_sequence_frame", False)))
-    deform_sequence_frame_index = int(render_cfg.get("deform_sequence_frame_index", render_cfg.get("tpose_sequence_frame_index", -1)))
-    deform_sequence_frame_name = str(render_cfg.get("deform_sequence_frame_name", render_cfg.get("tpose_sequence_frame_name", ""))).strip()
+    deform_alpha_gain_max = float(_cfg_with_legacy(render_cfg, primary="deform_alpha_gain_max", legacy=("tpose_alpha_gain_max",), default=1.0, logger=logger))
+    deform_use_sequence_frame = bool(_cfg_with_legacy(render_cfg, primary="deform_use_sequence_frame", legacy=("tpose_use_sequence_frame",), default=False, logger=logger))
+    deform_sequence_frame_index = int(_cfg_with_legacy(render_cfg, primary="deform_sequence_frame_index", legacy=("tpose_sequence_frame_index",), default=-1, logger=logger))
+    deform_sequence_frame_name = str(_cfg_with_legacy(render_cfg, primary="deform_sequence_frame_name", legacy=("tpose_sequence_frame_name",), default="", logger=logger)).strip()
     deform_source_raw = str(render_cfg.get("deform_source", "smplx_params")).strip().lower()
     deform_smplx_params_npz_cfg = str(render_cfg.get("deform_smplx_params_npz", "")).strip()
     deform_smplx_frame_index = int(render_cfg.get("deform_smplx_frame_index", -1))
@@ -1654,10 +1700,10 @@ def main():
     deform_smplx_model_type = str(render_cfg.get("deform_smplx_model_type", "smplx")).strip().lower()
     deform_smplx_gender = str(render_cfg.get("deform_smplx_gender", "neutral")).strip().lower()
     deform_smplx_model_root = str(render_cfg.get("deform_smplx_model_root", "")).strip()
-    deform_smplx_use_standard_pose = bool(render_cfg.get("deform_smplx_use_standard_pose", render_cfg.get("deform_smplx_use_standard_tpose", False)))
+    deform_smplx_use_standard_pose = bool(_cfg_with_legacy(render_cfg, primary="deform_smplx_use_standard_pose", legacy=("deform_smplx_use_standard_tpose",), default=False, logger=logger))
 
     deform_source = deform_source_raw
-    if deform_source in ("tpose", "t-pose", "t_pose"):
+    if deform_source in ("tpose", "t-pose", "t_pose", "standard_pose"):
         logger.warning(
             "render.deform_source=%s is deprecated; use render.deform_source=smplx_params + deform_smplx_use_standard_pose=true.",
             deform_source,
@@ -1865,7 +1911,13 @@ def main():
             f"render.bind_mesh_obj_space must be auto|camera|blender. Got: {bind_mesh_obj_space_mode}"
         )
     deform_mesh_obj_space_mode = str(
-        render_cfg.get("deform_mesh_obj_space", render_cfg.get("tpose_mesh_obj_space", bind_mesh_obj_space_mode))
+        _cfg_with_legacy(
+            render_cfg,
+            primary="deform_mesh_obj_space",
+            legacy=("tpose_mesh_obj_space",),
+            default=bind_mesh_obj_space_mode,
+            logger=logger,
+        )
     ).strip().lower()
     if deform_mesh_obj_space_mode not in ("auto", "camera", "blender"):
         raise ValueError(
@@ -2317,11 +2369,11 @@ def main():
             mesh_binding_cache[mesh_idx_use] = frame
             return frame
 
-    deform_pick_mode = str(render_cfg.get("deform_frame_source", render_cfg.get("tpose_frame_source", "last"))).strip().lower()
+    deform_pick_mode = str(_cfg_with_legacy(render_cfg, primary="deform_frame_source", legacy=("tpose_frame_source",), default="last", logger=logger)).strip().lower()
     deform_pick_idx = _resolve_pick_index(
         mode=deform_pick_mode,
         n=to_render,
-        index=int(render_cfg.get("deform_frame_index", render_cfg.get("tpose_frame_index", -1))),
+        index=int(_cfg_with_legacy(render_cfg, primary="deform_frame_index", legacy=("tpose_frame_index",), default=-1, logger=logger)),
     )
     deform_ctx: dict[str, object] | None = None
     invalid_bind_warned = False
@@ -2904,17 +2956,14 @@ def main():
                 if deform_verts_cam_np is not None:
                     verts_np = np.asarray(deform_verts_cam_np, dtype=np.float32).copy()
                 else:
-                    deform_mesh_cfg = render_cfg.get(
-                        "deform_mesh_obj",
-                        render_cfg.get("tpose_mesh_obj", ckpt.get("bind_tpose_obj", "")),
-                    )
+                    deform_mesh_cfg = _resolve_deform_mesh_cfg(render_cfg, ckpt, logger)
                     deform_mesh_obj = Path(resolve_path(str(deform_mesh_cfg)))
                     if not deform_mesh_obj.is_absolute():
                         deform_mesh_obj = project_root / deform_mesh_obj
                     if (not str(deform_mesh_cfg).strip()) or (not deform_mesh_obj.exists()):
-                        cands = sorted((project_root / "outputs/stage1").glob("*_t-pose.obj"))
-                        if len(cands) > 0:
-                            deform_mesh_obj = cands[-1]
+                        fallback_mesh = _find_deform_mesh_fallback(project_root / "outputs/stage1")
+                        if fallback_mesh is not None:
+                            deform_mesh_obj = fallback_mesh
                     if not deform_mesh_obj.exists():
                         raise FileNotFoundError(f"Deform mesh not found: {deform_mesh_obj}")
 
@@ -3157,6 +3206,12 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
 
 
 
