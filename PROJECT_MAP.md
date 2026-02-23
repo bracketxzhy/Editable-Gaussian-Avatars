@@ -1,4 +1,4 @@
-﻿# PROJECT_MAP.md
+# PROJECT_MAP.md
 
 ## Repository
 
@@ -15,7 +15,7 @@
 3. `stage2_train_gaussian`:
    - bind gaussians to SMPL mesh/sequence and optimize appearance
 4. `render` / `edit`:
-   - render `real`, `fg_only`, `t-pose`, novel views, and edited motions
+   - render `real`, `fg_only`, `deform`, novel views, and edited motions
 
 Notes:
 
@@ -91,7 +91,7 @@ Notes:
 
 - 仅需生成以下两个输出文件夹（相对于项目根目录 `outputs/renders`）：
   - `fg_only`：前景无背景渲染（6 视图）
-  - `t-pose`：T-pose 渲染（6 视图）
+  - `deform`：deform 渲染（6 视图，可传任意 SMPL-X 参数）
 
 - 每个子文件夹中应包含六个视角的渲染图像（建议命名统一）：
   - `front.png`（正面）
@@ -114,7 +114,7 @@ Notes:
 python -m avatar_gs.cli.stage2_train_gaussian --config configs/stage2_gaussian.yaml --override stage2.stage1_dir=outputs/stage1 stage2.out_dir=outputs/stage2 stage2.init_mesh_obj=outputs/stage1/sequence/000756.obj
 ```
 
-2. 训练完成后，生成六视图（脚本会为 `fg_only` 和 `t-pose` 各生成 6 张图并保存在 `outputs/renders` 下）：
+2. 训练完成后，生成六视图（脚本会为 `fg_only` 和 `deform` 各生成 6 张图并保存在 `outputs/renders` 下）：
 
 ```powershell
 python scripts\generate_six_views.py --config configs/stage2_gaussian.yaml
@@ -223,3 +223,4 @@ python -m avatar_gs.cli.render --config configs/render.yaml
 
 
 ```
+

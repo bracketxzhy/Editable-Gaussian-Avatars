@@ -5,7 +5,7 @@ log_dir: outputs/logs
 video:
   path: data/videos/input.mp4
   out_frames_dir: data/frames/input
-  frame_step: 1
+  frame_step: 10
   max_frames: -1
   resize_w: 0
   resize_h: 0

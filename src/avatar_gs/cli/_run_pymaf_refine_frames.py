@@ -48,6 +48,71 @@ def _safe_link_or_copy(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
+def _python_module_available(module_name: str, python_exe: str) -> bool:
+    cmd = [str(python_exe), "-c", f"import {module_name}"]
+    try:
+        r = subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return int(r.returncode) == 0
+    except Exception:
+        return False
+
+
+def _ensure_openpifpaf_available(python_exe: str) -> bool:
+    if _python_module_available("openpifpaf", python_exe):
+        print("openpifpaf is already available.")
+        return True
+
+    print("openpifpaf is missing. Trying to install it for the current environment ...")
+    install_cmds = [
+        # Prefer a no-deps/no-build-isolation path to avoid strict old torch pins.
+        [
+            str(python_exe), "-m", "pip", "install",
+            "--disable-pip-version-check", "--no-input",
+            "--no-build-isolation", "--no-deps",
+            "openpifpaf==0.13.11",
+        ],
+        [
+            str(python_exe), "-m", "pip", "install",
+            "--disable-pip-version-check", "--no-input",
+            "--no-build-isolation", "--no-deps",
+            "openpifpaf==0.13.1",
+        ],
+        [
+            str(python_exe), "-m", "pip", "install",
+            "--disable-pip-version-check", "--no-input",
+            "openpifpaf",
+        ],
+    ]
+
+    for cmd in install_cmds:
+        spec = cmd[-1]
+        r = subprocess.run(cmd, check=False)
+        if int(r.returncode) == 0 and _python_module_available("openpifpaf", python_exe):
+            print(f"Installed {spec} successfully.")
+            return True
+        print(f"Install attempt failed for: {spec}")
+
+    # openpifpaf plugins may require pysparkling even when installed with --no-deps.
+    _ = subprocess.run(
+        [
+            str(python_exe),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-input",
+            "pysparkling",
+        ],
+        check=False,
+    )
+    if _python_module_available("openpifpaf", python_exe):
+        print("openpifpaf import is now available after installing pysparkling.")
+        return True
+
+    print("Warning: openpifpaf is still unavailable; PyMAF-X will use its fallback detector mode.")
+    return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser("Run PyMAF-X refine on selected frame indices")
     parser.add_argument("--frames_dir", type=str, required=True)
@@ -77,6 +142,8 @@ def main() -> None:
     frames = _list_frames(frames_dir)
     if len(frames) <= 0:
         raise RuntimeError(f"No frames found under: {frames_dir}")
+
+    openpifpaf_available = _ensure_openpifpaf_available(sys.executable)
 
     selected_idx = _parse_indices(args.frame_indices, len(frames))
     selected_files = [frames[i] for i in selected_idx]
@@ -138,6 +205,7 @@ def main() -> None:
         "selected_files": [p.name for p in selected_files],
         "selected_indices_global": [int(i) for i in selected_idx],
         "frames_dir": str(frames_dir),
+        "openpifpaf_available": bool(openpifpaf_available),
     }
     with (selected_result_dir / "selected_frames_meta.json").open("w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)

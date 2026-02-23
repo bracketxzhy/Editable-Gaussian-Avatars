@@ -5,7 +5,15 @@ from pathlib import Path
 import numpy as np
 
 
-def export_obj(path: str | Path, vertices: np.ndarray, faces: np.ndarray) -> None:
+def build_obj_face_text(faces: np.ndarray) -> str:
+    f = np.asarray(faces, dtype=np.int64)
+    if f.ndim != 2 or f.shape[1] != 3:
+        raise ValueError(f"faces must be (F,3), got {f.shape}")
+    f1 = f + 1
+    return "".join(f"f {int(tri[0])} {int(tri[1])} {int(tri[2])}\n" for tri in f1)
+
+
+def export_obj(path: str | Path, vertices: np.ndarray, faces: np.ndarray, face_text: str | None = None) -> None:
     """Write a triangle mesh OBJ with explicit vertex/face records."""
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -17,9 +25,8 @@ def export_obj(path: str | Path, vertices: np.ndarray, faces: np.ndarray) -> Non
     if f.ndim != 2 or f.shape[1] != 3:
         raise ValueError(f"faces must be (F,3), got {f.shape}")
 
-    f1 = f + 1
-    with out_path.open("w", encoding="utf-8") as fp:
-        for v in verts:
-            fp.write(f"v {float(v[0]):.7f} {float(v[1]):.7f} {float(v[2]):.7f}\n")
-        for tri in f1:
-            fp.write(f"f {int(tri[0])} {int(tri[1])} {int(tri[2])}\n")
+    verts_text = "".join(f"v {float(v[0]):.7f} {float(v[1]):.7f} {float(v[2]):.7f}\n" for v in verts)
+    faces_text = face_text if face_text is not None else build_obj_face_text(f)
+    with out_path.open("w", encoding="utf-8", newline="\n") as fp:
+        fp.write(verts_text)
+        fp.write(faces_text)

@@ -16,7 +16,7 @@ import cv2
 import joblib
 import numpy as np
 
-from avatar_gs.io.mesh_export import export_obj
+from avatar_gs.io.mesh_export import build_obj_face_text, export_obj
 
 try:
     import torch
@@ -645,6 +645,85 @@ def _to_numpy_cpu(x) -> np.ndarray:
     return np.asarray(x)
 
 
+def _smplx_param_batch_size(param_dict: dict) -> int:
+    if not isinstance(param_dict, dict):
+        return 1
+
+    # Prefer shape/exp keys because pose keys can be [24, 3, 3] in per-frame form.
+    for key in ("shape", "expression"):
+        if key not in param_dict:
+            continue
+        arr = _to_numpy_cpu(param_dict[key])
+        if arr.ndim >= 2:
+            return int(max(1, arr.shape[0]))
+        return 1
+
+    for key in ("body_pose", "left_hand_pose", "right_hand_pose", "jaw_pose", "leye_pose", "reye_pose"):
+        if key not in param_dict:
+            continue
+        arr = _to_numpy_cpu(param_dict[key])
+        if arr.ndim >= 4:
+            return int(max(1, arr.shape[0]))
+        return 1
+    return 1
+
+
+def _slice_smplx_param_dict(param_dict: dict, row_idx: int, batch_size: int) -> dict:
+    out: dict = {}
+    ridx = int(max(0, min(int(row_idx), int(max(1, batch_size) - 1))))
+    for k, v in param_dict.items():
+        try:
+            if torch is not None and torch.is_tensor(v):
+                if int(v.ndim) >= 1 and int(v.shape[0]) == int(batch_size):
+                    out[k] = v[ridx]
+                else:
+                    out[k] = v
+                continue
+        except Exception:
+            pass
+
+        if isinstance(v, np.ndarray):
+            if int(v.ndim) >= 1 and int(v.shape[0]) == int(batch_size):
+                out[k] = v[ridx]
+            else:
+                out[k] = v
+        elif isinstance(v, (list, tuple)) and len(v) == int(batch_size):
+            out[k] = v[ridx]
+        else:
+            out[k] = v
+    return out
+
+
+def _get_smplx_params_for_index(pred_results: dict, idx: int) -> dict | None:
+    smplx_params_all = pred_results.get("smplx_params", None)
+    if not isinstance(smplx_params_all, list) or len(smplx_params_all) <= 0:
+        return None
+
+    ii = int(idx)
+    if ii < 0:
+        return None
+
+    # Fast path: already per-frame list.
+    if ii < len(smplx_params_all):
+        p_i = smplx_params_all[ii]
+        if isinstance(p_i, dict):
+            bs = _smplx_param_batch_size(p_i)
+            if bs <= 1:
+                return p_i
+
+    # Batched list path: flatten by cumulative batch sizes.
+    offset = 0
+    for p_i in smplx_params_all:
+        if not isinstance(p_i, dict):
+            continue
+        bs = _smplx_param_batch_size(p_i)
+        if ii < offset + bs:
+            return _slice_smplx_param_dict(p_i, ii - offset, bs)
+        offset += bs
+
+    return None
+
+
 def _resolve_pred_index(
     pred_results: dict,
     selected_meta: dict,
@@ -680,12 +759,7 @@ def _extract_tpose_cam_from_smplx(
     if idx is None:
         return None, None
 
-    smplx_params_all = pred_results.get("smplx_params", None)
-    params_i = None
-    if smplx_params_all is not None and idx < len(smplx_params_all):
-        p_i = smplx_params_all[idx]
-        if isinstance(p_i, dict):
-            params_i = p_i
+    params_i = _get_smplx_params_for_index(pred_results=pred_results, idx=idx)
 
     gender = "neutral"
     if isinstance(params_i, dict):
@@ -695,7 +769,9 @@ def _extract_tpose_cam_from_smplx(
 
     betas_np = None
     if isinstance(params_i, dict):
-        betas_np = params_i.get("shape", None)
+        # shape may come as a CUDA tensor in PyMAF outputs
+        betas_raw = params_i.get("shape", None)
+        betas_np = None if betas_raw is None else _to_numpy_cpu(betas_raw)
     if betas_np is None and pred_results.get("betas", None) is not None:
         try:
             betas_all = pred_results["betas"]
@@ -906,12 +982,14 @@ def _write_stage1_compat_assets(
         "export_center_xy_value": np.asarray([0.0, 0.0], dtype=np.float32),
         "export_on_floor": np.asarray([0], dtype=np.int32),
         "export_floor_z": np.asarray([0.0], dtype=np.float32),
+        "verts_canonical_cam": verts_tpose_use,
         "verts_tpose_cam": verts_tpose_use,
     }
     joints_tpose_use = tpose_joints_cam if tpose_joints_cam is not None else joints_cam
     if joints_tpose_use is not None:
         joints_tpose_use = np.asarray(joints_tpose_use, dtype=np.float32)
         if joints_tpose_use.ndim == 2 and joints_tpose_use.shape[1] == 3:
+            params_kwargs["joints_canonical_cam"] = joints_tpose_use
             params_kwargs["joints_tpose_cam"] = joints_tpose_use
     np.savez(params_npz, **params_kwargs)
 
@@ -971,18 +1049,16 @@ def _build_pymaf_frame_records(
     if frame_ids.size == 0:
         frame_ids = np.arange(len(selected_files), dtype=np.int64)
 
-    if "smplx_verts" in pred_results and pred_results["smplx_verts"] is not None:
-        verts_all = np.asarray(pred_results["smplx_verts"], dtype=np.float32)
-        if faces_smplx is None:
-            raise RuntimeError("smplx_verts available but SMPL-X faces are missing.")
-        faces = faces_smplx
-        model_type = "smplx"
-    else:
-        verts_all = np.asarray(pred_results["verts"], dtype=np.float32)
-        if faces_smpl is None:
-            raise RuntimeError("verts available but SMPL faces are missing.")
-        faces = faces_smpl
-        model_type = "smpl"
+    if "smplx_verts" not in pred_results or pred_results["smplx_verts"] is None:
+        raise RuntimeError(
+            "PyMAF output does not contain smplx_verts. "
+            "Stage1 WHAM+PyMAF pipeline requires SMPL-X results and will not downgrade to SMPL."
+        )
+    verts_all = np.asarray(pred_results["smplx_verts"], dtype=np.float32)
+    if faces_smplx is None:
+        raise RuntimeError("smplx_verts available but SMPL-X faces are missing.")
+    faces = faces_smplx
+    model_type = "smplx"
 
     cam_t_all = np.asarray(pred_results["orig_cam_t"], dtype=np.float32).reshape(-1, 3)
     joints2d_all = None
@@ -1046,8 +1122,8 @@ def _write_stage1_sequence_assets_full(
     frames_dir: Path,
     records: list[dict],
     focal: float = 5000.0,
-    tpose_verts_cam: np.ndarray | None = None,
-    tpose_joints_cam: np.ndarray | None = None,
+    canonical_verts_cam: np.ndarray | None = None,
+    canonical_joints_cam: np.ndarray | None = None,
 ) -> dict[str, str]:
     if len(records) == 0:
         raise RuntimeError("No records available for stage1 sequence export.")
@@ -1078,29 +1154,30 @@ def _write_stage1_sequence_assets_full(
     joints_cam_seq: list[np.ndarray] = []
     masks_seq: list[np.ndarray] = []
     kpt_map: dict[str, list[list[float]]] = {}
-
-    tpose_verts_ref: np.ndarray | None = (
-        None if tpose_verts_cam is None else np.asarray(tpose_verts_cam, dtype=np.float32)
-    )
-    tpose_joints_ref: np.ndarray | None = (
-        None if tpose_joints_cam is None else np.asarray(tpose_joints_cam, dtype=np.float32)
-    )
-    if tpose_verts_ref is None:
-        raise RuntimeError(
-            'Failed to compute true T-pose verts (verts_tpose_cam). '
-            'Refusing to fallback to first-frame pose. Please check SMPL-X assets and rerun stage1.'
-        )
+    shared_faces: np.ndarray | None = None
+    shared_face_text: str | None = None
+    first_faces = np.asarray(records[0]["faces"], dtype=np.int32)
+    if first_faces.ndim == 2 and first_faces.shape[1] == 3:
+        same_topology = True
+        for rec_chk in records[1:]:
+            chk_faces = np.asarray(rec_chk["faces"], dtype=np.int32)
+            if chk_faces.shape != first_faces.shape or (not np.array_equal(chk_faces, first_faces)):
+                same_topology = False
+                break
+        if same_topology:
+            shared_faces = first_faces
+            shared_face_text = build_obj_face_text(first_faces)
 
     for rec in records:
         frame_name = str(rec["frame_name"])
         frame_idx = int(rec["frame_idx"])
         verts_cam = np.asarray(rec["verts_cam"], dtype=np.float32)
-        faces = np.asarray(rec["faces"], dtype=np.int32)
+        faces = shared_faces if shared_faces is not None else np.asarray(rec["faces"], dtype=np.int32)
         joints2d = rec.get("joints2d", None)
         joints_cam = rec.get("joints_cam", None)
 
         obj_name = f"frame_{frame_idx:06d}.obj"
-        export_obj(seq_dir / obj_name, verts_cam, faces)
+        export_obj(seq_dir / obj_name, verts_cam, faces, face_text=shared_face_text)
 
         img = cv2.imread(str(frames_dir / frame_name), cv2.IMREAD_COLOR)
         if img is None:
@@ -1143,9 +1220,6 @@ def _write_stage1_sequence_assets_full(
         masks_seq.append((np.asarray(mask, dtype=np.uint8) > 0).astype(np.uint8))
         kpt_map[frame_name] = kpts
 
-        if tpose_joints_ref is None and joints_cam is not None:
-            tpose_joints_ref = np.asarray(joints_cam, dtype=np.float32)
-
     with keypoints_json.open("w", encoding="utf-8") as f:
         json.dump(kpt_map, f, indent=2)
 
@@ -1178,6 +1252,26 @@ def _write_stage1_sequence_assets_full(
             joints_cam_theta=joints_arr,
         )
 
+    canonical_verts_ref = None
+    if canonical_verts_cam is not None:
+        vv = np.asarray(canonical_verts_cam, dtype=np.float32)
+        if vv.ndim == 2 and vv.shape[1] == 3:
+            canonical_verts_ref = vv
+    if canonical_verts_ref is None and verts_cam_arr.ndim == 3 and verts_cam_arr.shape[0] > 0:
+        canonical_verts_ref = np.asarray(verts_cam_arr[0], dtype=np.float32)
+
+    canonical_joints_ref = None
+    if canonical_joints_cam is not None:
+        jj = np.asarray(canonical_joints_cam, dtype=np.float32)
+        if jj.ndim == 2 and jj.shape[1] == 3:
+            canonical_joints_ref = jj
+    if canonical_joints_ref is None:
+        for j in joints_cam_seq:
+            jn = np.asarray(j, dtype=np.float32)
+            if jn.ndim == 2 and jn.shape[1] == 3 and jn.shape[0] > 0:
+                canonical_joints_ref = jn
+                break
+
     params_kwargs = {
         "frame_names": np.asarray(frame_names, dtype=object),
         "fit_strategy": np.asarray(["stage1_wham_pymaf"], dtype=object),
@@ -1186,10 +1280,17 @@ def _write_stage1_sequence_assets_full(
         "export_center_xy_value": np.asarray([0.0, 0.0], dtype=np.float32),
         "export_on_floor": np.asarray([0], dtype=np.int32),
         "export_floor_z": np.asarray([0.0], dtype=np.float32),
-        "verts_tpose_cam": np.asarray(tpose_verts_ref, dtype=np.float32),
     }
-    if tpose_joints_ref is not None and tpose_joints_ref.ndim == 2 and tpose_joints_ref.shape[1] == 3:
-        params_kwargs["joints_tpose_cam"] = np.asarray(tpose_joints_ref, dtype=np.float32)
+    if canonical_verts_ref is not None:
+        vv = np.asarray(canonical_verts_ref, dtype=np.float32)
+        if vv.ndim == 2 and vv.shape[1] == 3:
+            params_kwargs["verts_canonical_cam"] = vv
+            params_kwargs["verts_tpose_cam"] = vv
+    if canonical_joints_ref is not None:
+        jj = np.asarray(canonical_joints_ref, dtype=np.float32)
+        if jj.ndim == 2 and jj.shape[1] == 3:
+            params_kwargs["joints_canonical_cam"] = jj
+            params_kwargs["joints_tpose_cam"] = jj
     np.savez(params_npz, **params_kwargs)
 
     return {
@@ -1281,9 +1382,14 @@ def main() -> None:
     parser.add_argument("--single_person", action="store_true", help="Set PyMAF single-person mode")
     parser.add_argument("--skip_wham", action="store_true", help="Skip WHAM stage")
     parser.add_argument("--skip_pymaf", action="store_true", help="Skip PyMAF stage")
+    parser.add_argument(
+        "--wham_estimate_local_only",
+        action="store_true",
+        help="Run WHAM in local-only mode (default: disabled for full WHAM output).",
+    )
     parser.add_argument("--wham_repo_dir", type=str, default="third_party/WHAM", help="WHAM repo dir")
     parser.add_argument("--pymaf_repo_dir", type=str, default="third_party/PyMAF-X", help="PyMAF-X repo dir")
-    parser.add_argument("--minimal_stage1_outputs", action="store_true", help="Keep only t-pose obj and selected-frame sequence obj; delete intermediates")
+    parser.add_argument("--minimal_stage1_outputs", action="store_true", help="Keep only sequence assets required by stage2; delete intermediates")
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
@@ -1315,8 +1421,7 @@ def main() -> None:
     frames = _list_frames(frames_dir)
     if len(frames) == 0:
         raise RuntimeError(f"No frames found in: {frames_dir}")
-    gt_last = frames[-1]
-    print(f"Frames: {len(frames)}, last frame: {gt_last.name}")
+    print(f"Frames: {len(frames)}")
 
     pymaf_indices_raw = str(args.pymaf_frame_indices).strip().lower()
     pymaf_stride = max(1, int(args.pymaf_stride))
@@ -1391,8 +1496,9 @@ def main() -> None:
             str(wham_dir),
             "--fps",
             str(float(args.fps)),
-            "--estimate_local_only",
         ]
+        if bool(args.wham_estimate_local_only):
+            wham_cmd.append("--estimate_local_only")
         _run_cmd(wham_cmd, cwd=project_root, env=env_base)
 
     if not bool(args.skip_pymaf):
@@ -1430,86 +1536,63 @@ def main() -> None:
     with meta_json.open("r", encoding="utf-8") as f:
         selected_meta = json.load(f)
 
+    # _run_pymaf_refine_frames may bootstrap openpifpaf at runtime.
+    if bool(selected_meta.get("openpifpaf_available", False)):
+        req["python"] = [m for m in req.get("python", []) if m != "openpifpaf"]
+    if "python" in req and "openpifpaf" in req["python"]:
+        try:
+            __import__("openpifpaf")
+            req["python"] = [m for m in req["python"] if m != "openpifpaf"]
+        except Exception:
+            pass
+
     faces_smplx = None
-    faces_smpl = None
     smplx_face_path = _find_any_file(assets_dir, ["SMPLX_NEUTRAL_2020.npz", "SMPLX_NEUTRAL.npz"])
     if smplx_face_path is not None:
         faces_smplx = _load_faces_from_npz(smplx_face_path)
-
-    smpl_face_path = _find_any_file(assets_dir, ["SMPL_NEUTRAL.npz", "SMPL_N_model.npz"])
-    if smpl_face_path is not None:
-        faces_smpl = _load_faces_from_npz(smpl_face_path)
 
     records = _build_pymaf_frame_records(
         pred_results=pred_results,
         selected_meta=selected_meta,
         faces_smplx=faces_smplx,
-        faces_smpl=faces_smpl,
+        faces_smpl=None,
     )
+    if len(records) <= 0:
+        raise RuntimeError("No frame records built from PyMAF output.")
 
-    mesh_res = _select_last_frame_result(
-        pred_results=pred_results,
-        selected_meta=selected_meta,
-        gt_last_frame_name=gt_last.name,
-        faces_smplx=faces_smplx,
-        faces_smpl=faces_smpl,
-    )
-    mesh_res.frame_path = frames_dir / mesh_res.frame_name
-    if not mesh_res.frame_path.exists():
-        raise FileNotFoundError(f"Resolved last frame image not found: {mesh_res.frame_path}")
+    first_rec = records[0]
+    last_rec = records[-1]
 
-    obj_local_path = final_out / "last_frame_pose_local.obj"
-    obj_cam_path = final_out / f"last_frame_{mesh_res.model_type}_cam.obj"
-    obj_legacy_path = final_out / f"last_frame_{mesh_res.model_type}.obj"
-
-    verts_local = np.asarray(mesh_res.verts, dtype=np.float32)
-    verts_cam = np.asarray(mesh_res.verts + mesh_res.cam_t.reshape(1, 3), dtype=np.float32)
-
-    _save_obj(obj_local_path, verts_local, mesh_res.faces)
-    _save_obj(obj_cam_path, verts_cam, mesh_res.faces)
-    _save_obj(obj_legacy_path, verts_local, mesh_res.faces)
-
-    coord_meta = {
-        "frame_name": mesh_res.frame_name,
-        "model_type": mesh_res.model_type,
-        "cam_t": np.asarray(mesh_res.cam_t, dtype=np.float32).reshape(3).tolist(),
-        "pose_local_obj": str(obj_local_path),
-        "camera_world_obj": str(obj_cam_path),
-        "legacy_obj": str(obj_legacy_path),
-        "coord_system": {
-            "pose_local_obj": "local pose mesh (no camera translation)",
-            "camera_world_obj": "camera/world metric mesh (verts + cam_t)",
-        },
-    }
-    coord_meta_path = final_out / "last_frame_coord_meta.json"
-    with coord_meta_path.open("w", encoding="utf-8") as f:
-        json.dump(coord_meta, f, indent=2)
-
-    tpose_verts_cam, tpose_joints_cam = _extract_tpose_cam_from_smplx(
-        pred_results=pred_results,
-        selected_meta=selected_meta,
-        frame_name=mesh_res.frame_name,
-        assets_dir=assets_dir,
-        cam_t=mesh_res.cam_t,
-    )
-    if tpose_verts_cam is None:
-        raise RuntimeError(
-            'stage1 failed to produce true T-pose (verts_tpose_cam is None). '
-            'Please ensure assets/smplx is complete and rerun stage1.'
+    canonical_verts_cam = None
+    canonical_joints_cam = None
+    try:
+        canonical_verts_cam, canonical_joints_cam = _extract_tpose_cam_from_smplx(
+            pred_results=pred_results,
+            selected_meta=selected_meta,
+            frame_name=str(last_rec["frame_name"]),
+            assets_dir=assets_dir,
+            cam_t=np.asarray(last_rec["cam_t"], dtype=np.float32),
         )
+    except Exception as e:
+        print(f"Warning: canonical pose extraction raised an exception; fallback to frame-space canonical. err={e}")
+
+    if canonical_verts_cam is None:
+        canonical_verts_cam = np.asarray(last_rec["verts_cam"], dtype=np.float32)
+    if canonical_joints_cam is None:
+        jc_last = last_rec.get("joints_cam", None)
+        if jc_last is not None:
+            canonical_joints_cam = np.asarray(jc_last, dtype=np.float32)
+
     compat_assets = _write_stage1_sequence_assets_full(
         out_dir=out_dir,
         frames_dir=frames_dir,
         records=records,
         focal=5000.0,
-        tpose_verts_cam=tpose_verts_cam,
-        tpose_joints_cam=tpose_joints_cam,
+        canonical_verts_cam=canonical_verts_cam,
+        canonical_joints_cam=canonical_joints_cam,
     )
-
-    last_frame_idx = _frame_index_from_name(mesh_res.frame_name, fallback=max(len(frames) - 1, 0))
-    stage1_seq_obj = out_dir / "sequence" / f"frame_{int(last_frame_idx):06d}.obj"
-    if not stage1_seq_obj.exists() and len(records) > 0:
-        stage1_seq_obj = out_dir / "sequence" / f"frame_{int(records[-1]['frame_idx']):06d}.obj"
+    stage1_seq_obj = out_dir / "sequence" / f"frame_{int(last_rec['frame_idx']):06d}.obj"
+    model_type_set = sorted({str(rec.get("model_type", "unknown")) for rec in records})
     summary = {
         "frames_dir": str(frames_dir),
         "assets_dir": str(assets_dir),
@@ -1518,16 +1601,12 @@ def main() -> None:
         "wham_output_dir": str(wham_out),
         "pymaf_output_dir": str(pymaf_result_dir),
         "final_output_dir": str(final_out),
-        "last_frame_name": mesh_res.frame_name,
-        "last_frame_obj": str(obj_legacy_path),
-        "last_frame_pose_local_obj": str(obj_local_path),
-        "last_frame_cam_obj": str(obj_cam_path),
-        "last_frame_coord_meta": str(coord_meta_path),
-        "coord_system": {
-            "training_binding_recommended": "camera_world_obj",
-            "editing_reference_recommended": "pose_local_obj",
-        },
-        "model_type": mesh_res.model_type,
+        "sequence_frame_count": int(len(records)),
+        "sequence_first_frame_name": str(first_rec["frame_name"]),
+        "sequence_last_frame_name": str(last_rec["frame_name"]),
+        "sequence_first_frame_idx": int(first_rec["frame_idx"]),
+        "sequence_last_frame_idx": int(last_rec["frame_idx"]),
+        "model_type": ("smplx" if model_type_set == ["smplx"] else ",".join(model_type_set)),
         "wham_checkpoints": {k: (None if v is None else str(v)) for k, v in wham_ckpts.items()},
         "pymaf_checkpoint": (None if pymaf_ckpt is None else str(pymaf_ckpt)),
         "missing_requirements": req,
@@ -1545,15 +1624,16 @@ def main() -> None:
 
 
     print("Done.")
-    print(f"Last frame OBJ (legacy local): {obj_legacy_path}")
-    print(f"Last frame OBJ (pose local): {obj_local_path}")
-    print(f"Last frame OBJ (camera/world): {obj_cam_path}")
-    print(f"Coordinate metadata: {coord_meta_path}")
+    print(f"Sequence frame count: {len(records)}")
+    print(f"Sequence first frame: {first_rec['frame_name']} (idx={int(first_rec['frame_idx'])})")
+    print(f"Sequence last frame: {last_rec['frame_name']} (idx={int(last_rec['frame_idx'])})")
+    print(f"Sequence sample OBJ: {stage1_seq_obj}")
     print(f"Summary: {final_out / 'run_summary.json'}")
 
 
 if __name__ == "__main__":
     main()
+
 
 
 

@@ -32,7 +32,9 @@ from avatar_gs.losses import (
     canonical_offset_l2,
     compute_robust_photo_loss,
     covariance_penalty,
+    layer_alpha_balance_loss,
     opacity_prior_loss,
+    outer_color_band_loss,
 )
 from avatar_gs.training import FrameResidualEMA, frame_weight_from_residual
 from avatar_gs.visibility import (
@@ -240,6 +242,46 @@ def _erode_binary_mask_torch(mask: torch.Tensor, erode_px: int) -> torch.Tensor:
     return out.clamp(0.0, 1.0)
 
 
+def _dilate_binary_mask_torch(mask: torch.Tensor, dilate_px: int) -> torch.Tensor:
+    if int(dilate_px) <= 0:
+        return mask
+    if mask.ndim != 3:
+        raise ValueError(f"mask must be (1,H,W), got {mask.shape}")
+    k = int(dilate_px) * 2 + 1
+    x = mask.clamp(0.0, 1.0).unsqueeze(0)
+    out = F.max_pool2d(x, kernel_size=k, stride=1, padding=int(dilate_px)).squeeze(0)
+    return out.clamp(0.0, 1.0)
+
+
+def _compute_contour_band_torch(mask: torch.Tensor, width_px: int = 2) -> torch.Tensor:
+    if mask.ndim != 3:
+        raise ValueError(f"mask must be (1,H,W), got {mask.shape}")
+    w = max(int(width_px), 1)
+    m = (mask > 0.5).float()
+    dil = _dilate_binary_mask_torch(m, w)
+    ero = _erode_binary_mask_torch(m, w)
+    return (dil - ero).clamp(0.0, 1.0)
+
+
+def _fscore_binary_torch(
+    pred_mask: torch.Tensor,
+    gt_mask: torch.Tensor,
+    eval_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    p = (pred_mask > 0.5).float()
+    g = (gt_mask > 0.5).float()
+    if eval_mask is not None:
+        e = (eval_mask > 0.5).float()
+        p = p * e
+        g = g * e
+    tp = (p * g).sum()
+    fp = (p * (1.0 - g)).sum()
+    fn = ((1.0 - p) * g).sum()
+    precision = tp / (tp + fp + 1e-6)
+    recall = tp / (tp + fn + 1e-6)
+    return (2.0 * precision * recall) / (precision + recall + 1e-6)
+
+
 def train_gaussians_3d_learnable_camera(
     g: Gaussian3D,
     frames_dir: str | Path,
@@ -278,7 +320,7 @@ def train_gaussians_3d_learnable_camera(
     bind_cache_size: int = 8,
     bind_seq_npz: str | Path | None = None,
     bind_vertices_npz: str | Path | None = None,
-    bind_tpose_obj: str | Path | None = None,
+    bind_deform_obj: str | Path | None = None,
     bind_mesh_to_camera: bool = False,
     bind_inverse_export_upright: bool = True,
     bind_mesh_obj_space: str = "auto",
@@ -349,6 +391,7 @@ def train_gaussians_3d_learnable_camera(
     inner_soft_lr_scale: float = 0.2,
     inner_prune_every: int = 400,
     inner_prune_protect_parts: list[str] | tuple[str, ...] | None = None,
+    dual_quality_gate: dict | None = None,
 ):
     """
     Stage2: optimize 3D Gaussians + (optional) per-frame learnable camera.
@@ -415,6 +458,18 @@ def train_gaussians_3d_learnable_camera(
         g.prune_state = torch.zeros((n_gauss,), dtype=torch.int64, device=device)
     else:
         g.prune_state = g.prune_state.to(device=device, dtype=torch.int64)
+    if g.quality_fail_counter is None:
+        g.quality_fail_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
+    else:
+        g.quality_fail_counter = g.quality_fail_counter.to(device=device, dtype=torch.float32)
+    if g.color_conf_ema is None:
+        g.color_conf_ema = torch.full((n_gauss,), 0.5, dtype=torch.float32, device=device)
+    else:
+        g.color_conf_ema = g.color_conf_ema.to(device=device, dtype=torch.float32)
+    if g.geom_conf_ema is None:
+        g.geom_conf_ema = torch.full((n_gauss,), 0.5, dtype=torch.float32, device=device)
+    else:
+        g.geom_conf_ema = g.geom_conf_ema.to(device=device, dtype=torch.float32)
 
     # Learnable local face offset for shell/deformation branch.
     g.bind_face_offset_local = torch.nn.Parameter(g.bind_face_offset_local)
@@ -590,7 +645,7 @@ def train_gaussians_3d_learnable_camera(
                 m = cv2.erode(m, k_e, iterations=1)
             person_masks_frames[i] = torch.from_numpy(m.astype(np.float32)).to(device=device).unsqueeze(0)
 
-    # Optional: small robustness鈥攔andomize frame order sampling
+    # Optional: small robustness閳ユ敂andomize frame order sampling
     # Optional: frame sampling weights (e.g., emphasize the last frame)
     frame_weights_t = None
     frame_loss_weights_t = None
@@ -1096,6 +1151,40 @@ def train_gaussians_3d_learnable_camera(
     inner_soft_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     inner_hard_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
 
+    dq_raw = dual_quality_gate if isinstance(dual_quality_gate, dict) else {}
+    dq_enable = bool(dq_raw.get("enable", False))
+    dq_mode = str(dq_raw.get("mode", "hard_and")).strip().lower()
+    if dq_mode not in ("hard_and", "hard_or"):
+        dq_mode = "hard_and"
+    dq_eval_every = max(int(dq_raw.get("eval_every", 100)), 1)
+    dq_warmup_iters = max(int(dq_raw.get("warmup_iters", 1200)), 0)
+
+    dq_color = dq_raw.get("color", {}) if isinstance(dq_raw.get("color", {}), dict) else {}
+    dq_color_max_error = float(dq_color.get("max_error", 0.045))
+    dq_color_unstable_var_max = float(dq_color.get("unstable_var_max", 0.012))
+    dq_color_roi = str(dq_color.get("roi", "person_intersect_smpl")).strip().lower()
+
+    dq_geom = dq_raw.get("geometry", {}) if isinstance(dq_raw.get("geometry", {}), dict) else {}
+    dq_geom_min_score = float(dq_geom.get("min_score", 0.78))
+    dq_geom_residual_top_percent = float(dq_geom.get("residual_top_percent", 20.0))
+    dq_geom_edge_top_percent = float(dq_geom.get("edge_top_percent", 30.0))
+    dq_geom_roi = str(dq_geom.get("roi", "contour_band")).strip().lower()
+
+    dq_ctrl = dq_raw.get("control", {}) if isinstance(dq_raw.get("control", {}), dict) else {}
+    dq_spawn_scale_if_fail = float(dq_ctrl.get("spawn_scale_if_fail", 0.0))
+    dq_outer_lr_scale_if_fail = float(dq_ctrl.get("outer_lr_scale_if_fail", 0.5))
+    dq_outer_alpha_cap_if_fail = float(dq_ctrl.get("outer_alpha_cap_if_fail", 0.28))
+    dq_prune_boost_if_fail = float(dq_ctrl.get("prune_boost_if_fail", 1.25))
+    dq_recover_patience = max(int(dq_ctrl.get("recover_patience", 3)), 1)
+    dq_outer_color_band_weight = float(dq_ctrl.get("outer_color_band_weight", 0.05))
+    dq_layer_alpha_balance_weight = float(dq_ctrl.get("layer_alpha_balance_weight", 0.02))
+
+    dq_fail_active = False
+    dq_pass_streak = 0
+    dq_last_color_error = 0.0
+    dq_last_color_var = 0.0
+    dq_last_geom_score = 0.0
+
     for it in tqdm(range(iters), desc="Stage2 3DGS (learnable camera)"):
         opt.zero_grad(set_to_none=True)
 
@@ -1137,7 +1226,9 @@ def train_gaussians_3d_learnable_camera(
 
         loss_value = 0.0
         vis_accum: list[torch.Tensor] = []
-
+        color_eval_vals: list[float] = []
+        color_var_vals: list[float] = []
+        geom_eval_vals: list[float] = []
         for fj, wj in zip(ctx_indices, ctx_weights):
             gt = gts[fj]  # (3,H,W)
 
@@ -1295,6 +1386,31 @@ def train_gaussians_3d_learnable_camera(
             if mask is not None:
                 weight = mask if weight is None else (weight * mask)
 
+            gate_color_roi_mask = None
+            gate_geom_target = None
+            gate_geom_band = None
+            if dq_enable:
+                if dq_color_roi == "person_intersect_smpl":
+                    if person_mask_curr is not None and smpl_mask_for_color is not None:
+                        gate_color_roi_mask = (person_mask_curr * smpl_mask_for_color).clamp(0.0, 1.0)
+                    elif person_mask_curr is not None:
+                        gate_color_roi_mask = person_mask_curr
+                    elif smpl_mask_for_color is not None:
+                        gate_color_roi_mask = smpl_mask_for_color
+                elif dq_color_roi == "person":
+                    gate_color_roi_mask = person_mask_curr
+                elif dq_color_roi == "smpl":
+                    gate_color_roi_mask = smpl_mask_for_color
+
+                if gate_color_roi_mask is None:
+                    gate_color_roi_mask = torch.ones((1, H, W), dtype=torch.float32, device=device)
+
+                if dq_geom_roi == "contour_band":
+                    gate_geom_target = gate_color_roi_mask
+                    gate_geom_band = _compute_contour_band_torch(gate_geom_target, width_px=2)
+                else:
+                    gate_geom_target = gate_color_roi_mask
+
             # Pass-1 render: estimate visibility and frame residual.
             pred_rgb_p1, pred_a_p1, meta_p1 = render_gaussians_3d(
                 g, K, R, t, H, W, bg=bg_rgb, return_alpha=True, return_meta=True
@@ -1314,7 +1430,7 @@ def train_gaussians_3d_learnable_camera(
                 alpha_map=pred_a_p1.detach(),
                 person_mask=person_mask_curr,
                 renderer_meta=meta_p1,
-                min_alpha=max(float(alpha_threshold), 0.01),
+                min_alpha=max(float(alpha_threshold), 0.005),
             )
 
             if bool(use_border_attenuation) and person_mask_curr is not None and int(border_attenuation_width) > 0:
@@ -1328,7 +1444,12 @@ def train_gaussians_3d_learnable_camera(
 
             active_mask = (g.prune_state != 2)
             visibility = visibility * active_mask.float()
-            visibility = visibility * frame_w_scalar
+            # Keep a tiny visibility floor for currently visible splats during early stabilization,
+            # otherwise training can stall when pass-1 alpha is still weak.
+            vis_floor = 0.08 if (it < phase0_end) else 0.02
+            if vis_floor > 0.0:
+                vis_pos = visibility > 0.0
+                visibility = torch.where(vis_pos, visibility.clamp(min=vis_floor), visibility)
             visibility = visibility.clamp(0.0, 1.0)
             vis_accum.append(visibility.detach())
 
@@ -1366,7 +1487,35 @@ def train_gaussians_3d_learnable_camera(
                 photo = photo_map.mean()
                 l1 = l1_map.mean()
 
-            frame_loss = photo + float(l1_weight) * l1
+            outer_band_term = pred_rgb.new_tensor(0.0)
+            if dq_enable:
+                roi = gate_color_roi_mask
+                abs_diff = diff.abs()
+                if roi is not None and float(roi.sum().detach().cpu()) > 1.0:
+                    roi3 = roi.expand_as(abs_diff)
+                    color_err = (abs_diff * roi3).sum() / (roi3.sum() + 1e-6)
+                    pix_err = abs_diff.mean(dim=0, keepdim=True)
+                    pix_vals = pix_err[roi > 0.5]
+                    if int(pix_vals.numel()) > 1:
+                        color_var = torch.var(pix_vals, unbiased=False)
+                    else:
+                        color_var = abs_diff.new_tensor(0.0)
+                else:
+                    color_err = abs_diff.mean()
+                    color_var = abs_diff.new_tensor(0.0)
+                color_eval_vals.append(float(color_err.detach().cpu()))
+                color_var_vals.append(float(color_var.detach().cpu()))
+
+                if gate_geom_target is not None:
+                    pred_bin = (pred_a > max(float(alpha_threshold), 0.01)).float()
+                    gt_bin = (gate_geom_target > 0.5).float()
+                    geom_score = _fscore_binary_torch(pred_bin, gt_bin, gate_geom_band)
+                    geom_eval_vals.append(float(geom_score.detach().cpu()))
+
+                if bool(shell_enable) and gate_geom_band is not None and float(dq_outer_color_band_weight) > 0.0:
+                    outer_band_term = outer_color_band_loss(pred_rgb, gt, gate_geom_band)
+
+            frame_loss = photo + float(l1_weight) * l1 + float(dq_outer_color_band_weight) * outer_band_term
 
             leak_mask = smpl_mask
             if leak_mask is None and person_masks_frames is not None:
@@ -1378,7 +1527,7 @@ def train_gaussians_3d_learnable_camera(
 
             if frame_loss_weights_t is not None:
                 frame_loss = frame_loss * float(frame_loss_weights_t[fj].item())
-            frame_loss = float(wj) * frame_loss
+            frame_loss = float(wj) * float(frame_w_scalar) * frame_loss
 
             loss_value += float(frame_loss.detach().cpu())
             frame_loss.backward()
@@ -1397,6 +1546,36 @@ def train_gaussians_3d_learnable_camera(
                 aniso_loss.backward()
 
         vis_mean = torch.stack(vis_accum, dim=0).mean(dim=0) if len(vis_accum) > 0 else torch.ones((n_gauss,), device=device)
+
+        if dq_enable:
+            eval_due = ((it + 1) >= int(dq_warmup_iters)) and (((it + 1) % int(dq_eval_every)) == 0)
+            if eval_due:
+                dq_last_color_error = float(np.mean(color_eval_vals)) if len(color_eval_vals) > 0 else 0.0
+                dq_last_color_var = float(np.mean(color_var_vals)) if len(color_var_vals) > 0 else 0.0
+                dq_last_geom_score = float(np.mean(geom_eval_vals)) if len(geom_eval_vals) > 0 else 0.0
+
+                color_pass = (dq_last_color_error <= float(dq_color_max_error)) and (
+                    dq_last_color_var <= float(dq_color_unstable_var_max)
+                )
+                geom_pass = dq_last_geom_score >= float(dq_geom_min_score)
+                gate_pass = (color_pass and geom_pass) if dq_mode == "hard_and" else (color_pass or geom_pass)
+
+                if gate_pass:
+                    dq_pass_streak += 1
+                    if dq_pass_streak >= int(dq_recover_patience):
+                        dq_fail_active = False
+                else:
+                    dq_pass_streak = 0
+                    dq_fail_active = True
+
+            color_conf_now = max(0.0, min(1.0, 1.0 - (dq_last_color_error / max(float(dq_color_max_error), 1e-6))))
+            geom_conf_now = max(0.0, min(1.0, dq_last_geom_score / max(float(dq_geom_min_score), 1e-6)))
+            g.color_conf_ema = 0.9 * g.color_conf_ema + 0.1 * float(color_conf_now)
+            g.geom_conf_ema = 0.9 * g.geom_conf_ema + 0.1 * float(geom_conf_now)
+
+            if dq_fail_active:
+                outer_fail_m = (g.shell_layer == 1) & (g.prune_state != 2)
+                g.quality_fail_counter[outer_fail_m] = g.quality_fail_counter[outer_fail_m] + 1.0
 
         # Shell/occlusion policy updates (state-based, non-destructive).
         if bool(shell_enable):
@@ -1443,14 +1622,28 @@ def train_gaussians_3d_learnable_camera(
                 curv_conf=g.bind_mix_weight.view(-1).detach(),
                 leak=(1.0 - vis_mean.detach()).clamp(0.0, 1.0),
             )
+            if dq_enable:
+                res_top = float(np.clip(dq_geom_residual_top_percent, 0.0, 100.0)) / 100.0
+                edge_top = float(np.clip(dq_geom_edge_top_percent, 0.0, 100.0)) / 100.0
+                if res_top > 0.0 and edge_top > 0.0:
+                    res_q = torch.quantile(densify_stats.residual_ema.detach(), max(1e-6, 1.0 - res_top))
+                    edge_q = torch.quantile(edge_metric.detach(), max(1e-6, 1.0 - edge_top))
+                    geom_focus = (densify_stats.residual_ema.detach() >= res_q) & (edge_metric.detach() >= edge_q)
+                    shell_score = shell_score * (1.0 + 0.25 * geom_focus.float())
+
+            prune_low_vis_th = 0.02
+            prune_low_score_percent = 10.0
+            if dq_enable and dq_fail_active:
+                prune_low_vis_th = min(1.0, prune_low_vis_th * float(dq_prune_boost_if_fail))
+                prune_low_score_percent = min(100.0, prune_low_score_percent * float(dq_prune_boost_if_fail))
 
             if int(shell_prune_every) > 0 and ((it + 1) % int(shell_prune_every) == 0):
                 to_prune_outer = select_outer_prune_candidates(
                     outer_mask=outer_mask,
                     outer_vis=vis_mean,
                     outer_score=shell_score,
-                    low_vis_th=0.02,
-                    low_score_percent=10.0,
+                    low_vis_th=prune_low_vis_th,
+                    low_score_percent=prune_low_score_percent,
                 )
                 if int(to_prune_outer.numel()) > 0:
                     g.prune_state[to_prune_outer] = 2
@@ -1464,6 +1657,8 @@ def train_gaussians_3d_learnable_camera(
                     max_ratio=float(shell_max_ratio),
                 )
                 max_new = max(0, outer_budget - n_outer_active)
+                if dq_enable and dq_fail_active:
+                    max_new = int(round(float(max_new) * float(max(dq_spawn_scale_if_fail, 0.0))))
                 if max_new > 0:
                     spawn_src = select_outer_spawn_candidates(
                         shell_score=shell_score,
@@ -1511,7 +1706,15 @@ def train_gaussians_3d_learnable_camera(
         )
         reg_cov = float(cov_penalty_weight) * low_vis_boost * covariance_penalty(g.scales(), float(cov_min), float(cov_max))
         reg_offset = float(shell_offset_reg_weight) * canonical_offset_l2(g.bind_face_offset_local)
-        reg_total = reg_opacity + reg_cov + reg_offset
+        alpha_cap_for_balance = float(dq_outer_alpha_cap_if_fail) if (dq_enable and dq_fail_active) else 0.40
+        reg_alpha_balance = float(dq_layer_alpha_balance_weight) * layer_alpha_balance_loss(
+            g.opacity(),
+            g.shell_layer,
+            outer_alpha_cap=alpha_cap_for_balance,
+            inner_alpha_floor=0.03,
+        )
+
+        reg_total = reg_opacity + reg_cov + reg_offset + reg_alpha_balance
         loss_value += float(reg_total.detach().cpu())
         reg_total.backward()
 
@@ -1541,6 +1744,15 @@ def train_gaussians_3d_learnable_camera(
                         p.grad[soft_mask] *= float(inner_soft_lr_scale)
                     if bool(hard_mask.any()):
                         p.grad[hard_mask] = 0.0
+
+        if dq_enable and dq_fail_active and bool(shell_enable):
+            outer_active = (g.shell_layer == 1) & (g.prune_state != 2)
+            if bool(outer_active.any()):
+                with torch.no_grad():
+                    for p in (g.log_scales, g.quat, g.opacity_logit, g.rgb_logit, g.bind_face_offset_local):
+                        if p.grad is None:
+                            continue
+                        p.grad[outer_active] *= float(dq_outer_lr_scale_if_fail)
 
         if phase_tag == "phase0":
             with torch.no_grad():
@@ -1584,6 +1796,12 @@ def train_gaussians_3d_learnable_camera(
             g.bind_face_offset_local[:, 0].clamp_(min=-float(shell_offset_max_t), max=float(shell_offset_max_t))
             g.bind_face_offset_local[:, 1].clamp_(min=-float(shell_offset_max_t), max=float(shell_offset_max_t))
             g.bind_face_offset_local[:, 2].clamp_(min=-float(shell_offset_max_n), max=float(shell_offset_max_n))
+            if dq_enable and dq_fail_active and bool(shell_enable):
+                outer_active = (g.shell_layer == 1) & (g.prune_state != 2)
+                if bool(outer_active.any()):
+                    cap = float(np.clip(dq_outer_alpha_cap_if_fail, 1e-3, 0.999))
+                    cap_logit = float(np.log(cap / (1.0 - cap)))
+                    g.opacity_logit[outer_active] = g.opacity_logit[outer_active].clamp(max=cap_logit)
             if bool((g.prune_state == 2).any()):
                 g.opacity_logit[g.prune_state == 2] = g.opacity_logit[g.prune_state == 2].clamp(max=-6.0)
 
@@ -1638,7 +1856,7 @@ def train_gaussians_3d_learnable_camera(
             "bind_mesh_indices": bind_mesh_indices if binding_enabled else None,
             "bind_sequence_npz": str(bind_seq_npz) if (binding_enabled and bind_seq_npz is not None) else None,
             "bind_vertices_npz": str(bind_vertices_npz) if (binding_enabled and bind_vertices_npz is not None) else None,
-            "bind_tpose_obj": str(bind_tpose_obj) if (binding_enabled and bind_tpose_obj is not None) else None,
+            "bind_deform_obj": str(bind_deform_obj) if (binding_enabled and bind_deform_obj is not None) else None,
             "bind_mesh_obj_space": bind_mesh_obj_space,
             "bind_align_quat_to_mesh_normals": bind_align_quat_to_mesh_normals,
             "bind_quat_normal_blend": bind_quat_normal_blend,
@@ -1673,9 +1891,22 @@ def train_gaussians_3d_learnable_camera(
             "early_stop_patience": early_stop_patience,
             "early_stop_min_delta": early_stop_min_delta,
             "early_stop_warmup_iters": early_stop_warmup_iters,
+            "dual_quality_gate": dual_quality_gate,
+            "dual_quality_gate_last": {
+                "color_error": dq_last_color_error,
+                "color_var": dq_last_color_var,
+                "geometry_score": dq_last_geom_score,
+                "fail_active": dq_fail_active,
+            },
         },
         out_ckpt,
     )
+
+
+
+
+
+
 
 
 

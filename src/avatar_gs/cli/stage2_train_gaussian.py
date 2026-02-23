@@ -604,11 +604,11 @@ def main():
             mesh_obj = project_root / mesh_obj
     if (not str(init_mesh_cfg).strip()) or (not mesh_obj.exists()):
         fallback_mesh = None
-        tpose_cands = sorted(stage1_dir.glob("*_t-pose.obj"))
-        if len(tpose_cands) > 0:
-            fallback_mesh = tpose_cands[-1]
+        deform_cands = sorted(stage1_dir.glob("*_deform.obj"))
+        if len(deform_cands) > 0:
+            fallback_mesh = deform_cands[-1]
         else:
-            for cand in (stage1_dir / "smpl_mesh_tpose.obj", stage1_dir / "smpl_mesh.obj"):
+            for cand in (stage1_dir / "smpl_mesh_canonical.obj", stage1_dir / "smpl_mesh.obj"):
                 if cand.exists():
                     fallback_mesh = cand
                     break
@@ -626,7 +626,7 @@ def main():
         if fallback_mesh is None:
             raise FileNotFoundError(
                 f"init mesh not found: {mesh_obj}. "
-                f"Checked fallback: {stage1_dir / '*_t-pose.obj'}, {stage1_dir / 'smpl_mesh_tpose.obj'}, {stage1_dir / 'smpl_mesh.obj'}, "
+                f"Checked fallback: {stage1_dir / '*_deform.obj'}, {stage1_dir / 'smpl_mesh_canonical.obj'}, {stage1_dir / 'smpl_mesh.obj'}, "
                 f"{stage1_dir / 'sequence' / '*.obj'}."
             )
         mesh_obj = fallback_mesh
@@ -765,7 +765,7 @@ def main():
     bind_mesh_indices = None
     bind_seq_npz_path = None
     bind_vertices_npz_path = None
-    bind_tpose_obj_path = None
+    bind_deform_obj_path = None
     if bind_to_mesh:
         if g.bind_idx is None:
             raise RuntimeError("bind_to_mesh=true but gaussians have no bind_idx.")
@@ -803,12 +803,12 @@ def main():
             logger.warning(
                 f"Missing {verts_npz}; binding will fall back to OBJ sequence only."
             )
-        tpose_obj_cfg = cfg["stage2"].get("bind_tpose_obj", str(mesh_obj))
-        tpose_obj_path = _resolve_project_path(project_root, tpose_obj_cfg)
-        if tpose_obj_path is not None and tpose_obj_path.exists():
-            bind_tpose_obj_path = tpose_obj_path
+        deform_obj_cfg = cfg["stage2"].get("bind_deform_obj", str(mesh_obj))
+        deform_obj_path = _resolve_project_path(project_root, deform_obj_cfg)
+        if deform_obj_path is not None and deform_obj_path.exists():
+            bind_deform_obj_path = deform_obj_path
         else:
-            logger.warning(f"bind_tpose_obj not found: {tpose_obj_path}. Render will use fallback.")
+            logger.warning(f"bind_deform_obj not found: {deform_obj_path}. Render will use fallback.")
 
         seq = np.load(bind_seq_npz_path, allow_pickle=True)
         seq_names = [str(x) for x in seq["frame_names"].tolist()]
@@ -959,7 +959,7 @@ def main():
         bind_cache_size=int(cfg["stage2"].get("bind_cache_size", 8)),
         bind_seq_npz=str(bind_seq_npz_path) if bind_seq_npz_path is not None else None,
         bind_vertices_npz=str(bind_vertices_npz_path) if bind_vertices_npz_path is not None else None,
-        bind_tpose_obj=str(bind_tpose_obj_path) if bind_tpose_obj_path is not None else None,
+        bind_deform_obj=str(bind_deform_obj_path) if bind_deform_obj_path is not None else None,
         bind_mesh_to_camera=bool(cfg["stage2"].get("bind_mesh_to_camera", False)),
         bind_inverse_export_upright=bool(cfg["stage2"].get("bind_inverse_export_upright", True)),
         bind_mesh_obj_space=str(cfg["stage2"].get("bind_mesh_obj_space", "auto")),
@@ -1030,6 +1030,7 @@ def main():
         inner_soft_lr_scale=float(cfg["stage2"].get("inner_soft_lr_scale", 0.2)),
         inner_prune_every=int(cfg["stage2"].get("inner_prune_every", 400)),
         inner_prune_protect_parts=cfg["stage2"].get("inner_prune_protect_parts", ["face", "hands"]),
+        dual_quality_gate=cfg["stage2"].get("dual_quality_gate", None),
     )
 
     logger.info(f"Saved checkpoint: {ckpt_path}")
@@ -1038,5 +1039,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

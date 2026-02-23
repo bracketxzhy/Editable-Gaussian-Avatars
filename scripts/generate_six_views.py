@@ -167,7 +167,7 @@ def main() -> None:
     parser.add_argument("--fg_frame_select", type=str, default="last", choices=["first", "last", "indices"])
     parser.add_argument("--fg_frame_indices", type=int, nargs="*", default=None)
 
-    parser.add_argument("--deform_source", type=str, default="smplx_params", choices=["smplx_params", "standard_pose", "tpose"])
+    parser.add_argument("--deform_source", type=str, default="smplx_params", choices=["smplx_params"])
     parser.add_argument("--deform_smplx_params_npz", type=str, default="outputs/stage1/smpl_params_sequence.npz")
     parser.add_argument("--deform_smplx_frame_idx", type=int, default=-1)
     parser.add_argument("--deform_smplx_frame_name", type=str, default="")
@@ -188,6 +188,16 @@ def main() -> None:
     if str(args.fg_frame_select).strip().lower() == "indices":
         fg_req = list(args.fg_frame_indices or [])
         fg_indices_internal = _map_frame_indices_to_internal(fg_req, stage2_frames)
+
+    deform_frame_idx_auto = None
+    if int(args.deform_smplx_frame_idx) < 0 and (not str(args.deform_smplx_frame_name).strip()):
+        sel = str(args.fg_frame_select).strip().lower()
+        if sel == "indices" and fg_indices_internal:
+            deform_frame_idx_auto = int(fg_indices_internal[0])
+        elif sel == "last":
+            deform_frame_idx_auto = max(0, len(stage2_frames) - 1)
+        elif sel == "first":
+            deform_frame_idx_auto = 0
 
     render_root = Path(args.render_root)
     fg_dir, real_dir, deform_dir = _prepare_render_root(
@@ -218,12 +228,6 @@ def main() -> None:
                 raise RuntimeError(f"fg_only output naming mismatch for view '{name}': {src.name}")
 
     if do_deform:
-        deform_source_mode = str(args.deform_source).strip().lower()
-        use_standard_pose_preset = deform_source_mode in ("standard_pose", "tpose")
-        if use_standard_pose_preset:
-            if deform_source_mode == "tpose":
-                print("[WARNING] --deform_source tpose is deprecated; use standard_pose.")
-            print("[INFO] deform uses SMPL-X params + standard pose preset.")
         for name, yaw, pitch in VIEWS:
             overrides = _base_overrides(args, deform_dir, yaw, pitch, name) + [
                 f"render.frame_select={args.fg_frame_select}",
@@ -239,13 +243,15 @@ def main() -> None:
                 f"render.deform_smplx_params_npz={args.deform_smplx_params_npz}",
                 f"render.deform_smplx_model_type={args.deform_smplx_model_type}",
                 f"render.deform_smplx_gender={args.deform_smplx_gender}",
-                f"render.deform_smplx_use_standard_pose={'true' if use_standard_pose_preset else 'false'}",
+                "render.deform_smplx_use_standard_pose=false",
             ]
             if fg_indices_internal:
                 idx_str = ",".join(str(int(x)) for x in fg_indices_internal)
                 overrides += [f"render.frame_indices={idx_str}"]
             if int(args.deform_smplx_frame_idx) >= 0:
                 overrides += [f"render.deform_smplx_frame_index={int(args.deform_smplx_frame_idx)}"]
+            elif deform_frame_idx_auto is not None:
+                overrides += [f"render.deform_smplx_frame_index={int(deform_frame_idx_auto)}"]
             if str(args.deform_smplx_frame_name).strip():
                 overrides += [f"render.deform_smplx_frame_name={str(args.deform_smplx_frame_name).strip()}"]
             if str(args.deform_smplx_model_root).strip():
@@ -298,6 +304,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
 

@@ -11,9 +11,6 @@ render:
   fg_nobg_out_subdir: fg_only
   deform_render_image: true
   deform_out_subdir: deform
-  deform_use_sequence_frame: false
-  deform_sequence_frame_index: -1
-  deform_sequence_frame_name: ""
   deform_source: smplx_params
   deform_smplx_params_npz: outputs/stage1/smpl_params_sequence.npz
   deform_smplx_frame_index: -1

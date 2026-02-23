@@ -33,6 +33,12 @@ class Gaussian3D:
     bind_mix_weight: torch.Tensor | None = None
     # (N,) optional prune/freezing state: 0=active, 1=soft-frozen, 2=hard-pruned
     prune_state: torch.Tensor | None = None
+    # (N,) optional per-gaussian quality gate fail counter
+    quality_fail_counter: torch.Tensor | None = None
+    # (N,) optional EMA confidence for color gate (higher is better)
+    color_conf_ema: torch.Tensor | None = None
+    # (N,) optional EMA confidence for geometry gate (higher is better)
+    geom_conf_ema: torch.Tensor | None = None
 
     def to(self, device: str):
         return Gaussian3D(
@@ -50,6 +56,9 @@ class Gaussian3D:
             shell_layer=self.shell_layer.to(device) if self.shell_layer is not None else None,
             bind_mix_weight=self.bind_mix_weight.to(device) if self.bind_mix_weight is not None else None,
             prune_state=self.prune_state.to(device) if self.prune_state is not None else None,
+            quality_fail_counter=self.quality_fail_counter.to(device) if self.quality_fail_counter is not None else None,
+            color_conf_ema=self.color_conf_ema.to(device) if self.color_conf_ema is not None else None,
+            geom_conf_ema=self.geom_conf_ema.to(device) if self.geom_conf_ema is not None else None,
         )
 
     def state_dict(self):
@@ -78,6 +87,12 @@ class Gaussian3D:
             sd["bind_mix_weight"] = self.bind_mix_weight
         if self.prune_state is not None:
             sd["prune_state"] = self.prune_state
+        if self.quality_fail_counter is not None:
+            sd["quality_fail_counter"] = self.quality_fail_counter
+        if self.color_conf_ema is not None:
+            sd["color_conf_ema"] = self.color_conf_ema
+        if self.geom_conf_ema is not None:
+            sd["geom_conf_ema"] = self.geom_conf_ema
         return sd
 
     @staticmethod
@@ -97,6 +112,9 @@ class Gaussian3D:
             shell_layer=sd.get("shell_layer", None),
             bind_mix_weight=sd.get("bind_mix_weight", None),
             prune_state=sd.get("prune_state", None),
+            quality_fail_counter=sd.get("quality_fail_counter", None),
+            color_conf_ema=sd.get("color_conf_ema", None),
+            geom_conf_ema=sd.get("geom_conf_ema", None),
         )
 
     def rgb(self):

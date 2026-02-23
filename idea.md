@@ -58,7 +58,7 @@ Build a monocular pipeline that:
 
 ### 3.2 Stage1 Outputs (Required)
 
-- `outputs/stage1/smpl_mesh_tpose.obj`
+- `outputs/stage1/smpl_mesh_canonical.obj`
 - `outputs/stage1/smpl_mesh_sequence/*.obj`
 - `outputs/stage1/smpl_params_sequence.npz`
 - `outputs/stage1/smpl_vertices_sequence.npz`
@@ -333,7 +333,7 @@ python -m avatar_gs.cli.render --config configs/stage2_gaussian.yaml --override 
 ## 8. Acceptance Checklist
 
 1. Required files exist after Stage1:
-- `outputs/stage1/smpl_mesh_tpose.obj`
+- `outputs/stage1/smpl_mesh_canonical.obj`
 - `outputs/stage1/smpl_mesh_sequence/*.obj`
 - `outputs/stage1/smpl_skeleton_sequence.npz`
 
