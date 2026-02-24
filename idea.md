@@ -54,7 +54,7 @@ Build a monocular pipeline that:
 - Frames: `data/frames/input`
 - Stage1 config: `configs/stage1_smplfit.yaml`
 - Stage2 config: `configs/stage2_gaussian.yaml`
-- Render config: `configs/render_fg_only.yaml`
+- Render config: `configs/stage2_gaussian.yaml` (use `render:` section)
 
 ### 3.2 Stage1 Outputs (Required)
 
@@ -345,5 +345,39 @@ python -m avatar_gs.cli.render --config configs/stage2_gaussian.yaml --override 
 3. Editing safety checks:
 - Novel views do not show obvious body/background mismatch
 - Pose edits do not cause severe bind drift or body tearing
+
+### 2026-02-23 - Outer Gaussian driven by GT contour (not SMPL mask)
+
+1) Motivation
+- Current failure: detached details (hair strands, loose cloth, hand-held props, external accessories) are still underfit.
+- Root cause: outer-layer supervision/trigger was still partly constrained by SMPL-centric priors or part-specific heuristics.
+
+2) Core change
+- Keep inner layer body-constrained.
+- Switch outer layer to per-frame GT contour supervision as primary source:
+  - estimate contour mask from frame border-background color model per frame;
+  - fuse with stage1 person mask (`outer_gt_contour_fuse_mode`);
+  - build contour-band + edge-gated outer support map for outer visibility/weighting.
+- Remove head/hair special-case logic; use generic contour mechanism for all external structures.
+
+3) Config additions (`stage2`)
+- `outer_use_gt_contour`
+- `outer_gt_contour_fuse_mode` (`intersect|union|replace`)
+- `outer_contour_dilate_px`
+- `outer_contour_band_px`
+- `outer_contour_edge_th`
+
+4) Default direction
+- Enable contour-driven outer trigger:
+  - `outer_edge_trigger_enable: true`
+  - `outer_edge_trigger_weight: 0.35`
+  - `outer_edge_visibility_boost: 0.35`
+  - `outer_edge_prune_protect_quantile: 0.90`
+
+5) Validation focus
+- Check whether non-body detached structures are preserved across views:
+  - hair/cloth boundaries
+  - held objects / wearable accessories
+- Verify green spill suppression does not erase true outer details.
 
 

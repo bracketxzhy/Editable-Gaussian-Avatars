@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "thresholds": {
+    "outer_active_outside_contour_ratio_max": 0.015,
+    "outer_active_outside_person_ratio_max": 0.01,
+    "outer_active_outside_alpha_gt_0_05_ratio_max": 0.002,
+    "hand_leakage_ratio_max": 0.003
+  },
+  "head_detached_coverage_baseline": 0.0,
+  "final": {
+    "iter": 6000,
+    "active_outer_count": 23969,
+    "hard_pruned_outer_count": 31,
+    "outer_active_outside_contour_ratio": 0.0,
+    "outer_active_outside_person_ratio": 0.004380658350369227,
+    "outer_active_outside_alpha_gt_0.05_ratio": 0.0,
+    "hand_leakage_ratio": 0.0,
+    "head_detached_coverage": 0.0
+  },
+  "pass": true
+}

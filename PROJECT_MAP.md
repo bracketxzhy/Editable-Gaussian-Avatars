@@ -54,10 +54,7 @@ Notes:
   - stage1 WHAM+PyMAF settings
 - `configs/stage2_gaussian.yaml`
   - stage2 gaussian training settings
-- `configs/render.yaml`
-  - rendering settings
-- `configs/render_fg_only.yaml`
-  - fg-only preview settings
+- rendering uses `render:` section in `configs/stage2_gaussian.yaml`
 - `configs/edit.yaml`
   - edit-time rendering settings
 
@@ -117,7 +114,7 @@ python -m avatar_gs.cli.stage2_train_gaussian --config configs/stage2_gaussian.y
 2. 训练完成后，生成六视图（脚本会为 `fg_only` 和 `deform` 各生成 6 张图并保存在 `outputs/renders` 下）：
 
 ```powershell
-python scripts\generate_six_views.py --config configs/stage2_gaussian.yaml
+python -m avatar_gs.cli.render --config configs/stage2_gaussian.yaml
 ```
 
 3. 若训练结果恒模糊：检查并确保 `bind_rigid_align.pre_stage2=true` 并且 `outputs/stage1/person_masks.npz` 与 `smpl_params_sequence.npz` 对应帧名一致，或手动运行 stage1 使其导出正确的绑定资产后重训 stage2。
@@ -207,7 +204,7 @@ python -m avatar_gs.cli.stage2_train_gaussian --config configs/stage2_gaussian.y
 ### 4) Render
 
 set PYTHONPATH=src
-python -m avatar_gs.cli.render --config configs/render.yaml
+python -m avatar_gs.cli.render --config configs/stage2_gaussian.yaml
 
 ```
 

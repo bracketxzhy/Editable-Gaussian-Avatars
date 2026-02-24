@@ -1,0 +1,36 @@
+{
+  "enabled": true,
+  "auto": true,
+  "pre_stage2": true,
+  "params": {
+    "rx_deg": 0.0,
+    "ry_deg": 0.0,
+    "rz_deg": 0.0,
+    "tx": 0.0020854578018188476,
+    "ty": 0.0,
+    "tz": 0.04872044705402899
+  },
+  "score_before": 0.9367656326356162,
+  "score_after": 0.9399455986170587,
+  "iou_before": 0.9749059432117582,
+  "iou_after": 0.9737326789068195,
+  "outside_before": 0.019070155288071045,
+  "outside_after": 0.016893540144880367,
+  "bbox_init_applied": true,
+  "require_quality": false,
+  "use_best_if_quality_fail": true,
+  "quality_ok": true,
+  "min_iou_after": 0.7,
+  "max_outside_after": 0.2,
+  "sample_frames": [
+    "000000.jpg",
+    "000011.jpg",
+    "000021.jpg",
+    "000032.jpg",
+    "000043.jpg",
+    "000054.jpg",
+    "000064.jpg",
+    "000075.jpg"
+  ],
+  "person_masks_npz": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\person_masks.npz"
+}

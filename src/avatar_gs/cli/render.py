@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import math
+import subprocess
+import sys
 import cv2
 import numpy as np
 import torch
@@ -241,6 +243,28 @@ def _clear_image_files(dir_path: Path) -> int:
             old.unlink()
             removed += 1
     return removed
+
+
+def _pick_suffix_png(folder: Path, suffix_name: str) -> Path:
+    cands = sorted(folder.glob(f"*_{suffix_name}.png"), key=lambda p: p.stat().st_mtime)
+    if not cands:
+        raise FileNotFoundError(f"No rendered file matched '*_{suffix_name}.png' in {folder}")
+    return cands[-1]
+
+
+def _move_or_replace(src: Path, dst: Path) -> None:
+    if src == dst:
+        return
+    try:
+        dst.unlink(missing_ok=True)
+    except PermissionError:
+        pass
+    try:
+        src.replace(dst)
+    except PermissionError:
+        import shutil
+
+        shutil.copy2(src, dst)
 
 
 def _compute_vertex_normals_np(verts: np.ndarray, faces: np.ndarray | None) -> np.ndarray:
@@ -879,6 +903,13 @@ def _select_gaussians(g: Gaussian3D, mask: torch.Tensor) -> Gaussian3D:
         bind_face_idx=g.bind_face_idx[mask] if g.bind_face_idx is not None else None,
         bind_bary=g.bind_bary[mask] if g.bind_bary is not None else None,
         bind_hybrid_w=g.bind_hybrid_w[mask] if g.bind_hybrid_w is not None else None,
+        bind_face_offset_local=g.bind_face_offset_local[mask] if g.bind_face_offset_local is not None else None,
+        shell_layer=g.shell_layer[mask] if g.shell_layer is not None else None,
+        bind_mix_weight=g.bind_mix_weight[mask] if g.bind_mix_weight is not None else None,
+        prune_state=g.prune_state[mask] if g.prune_state is not None else None,
+        quality_fail_counter=g.quality_fail_counter[mask] if g.quality_fail_counter is not None else None,
+        color_conf_ema=g.color_conf_ema[mask] if g.color_conf_ema is not None else None,
+        geom_conf_ema=g.geom_conf_ema[mask] if g.geom_conf_ema is not None else None,
     )
 
 
@@ -894,6 +925,13 @@ def _clone_gaussians(g: Gaussian3D) -> Gaussian3D:
         bind_face_idx=g.bind_face_idx.clone() if g.bind_face_idx is not None else None,
         bind_bary=g.bind_bary.clone() if g.bind_bary is not None else None,
         bind_hybrid_w=g.bind_hybrid_w.clone() if g.bind_hybrid_w is not None else None,
+        bind_face_offset_local=g.bind_face_offset_local.clone() if g.bind_face_offset_local is not None else None,
+        shell_layer=g.shell_layer.clone() if g.shell_layer is not None else None,
+        bind_mix_weight=g.bind_mix_weight.clone() if g.bind_mix_weight is not None else None,
+        prune_state=g.prune_state.clone() if g.prune_state is not None else None,
+        quality_fail_counter=g.quality_fail_counter.clone() if g.quality_fail_counter is not None else None,
+        color_conf_ema=g.color_conf_ema.clone() if g.color_conf_ema is not None else None,
+        geom_conf_ema=g.geom_conf_ema.clone() if g.geom_conf_ema is not None else None,
     )
 
 
@@ -1080,6 +1118,70 @@ def main():
     file_suffix = str(render_cfg.get("file_suffix", "")).strip()
     if file_suffix and (not file_suffix.startswith("_")):
         file_suffix = f"_{file_suffix}"
+    six_views_enable = bool(render_cfg.get("six_views_enable", True))
+    six_views_internal = bool(render_cfg.get("six_views_internal", False))
+    six_views_include_top_bottom = bool(render_cfg.get("six_views_include_top_bottom", True))
+
+    if six_views_enable and (not six_views_internal):
+        view_specs: list[tuple[str, float, float]] = [
+            ("front", 0.0, 0.0),
+            ("back", 180.0, 0.0),
+            ("left", 90.0, 0.0),
+            ("right", -90.0, 0.0),
+        ]
+        if six_views_include_top_bottom:
+            view_specs.extend([("top", 0.0, 90.0), ("bottom", 0.0, -90.0)])
+        suffix_base = file_suffix[1:] if file_suffix.startswith("_") else file_suffix
+        logger.info(
+            "Six-view mode enabled (dual-layer bound-only): %s",
+            [x[0] for x in view_specs],
+        )
+        for vi, (view_name, yaw_deg, pitch_deg) in enumerate(view_specs):
+            emit_real = bool(save_real_image) and (view_name == "front")
+            emit_deform = bool(render_deform_image)
+            view_suffix = view_name if (not suffix_base) else f"{view_name}_{suffix_base}"
+            extra_overrides = [
+                "render.six_views_enable=false",
+                "render.six_views_internal=true",
+                f"render.view_yaw_deg={float(yaw_deg)}",
+                f"render.view_pitch_deg={float(pitch_deg)}",
+                f"render.view_roll_deg={float(view_roll_deg)}",
+                f"render.file_suffix={view_suffix}",
+                "render.render_bound_only=true",
+                "render.fg_only_render_bound_only=true",
+                "render.deform_render_bound_only=true",
+                "render.deform_smplx_use_standard_pose=true",
+                "render.overlay_smpl_skeleton=false",
+                "render.debug_overlay_keypoints=false",
+                "render.debug_bind_to_google_skeleton=false",
+                f"render.save_real_image={'true' if emit_real else 'false'}",
+                f"render.use_gt_background={'true' if emit_real else 'false'}",
+            ]
+            if emit_real:
+                # Real/front should stay in the exact GT camera for best alignment.
+                extra_overrides += [
+                    "render.center_subject=false",
+                    "render.subject_fit_enabled=false",
+                    "render.k_scale=1.0",
+                ]
+            if vi > 0:
+                extra_overrides.append("render.clear_out_dir_pngs=false")
+            merged_overrides = list(args.override or []) + extra_overrides
+            cmd = [sys.executable, "-m", "avatar_gs.cli.render", "--config", str(args.config)]
+            if len(merged_overrides) > 0:
+                cmd += ["--override", *merged_overrides]
+            logger.info("Six-view render [%d/%d]: %s", vi + 1, len(view_specs), view_name)
+            subprocess.run(cmd, check=True)
+            if emit_deform:
+                src = _pick_suffix_png(deform_out_dir, view_suffix)
+                dst = deform_out_dir / f"{view_name}.png"
+                _move_or_replace(src, dst)
+            if emit_real:
+                src = _pick_suffix_png(real_out_dir, view_suffix)
+                dst = real_out_dir / "front.png"
+                _move_or_replace(src, dst)
+        logger.info("Done.")
+        return
 
     if bool(render_cfg.get("clear_out_dir_pngs", False)):
         removed = 0
@@ -1131,6 +1233,13 @@ def main():
       bind_face_idx=gsd["bind_face_idx"].to(device) if ("bind_face_idx" in gsd and gsd["bind_face_idx"] is not None) else None,
       bind_bary=gsd["bind_bary"].to(device) if ("bind_bary" in gsd and gsd["bind_bary"] is not None) else None,
       bind_hybrid_w=gsd["bind_hybrid_w"].to(device) if ("bind_hybrid_w" in gsd and gsd["bind_hybrid_w"] is not None) else None,
+      bind_face_offset_local=gsd["bind_face_offset_local"].to(device) if ("bind_face_offset_local" in gsd and gsd["bind_face_offset_local"] is not None) else None,
+      shell_layer=gsd["shell_layer"].to(device) if ("shell_layer" in gsd and gsd["shell_layer"] is not None) else None,
+      bind_mix_weight=gsd["bind_mix_weight"].to(device) if ("bind_mix_weight" in gsd and gsd["bind_mix_weight"] is not None) else None,
+      prune_state=gsd["prune_state"].to(device) if ("prune_state" in gsd and gsd["prune_state"] is not None) else None,
+      quality_fail_counter=gsd["quality_fail_counter"].to(device) if ("quality_fail_counter" in gsd and gsd["quality_fail_counter"] is not None) else None,
+      color_conf_ema=gsd["color_conf_ema"].to(device) if ("color_conf_ema" in gsd and gsd["color_conf_ema"] is not None) else None,
+      geom_conf_ema=gsd["geom_conf_ema"].to(device) if ("geom_conf_ema" in gsd and gsd["geom_conf_ema"] is not None) else None,
     )
 
     # Intrinsics
@@ -1218,7 +1327,7 @@ def main():
     bg_scale = float(render_cfg.get("bg_scale", 1.0))
     k_scale = float(render_cfg.get("k_scale", 1.0))
     split_by_bind = bool(render_cfg.get("split_by_bind", False))
-    render_bound_only = bool(render_cfg.get("render_bound_only", False))
+    render_bound_only = bool(render_cfg.get("render_bound_only", True))
     fg_only_render_bound_only = bool(render_cfg.get("fg_only_render_bound_only", True))
     deform_render_bound_only = bool(render_cfg.get("deform_render_bound_only", True))
     bound_alpha_threshold = float(render_cfg.get("bound_alpha_threshold", 0.0))
@@ -1306,7 +1415,7 @@ def main():
     deform_smplx_model_type = str(render_cfg.get("deform_smplx_model_type", "smplx")).strip().lower()
     deform_smplx_gender = str(render_cfg.get("deform_smplx_gender", "neutral")).strip().lower()
     deform_smplx_model_root = str(render_cfg.get("deform_smplx_model_root", "")).strip()
-    deform_smplx_use_standard_pose = bool(render_cfg.get("deform_smplx_use_standard_pose", False))
+    deform_smplx_use_standard_pose = bool(render_cfg.get("deform_smplx_use_standard_pose", True))
 
     deform_source = deform_source_raw
     if deform_source != "smplx_params":
@@ -1521,8 +1630,26 @@ def main():
         device=device,
     ).view(1, 3)
     bind_mesh_offset_np = bind_mesh_offset_t.detach().cpu().numpy().reshape(1, 3).astype(np.float32)
+    bind_rigid_align_auto_from_stage2 = bool(render_cfg.get("bind_rigid_align_auto_from_stage2", True))
     bind_rigid_align_cfg_raw = render_cfg.get("bind_rigid_align", {"enabled": False})
     bind_rigid_align_cfg = normalize_rigid_align_config(bind_rigid_align_cfg_raw, default_enabled=False)
+    if (
+        bind_rigid_align_auto_from_stage2
+        and (bind_rigid_align_cfg is None or (not bool(bind_rigid_align_cfg.get("enabled", False))))
+    ):
+        report_path = stage2_dir / "bind_rigid_align_pre_stage2.json"
+        if report_path.exists():
+            try:
+                import json as _json
+
+                with report_path.open("r", encoding="utf-8") as f:
+                    report_cfg = _json.load(f)
+                report_norm = normalize_rigid_align_config(report_cfg, default_enabled=False)
+                if report_norm is not None and bool(report_norm.get("enabled", False)):
+                    bind_rigid_align_cfg = report_norm
+                    logger.info(f"Loaded bind_rigid_align from pre-stage2 report: {report_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load pre-stage2 rigid align report ({report_path}): {e}")
     bind_rigid_align_apply_cfg = (
         {
             "enabled": True,
@@ -2731,7 +2858,7 @@ def main():
                 threshold=deform_alpha_threshold,
                 gamma=deform_alpha_gamma,
             )
-            if bind_faces_np is not None:
+            if fg_mask_mode in ("smpl", "mesh") and bind_faces_np is not None:
                 mask_def_np = _rasterize_mesh_mask(
                     verts=verts_deform.detach().cpu().numpy(),
                     faces=bind_faces_np,

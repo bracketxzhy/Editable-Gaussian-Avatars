@@ -29,7 +29,7 @@ def main():
         "--single_person",
     ])
     run([py, "-m", "avatar_gs.cli.stage2_train_gaussian", "--config", "configs/stage2_gaussian.yaml"])
-    run([py, "-m", "avatar_gs.cli.render", "--config", "configs/render.yaml"])
+    run([py, "-m", "avatar_gs.cli.render", "--config", "configs/stage2_gaussian.yaml"])
 
 
 if __name__ == "__main__":

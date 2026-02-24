@@ -295,6 +295,8 @@ class BindingModeConfig:
     temporal_frame: bool = True
     scale_clamp_min: float = 1e-4
     scale_clamp_max: float = 1.0
+    outer_geom_scale_blend: float = 0.0
+    outer_scale_clamp_max: float = 0.01
     max_temporal_angle_deg: float = 75.0
     temporal_alpha: float = 0.35
     debug_assertions: bool = False
@@ -519,6 +521,15 @@ def update_gaussians_with_binding(
             else:
                 s_t1 = 0.5 * s_old[:, 0] + 0.5 * s_geom_1
                 s_t2 = 0.5 * s_old[:, 1] + 0.5 * s_geom_2
+                if g.shell_layer is not None:
+                    sl_local = g.shell_layer.index_select(0, bound_ids.index_select(0, local)).to(device=bind_mask.device, dtype=torch.int64)
+                    outer_local = sl_local == 1
+                    if bool(outer_local.any()):
+                        ob = float(np.clip(float(cfg.outer_geom_scale_blend), 0.0, 1.0))
+                        s_t1_outer = (1.0 - ob) * s_old[:, 0] + ob * s_geom_1
+                        s_t2_outer = (1.0 - ob) * s_old[:, 1] + ob * s_geom_2
+                        s_t1[outer_local] = s_t1_outer[outer_local]
+                        s_t2[outer_local] = s_t2_outer[outer_local]
             s_n_local = torch.full_like(s_t1, float(cfg.eps_normal))
             scale_face[local] = torch.stack([s_t1, s_t2, s_n_local], dim=1)
 
@@ -593,24 +604,43 @@ def update_gaussians_with_binding(
             target_scale[idx] = scale_vert.index_select(0, idx)
 
     # Optional extra local shell offset in face tangent frame.
+    # For dual-layer training, only outer layer (shell_layer==1) should use this offset.
     if g.bind_face_offset_local is not None and have_face_meta and bool(f_valid.any()):
-        local = torch.nonzero(f_valid, as_tuple=False).view(-1)
-        fs = f_idx.index_select(0, local)
-        off_local = g.bind_face_offset_local.index_select(0, bound_ids.index_select(0, local))
-        t1 = frame.face_t1_t.index_select(0, fs)
-        t2 = frame.face_t2_t.index_select(0, fs)
-        nf = frame.face_n_t.index_select(0, fs)
-        dxyz = (
-            off_local[:, 0:1] * t1
-            + off_local[:, 1:2] * t2
-            + off_local[:, 2:3] * nf
-        )
-        target_mu[local] = target_mu.index_select(0, local) + dxyz
+        apply_mask = f_valid
+        if g.shell_layer is not None:
+            sl_bound = g.shell_layer.index_select(0, bound_ids).to(device=bind_mask.device, dtype=torch.int64)
+            apply_mask = apply_mask & (sl_bound == 1)
+        if bool(apply_mask.any()):
+            local = torch.nonzero(apply_mask, as_tuple=False).view(-1)
+            fs = f_idx.index_select(0, local)
+            off_local = g.bind_face_offset_local.index_select(0, bound_ids.index_select(0, local))
+            t1 = frame.face_t1_t.index_select(0, fs)
+            t2 = frame.face_t2_t.index_select(0, fs)
+            nf = frame.face_n_t.index_select(0, fs)
+            dxyz = (
+                off_local[:, 0:1] * t1
+                + off_local[:, 1:2] * t2
+                + off_local[:, 2:3] * nf
+            )
+            target_mu[local] = target_mu.index_select(0, local) + dxyz
 
     target_scale = target_scale.clamp(
         min=float(cfg.scale_clamp_min),
         max=float(cfg.scale_clamp_max),
     )
+    if g.shell_layer is not None:
+        sl_bound = g.shell_layer.index_select(0, bound_ids).to(device=bind_mask.device, dtype=torch.int64)
+        outer_bound = sl_bound == 1
+        if bool(outer_bound.any()):
+            outer_s_max = float(max(float(cfg.scale_clamp_min), float(cfg.outer_scale_clamp_max)))
+            target_scale[outer_bound, 0] = target_scale[outer_bound, 0].clamp(
+                min=float(cfg.scale_clamp_min),
+                max=outer_s_max,
+            )
+            target_scale[outer_bound, 1] = target_scale[outer_bound, 1].clamp(
+                min=float(cfg.scale_clamp_min),
+                max=outer_s_max,
+            )
     target_log_scale = torch.log(target_scale.clamp(min=1e-8))
     target_quat = _normalize_torch(target_quat, eps=1e-8)
 
@@ -656,6 +686,8 @@ def parse_binding_mode_config(
         temporal_frame=bool(d.get("temporal_frame", True)),
         scale_clamp_min=float(d.get("scale_clamp_min", 1e-4)),
         scale_clamp_max=float(d.get("scale_clamp_max", 1.0)),
+        outer_geom_scale_blend=float(d.get("outer_geom_scale_blend", 0.0)),
+        outer_scale_clamp_max=float(d.get("outer_scale_clamp_max", d.get("scale_clamp_max", 1.0))),
         max_temporal_angle_deg=float(d.get("max_temporal_angle_deg", 75.0)),
         temporal_alpha=float(d.get("temporal_alpha", 0.35)),
         debug_assertions=bool(d.get("debug_assertions", False)),
@@ -675,6 +707,8 @@ def export_binding_mode_config(cfg: BindingModeConfig) -> dict[str, object]:
         "temporal_frame": bool(cfg.temporal_frame),
         "scale_clamp_min": float(cfg.scale_clamp_min),
         "scale_clamp_max": float(cfg.scale_clamp_max),
+        "outer_geom_scale_blend": float(cfg.outer_geom_scale_blend),
+        "outer_scale_clamp_max": float(cfg.outer_scale_clamp_max),
         "max_temporal_angle_deg": float(cfg.max_temporal_angle_deg),
         "temporal_alpha": float(cfg.temporal_alpha),
         "debug_assertions": bool(cfg.debug_assertions),
