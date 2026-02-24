@@ -295,6 +295,7 @@ def main() -> None:
     mesh_candidates = [
         stage1_dir / "smpl_mesh_tpose.obj",
         stage1_dir / "sequence" / f"{frame_stem}.obj",
+        stage1_dir / "sequence" / f"frame_{frame_stem}.obj",
         stage1_dir / "final" / "last_frame_smplx_cam.obj",
         stage1_dir / "final" / "last_frame_smplx.obj",
         stage1_dir / "final" / "last_frame_pose_local.obj",
