@@ -30,16 +30,28 @@ def _make_temp_video(frames: list[Path], fps: float) -> tuple[Path, Path]:
 
     h, w = first.shape[:2]
     tmp_dir = Path(tempfile.mkdtemp(prefix="wham_frames_"))
-    mp4_path = tmp_dir / "input.mp4"
-
-    writer = cv2.VideoWriter(
-        str(mp4_path),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        float(fps),
-        (int(w), int(h)),
-    )
-    if not writer.isOpened():
-        raise RuntimeError(f"Failed to create temp video writer: {mp4_path}")
+    writer = None
+    out_path = None
+    writer_specs = [
+        ("input.mp4", "mp4v"),
+        ("input.avi", "MJPG"),
+        ("input.avi", "XVID"),
+    ]
+    for fname, fourcc_tag in writer_specs:
+        cand = tmp_dir / fname
+        wobj = cv2.VideoWriter(
+            str(cand),
+            cv2.VideoWriter_fourcc(*fourcc_tag),
+            float(fps),
+            (int(w), int(h)),
+        )
+        if wobj.isOpened():
+            writer = wobj
+            out_path = cand
+            break
+        wobj.release()
+    if writer is None or out_path is None:
+        raise RuntimeError(f"Failed to create temp video writer under: {tmp_dir}")
 
     for p in frames:
         img = cv2.imread(str(p), cv2.IMREAD_COLOR)
@@ -51,11 +63,11 @@ def _make_temp_video(frames: list[Path], fps: float) -> tuple[Path, Path]:
         writer.write(img)
     writer.release()
 
-    if not mp4_path.exists():
-        raise RuntimeError(f"Failed to build temp video: {mp4_path}")
+    if not out_path.exists():
+        raise RuntimeError(f"Failed to build temp video: {out_path}")
 
-    print(f"Built temp video from {len(frames)} frames: {mp4_path} ({w}x{h})")
-    return mp4_path, tmp_dir
+    print(f"Built temp video from {len(frames)} frames: {out_path} ({w}x{h})")
+    return out_path, tmp_dir
 
 
 def _patch_numpy_legacy_aliases() -> None:

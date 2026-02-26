@@ -20,8 +20,12 @@ from avatar_gs.gaussian.binding import (
     BindingFrameData,
     build_binding_frame_data,
     build_vertex_adjacency,
+    compute_area_weighted_vertex_normals_np,
     parse_binding_mode_config,
-    update_gaussians_with_binding,
+)
+from avatar_gs.gaussian.binding_layers import (
+    apply_inner_binding_per_frame,
+    apply_outer_anchor_per_frame,
 )
 from avatar_gs.gaussian.rigid_align import (
     apply_rigid_transform_np,
@@ -267,22 +271,80 @@ def _move_or_replace(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
+LAYER_KEYS: tuple[str, str, str] = ("outer", "inner", "combined")
+
+
+def _make_layer_output_dirs(base_dir: Path) -> dict[str, Path]:
+    return {
+        "outer": ensure_dir(base_dir / "outer"),
+        "inner": ensure_dir(base_dir / "inner"),
+        "combined": ensure_dir(base_dir / "combined"),
+    }
+
+
+def _split_gaussians_by_shell_layer(g: Gaussian3D) -> dict[str, Gaussian3D | None]:
+    if g.xyz.shape[0] == 0:
+        return {"outer": None, "inner": None, "combined": None}
+    if g.shell_layer is None:
+        # Backward compatibility: no explicit shell labels in old checkpoints.
+        return {"outer": None, "inner": g, "combined": g}
+    layer = g.shell_layer.view(-1)
+    outer_mask = layer > 0
+    inner_mask = ~outer_mask
+    g_outer = _select_gaussians(g, outer_mask) if bool(outer_mask.any()) else None
+    g_inner = _select_gaussians(g, inner_mask) if bool(inner_mask.any()) else None
+    return {"outer": g_outer, "inner": g_inner, "combined": g}
+
+
+def _background_tensor(
+    *,
+    device: torch.device,
+    H: int,
+    W: int,
+    bg: tuple[float, float, float],
+    bg_gt_chw: torch.Tensor | None,
+    use_gt_bg: bool,
+) -> torch.Tensor:
+    if bool(use_gt_bg) and bg_gt_chw is not None:
+        return bg_gt_chw
+    return torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand(3, H, W)
+
+
+def _render_layer_preview(
+    *,
+    g_layer: Gaussian3D | None,
+    K: torch.Tensor,
+    R: torch.Tensor,
+    t: torch.Tensor,
+    H: int,
+    W: int,
+    bg: tuple[float, float, float],
+    bg_gt_chw: torch.Tensor | None,
+    bg_gt_hwc: np.ndarray | None,
+    use_gt_bg: bool,
+) -> torch.Tensor:
+    if g_layer is None or g_layer.xyz.shape[0] == 0:
+        return _background_tensor(
+            device=K.device,
+            H=H,
+            W=W,
+            bg=bg,
+            bg_gt_chw=bg_gt_chw,
+            use_gt_bg=use_gt_bg,
+        )
+    return render_gaussians_3d(
+        g=g_layer,
+        K=K,
+        R=R,
+        t=t,
+        H=H,
+        W=W,
+        bg=bg_gt_hwc if (bool(use_gt_bg) and bg_gt_hwc is not None) else bg,
+    )
+
+
 def _compute_vertex_normals_np(verts: np.ndarray, faces: np.ndarray | None) -> np.ndarray:
-    if faces is None or len(faces) == 0:
-        return np.zeros_like(verts, dtype=np.float32)
-    v = np.asarray(verts, dtype=np.float32)
-    f = np.asarray(faces, dtype=np.int64)
-    n = np.zeros_like(v, dtype=np.float32)
-    tri = v[f]  # (F,3,3)
-    e1 = tri[:, 1, :] - tri[:, 0, :]
-    e2 = tri[:, 2, :] - tri[:, 0, :]
-    fn = np.cross(e1, e2).astype(np.float32)  # area-weighted normal
-    for k in range(3):
-        np.add.at(n, f[:, k], fn)
-    norm = np.linalg.norm(n, axis=1, keepdims=True)
-    norm = np.clip(norm, 1e-8, None)
-    n = n / norm
-    return n.astype(np.float32)
+    return compute_area_weighted_vertex_normals_np(np.asarray(verts, dtype=np.float32), faces, eps=1e-8)
 
 
 def _quat_from_normals_torch(normals: torch.Tensor) -> torch.Tensor:
@@ -1090,6 +1152,7 @@ def main():
     real_out_subdir = str(render_cfg.get("real_out_subdir", "real")).strip()
     fg_nobg_out_subdir = str(render_cfg.get("fg_nobg_out_subdir", "fg_only")).strip()
     deform_out_subdir = str(render_cfg.get("deform_out_subdir", "deform")).strip()
+    layer_split_output = bool(render_cfg.get("layer_split_output", True))
 
     # In single-mode rendering, default to writing directly into out_dir (no nested subfolders).
     if render_mode in ("fg", "fg_only") and fg_nobg_out_subdir == "fg_only":
@@ -1097,6 +1160,8 @@ def main():
 
     real_out_dir = ensure_dir(out_dir / Path(real_out_subdir)) if save_real_image else out_dir
     fg_nobg_out_dir = ensure_dir(out_dir / Path(fg_nobg_out_subdir)) if save_fg_nobg_skeleton else out_dir
+    real_layer_dirs = _make_layer_output_dirs(real_out_dir) if (save_real_image and layer_split_output) else {}
+    fg_layer_dirs = _make_layer_output_dirs(fg_nobg_out_dir) if (save_fg_nobg_skeleton and layer_split_output) else {}
 
     deform_out_cfg = render_cfg.get("deform_out_dir", None)
     if render_deform_image:
@@ -1109,6 +1174,7 @@ def main():
             deform_out_dir = ensure_dir(deform_out_dir)
     else:
         deform_out_dir = out_dir
+    deform_layer_dirs = _make_layer_output_dirs(deform_out_dir) if (render_deform_image and layer_split_output) else {}
     view_yaw_deg = float(render_cfg.get("view_yaw_deg", 0.0))
     view_pitch_deg = float(render_cfg.get("view_pitch_deg", 0.0))
     view_roll_deg = float(render_cfg.get("view_roll_deg", 0.0))
@@ -1173,12 +1239,14 @@ def main():
             logger.info("Six-view render [%d/%d]: %s", vi + 1, len(view_specs), view_name)
             subprocess.run(cmd, check=True)
             if emit_deform:
-                src = _pick_suffix_png(deform_out_dir, view_suffix)
-                dst = deform_out_dir / f"{view_name}.png"
+                deform_combined_dir = deform_layer_dirs.get("combined", deform_out_dir)
+                src = _pick_suffix_png(deform_combined_dir, view_suffix)
+                dst = deform_combined_dir / f"{view_name}.png"
                 _move_or_replace(src, dst)
             if emit_real:
-                src = _pick_suffix_png(real_out_dir, view_suffix)
-                dst = real_out_dir / "front.png"
+                real_combined_dir = real_layer_dirs.get("combined", real_out_dir)
+                src = _pick_suffix_png(real_combined_dir, view_suffix)
+                dst = real_combined_dir / "front.png"
                 _move_or_replace(src, dst)
         logger.info("Done.")
         return
@@ -1189,6 +1257,8 @@ def main():
         removed += _clear_image_files(real_out_dir)
         removed += _clear_image_files(fg_nobg_out_dir)
         removed += _clear_image_files(deform_out_dir)
+        for layer_dir in list(real_layer_dirs.values()) + list(fg_layer_dirs.values()) + list(deform_layer_dirs.values()):
+            removed += _clear_image_files(layer_dir)
         if removed > 0:
             logger.info(f"Cleared {removed} existing render image(s) in output folders")
 
@@ -2190,7 +2260,7 @@ def main():
                                     g.quat[valid_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
                 else:
                     frame_data = _load_binding_frame(mesh_idx_use)
-                    prev_vertex_dirs, bind_mask_curr = update_gaussians_with_binding(
+                    prev_vertex_dirs, valid_inner = apply_inner_binding_per_frame(
                         g=g,
                         frame=frame_data,
                         bind_mask=bind_mask,
@@ -2202,6 +2272,19 @@ def main():
                         quat_blend=bind_quat_normal_blend,
                         prev_vertex_dirs=prev_vertex_dirs,
                     )
+                    prev_vertex_dirs, valid_outer = apply_outer_anchor_per_frame(
+                        g=g,
+                        frame=frame_data,
+                        bind_mask=bind_mask,
+                        bind_vertex_idx=bind_idx_t,
+                        bind_vertex_offset=bind_vertex_offset_t,
+                        bind_face_idx=bind_face_idx_t,
+                        bind_bary=bind_bary_t,
+                        cfg=binding_cfg,
+                        quat_blend=bind_quat_normal_blend,
+                        prev_vertex_dirs=prev_vertex_dirs,
+                    )
+                    bind_mask_curr = (valid_inner | valid_outer)
                     if bind_mask_curr is not None and not bool(bind_mask_curr.all()) and not invalid_bind_warned:
                         bad_n = int((bind_mask & (~bind_mask_curr)).sum().item())
                         if bad_n > 0:
@@ -2505,7 +2588,27 @@ def main():
             save_rgb(out_dir / frame_out_name, pred_main)
 
         if save_real_image:
-            save_rgb(real_out_dir / frame_out_name, pred_real)
+            if layer_split_output:
+                real_layers = _split_gaussians_by_shell_layer(g_fg)
+                for layer_key in LAYER_KEYS:
+                    if layer_key == "combined":
+                        pred_layer = pred_real
+                    else:
+                        pred_layer = _render_layer_preview(
+                            g_layer=real_layers.get(layer_key, None),
+                            K=K_use,
+                            R=R,
+                            t=t,
+                            H=base_h,
+                            W=base_w,
+                            bg=bg,
+                            bg_gt_chw=bg_gt_chw,
+                            bg_gt_hwc=bg_gt_hwc,
+                            use_gt_bg=use_gt_bg,
+                        )
+                    save_rgb(real_layer_dirs[layer_key] / frame_out_name, pred_layer)
+            else:
+                save_rgb(real_out_dir / frame_out_name, pred_real)
         if save_fg_nobg_skeleton:
             g_fg_only = g_fg
             if fg_only_render_bound_only:
@@ -2584,7 +2687,27 @@ def main():
                     thickness=smpl_line_thickness,
                     radius=smpl_joint_radius,
                 )
-            save_rgb(fg_nobg_out_dir / frame_out_name, pred_fg_only)
+            if layer_split_output:
+                fg_layers = _split_gaussians_by_shell_layer(g_fg_only)
+                for layer_key in LAYER_KEYS:
+                    if layer_key == "combined":
+                        pred_layer = pred_fg_only
+                    else:
+                        pred_layer = _render_layer_preview(
+                            g_layer=fg_layers.get(layer_key, None),
+                            K=K_use,
+                            R=R,
+                            t=t,
+                            H=base_h,
+                            W=base_w,
+                            bg=bg,
+                            bg_gt_chw=None,
+                            bg_gt_hwc=None,
+                            use_gt_bg=False,
+                        )
+                    save_rgb(fg_layer_dirs[layer_key] / frame_out_name, pred_layer)
+            else:
+                save_rgb(fg_nobg_out_dir / frame_out_name, pred_fg_only)
         if render_deform_image and i == int(deform_pick_idx):
             deform_ctx = {
                 "frame_name": frames[i],
@@ -2751,7 +2874,7 @@ def main():
                         cfg=binding_cfg,
                         device=device,
                     )
-                    _, valid_mask = update_gaussians_with_binding(
+                    _, valid_inner = apply_inner_binding_per_frame(
                         g=g_deform,
                         frame=deform_frame,
                         bind_mask=bind_mask,
@@ -2763,6 +2886,19 @@ def main():
                         quat_blend=bind_quat_normal_blend,
                         prev_vertex_dirs=prev_vertex_dirs,
                     )
+                    _, valid_outer = apply_outer_anchor_per_frame(
+                        g=g_deform,
+                        frame=deform_frame,
+                        bind_mask=bind_mask,
+                        bind_vertex_idx=bind_idx_t,
+                        bind_vertex_offset=bind_vertex_offset_t,
+                        bind_face_idx=bind_face_idx_t,
+                        bind_bary=bind_bary_t,
+                        cfg=binding_cfg,
+                        quat_blend=bind_quat_normal_blend,
+                        prev_vertex_dirs=prev_vertex_dirs,
+                    )
+                    valid_mask = (valid_inner | valid_outer)
                     if valid_mask is not None and not bool(valid_mask.all()):
                         bad_n = int((bind_mask & (~valid_mask)).sum().item())
                         if bad_n > 0:
@@ -2900,7 +3036,27 @@ def main():
                     radius=smpl_joint_radius,
                 )
             deform_name = f"{Path(str(deform_ctx['frame_name'])).stem}{file_suffix}.png"
-            save_rgb(deform_out_dir / deform_name, pred_deform)
+            if layer_split_output:
+                deform_layers = _split_gaussians_by_shell_layer(g_def_render)
+                for layer_key in LAYER_KEYS:
+                    if layer_key == "combined":
+                        pred_layer = pred_deform
+                    else:
+                        pred_layer = _render_layer_preview(
+                            g_layer=deform_layers.get(layer_key, None),
+                            K=K_def,
+                            R=R_def,
+                            t=t_def,
+                            H=H_def,
+                            W=W_def,
+                            bg=bg,
+                            bg_gt_chw=None,
+                            bg_gt_hwc=None,
+                            use_gt_bg=False,
+                        )
+                    save_rgb(deform_layer_dirs[layer_key] / deform_name, pred_layer)
+            else:
+                save_rgb(deform_out_dir / deform_name, pred_deform)
 
     logger.info("Done.")
 

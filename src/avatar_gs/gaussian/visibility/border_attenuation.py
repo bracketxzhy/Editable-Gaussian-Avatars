@@ -61,3 +61,4 @@ def sample_border_weight(
         vals = att_np[vv, uu]
         out[idx] = torch.from_numpy(vals).to(device=dev, dtype=torch.float32)
     return out.clamp(0.0, 1.0)
+

@@ -152,7 +152,7 @@ stage2:
   person_mask_contour_leak_weight: 0.0
   # Outer layer supervision from per-frame GT contour (not SMPL silhouette).
   outer_use_gt_contour: true
-  outer_gt_contour_fuse_mode: union
+  outer_gt_contour_fuse_mode: intersect
   outer_head_priority_enable: false
   outer_head_priority_weight: 1.0
   outer_head_priority_face_pad: 0.55
@@ -160,17 +160,14 @@ stage2:
   outer_head_priority_down_scale: 0.40
   outer_head_priority_person_top_ratio: 0.18
   outer_head_support_th: 0.08
-  outer_head_min_ratio: 0.0
-  outer_contour_dilate_px: 0
-  outer_contour_band_px: 0
-  outer_trigger_smpl_gap_px: 2
-  outer_trigger_edge_th: 0.04
-  outer_trigger_min_pixels: 24
+  outer_trigger_smpl_gap_px: 3
+  outer_trigger_edge_th: 0.06
+  outer_trigger_min_pixels: 32
+  outer_trigger_ring_width_px: 2
   outer_trigger_use_edge_gate: true
   outer_contour_inside_only: true
-  outer_support_sample_dilate_px: 4
-  outer_head_support_sample_dilate_px: 2
-  outer_exclude_face: true
+  outer_head_support_sample_dilate_px: 0
+  outer_exclude_face: false
   outer_face_expand_px: 0
   outer_face_exclude_lower_ratio: 0.65
   outer_silhouette_weight: 0.12
@@ -178,11 +175,9 @@ stage2:
   outer_silhouette_band_weight: 2.0
   detail_hf_weight: 0.0
   detail_hf_exclude_face: true
-  outer_vis_floor: 0.0
-  outer_vis_edge_floor: 0.0
   outer_inside_support_th: 0.05
   outer_outside_support_th: 0.20
-  outer_outside_opacity_cap: 0.015
+  outer_outside_opacity_cap: 0.01
   outer_outside_offset_decay: 0.97
   outer_outside_opacity_weight: 0.08
   outer_outside_offset_weight: 0.01
@@ -246,22 +241,12 @@ stage2:
   outer_support_weight: 1.0
   outer_spawn_support_th: 0.02
   outer_spawn_inside_only: true
-  outer_reassign_enable: true
-  outer_reassign_every: 120
-  outer_reassign_ratio: 0.20
-  outer_reassign_seed_n: 0.02
-  outer_reassign_inside_only: true
-  outer_spawn_allow_outer_source: false
-  outer_reassign_allow_outer_source: false
-  outer_reassign_preserve_source_offset: false
-  outer_reassign_warmup_iters: 600
   outer_low_support_patience: 4
   outer_pruned_opacity_logit_max: -12.0
   outer_quality_log_every: 100
   bind_face_offset_straight_through: true
   outer_edge_trigger_enable: true
   outer_edge_trigger_weight: 0.45
-  outer_edge_visibility_boost: 0.40
   outer_edge_prune_protect_quantile: 0.95
 
   inner_occlusion_soft_enable: true

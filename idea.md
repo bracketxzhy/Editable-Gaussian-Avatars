@@ -1,383 +1,75 @@
-# Editable Gaussian Avatars - Handover Notes (English)
+﻿# idea.md
 
-## 0. Mandatory Collaboration Rule
+## Stage2 当前方案（唯一生效）
 
-For **every training-related change** (Stage1, Stage2, render supervision, fitting priors, interface updates), `idea.md` must be updated in the same turn/commit.
+### 目标
+- 内层高斯：严格贴合 SMPL-X 表面，负责主体稳定重建。
+- 外层高斯：只在 GT 与 SMPL 轮廓差异区域触发，负责离体细节（头发、衣物边缘、附加物）。
+- 训练优先级：先抑制背景渗入和越界噪声，再提升离体细节覆盖。
 
-Each update must include:
+### 核心设计
+1. 触发机制（外层）
+- 外层监督唯一入口是 `trigger ring`。
+- 基础掩码：`GT_mask & ~dilate(SMPL_mask, gap_px)`。
+- 再做 ring 化（`outer_trigger_ring_width_px`）和 edge gate（`outer_trigger_edge_th`）。
+- 帧级触发阈值：`trigger_pixels >= outer_trigger_min_pixels`。
 
-1. Training idea and motivation
-2. Input/output contract changes
-3. Interface/config changes
-4. Validation method
-5. Runnable commands (Windows CMD)
-6. Risks and rollback
+2. 绑定机制（内外分离）
+- 内层：`inner_binding.py`，顶点主导 + 面回退，不使用外层局部偏移。
+- 外层：`outer_binding.py`，面主导 + 局部偏移 `bind_face_offset_local`（t1/t2/n）。
+- 共用数学和顶点回退基础逻辑在 `binding_update.py`。
 
-This file is the single handover source for other AI agents.
+3. 训练稳定性与防失真
+- `inner_use_strict_smpl_mask=true`：内层监督严格用 SMPL mask，不做边界扩张。
+- 外层跨视角硬边界：越界点执行 alpha/scale/offset 硬压制，并有 patience 后硬剪枝。
+- 轮廓外外层点专门惩罚：`outer_outside_opacity_weight` + `outer_outside_offset_weight`。
+- `prune_state==2` 的点透明度被强压（`outer_pruned_opacity_logit_max`），避免“占位点可见噪声”。
+- 可见性下限只给内层，不给外层，避免外层弱噪点被“保活”。
 
----
+4. 外层增删策略（无旧重分配）
+- spawn 来源只允许 inner active 且触发支持满足阈值。
+- 不再使用 outer->outer/source reassign 旧链路。
+- 低支持外层点按 patience 强制回收。
 
-## 1. Project Goal
+### 当前生效的关键参数约束
+- 禁用旧键：
+  - `outer_vis_floor` / `outer_vis_edge_floor`
+  - `outer_edge_visibility_boost`
+  - `outer_support_sample_dilate_px`
+  - `outer_reassign_*`
+  - `outer_spawn_allow_outer_source`
+  - `outer_reassign_allow_outer_source`
+  - `outer_reassign_preserve_source_offset`
+  - `outer_head_min_ratio` / `outer_contour_dilate_px` / `outer_contour_band_px`
+- CLI 会对上述旧键 fail-fast 报错。
 
-Build a monocular pipeline that:
+### 验收标准（训练通过门槛）
+- `outer_active_outside_contour_ratio <= 1.5%`
+- `outer_active_outside_person_ratio <= 1.0%`
+- `outer_active_outside_alpha_gt_0.05_ratio <= 0.2%`
+- `hand_leakage_ratio <= 0.3%`
+- `outer_arm_nontrigger_activation_ratio <= 0.5%`
+- `outer_projection_outside_anyframe_ratio <= 1.0%`
+- `outer_head_ring_coverage >= baseline`
 
-1. Fits a stable, editable SMPL-X avatar from image sequence (`Stage1`)
-2. Trains Gaussian appearance while keeping strong SMPL alignment (`Stage2`)
-3. Supports reliable novel-view and pose editing without artifacts (no obvious drift, no body/background mismatch)
-
----
-
-## 2. Current Pipeline (High-Level)
-
-1. Stage1 (`avatar_gs.cli.stage1_fit_smpl`)
-- Input: RGB frame sequence
-- Extract MediaPipe keypoints and segmentation masks
-- Fit SMPL-X sequence with soft physical priors + temporal smoothness
-- Output canonical T-pose mesh, sequence meshes, motion params, skeleton sequence
-
-2. Stage2 (`avatar_gs.cli.stage2_train_gaussian`)
-- Initialize Gaussians from Stage1 mesh
-- Bind foreground Gaussians to dynamic SMPL vertices
-- Train photometric loss with mask-gated supervision
-- Keep alignment for downstream editing/novel views
-
-3. Render (`avatar_gs.cli.render`)
-- Render final frame or selected frames
-- Overlay SMPL skeleton from theta-driven sequence
-
----
-
-## 3. I/O Contract
-
-### 3.1 Main Inputs
-
-- Frames: `data/frames/input`
-- Stage1 config: `configs/stage1_smplfit.yaml`
-- Stage2 config: `configs/stage2_gaussian.yaml`
-- Render config: `configs/stage2_gaussian.yaml` (use `render:` section)
-
-### 3.2 Stage1 Outputs (Required)
-
-- `outputs/stage1/smpl_mesh_canonical.obj`
-- `outputs/stage1/smpl_mesh_sequence/*.obj`
-- `outputs/stage1/smpl_params_sequence.npz`
-- `outputs/stage1/smpl_vertices_sequence.npz`
-- `outputs/stage1/person_masks.npz`
-- `outputs/stage1/smpl_skeleton_sequence.npz`
-
-### 3.3 `smpl_skeleton_sequence.npz` fields
-
-- `frame_names`
-- `joints_cam_theta`
-- `joint_parents`
-- `model_type`
-- `gender`
-- `source=theta`
-
----
-
-## 4. Interface and Config Contract
-
-### 4.1 Stage1 (SMPL-X fitting)
-
-Important keys:
-
-- `stage1.init_translation_ls`
-- `stage1.loss_schedule` (`balanced_sequence_v1`)
-- `stage1.keypoint_smooth.*`
-- `stage1.early_stop_enable`
-- `stage1.early_stop_patience`
-- `stage1.early_stop_min_delta`
-- `stage1.early_stop_warmup_iters`
-
-### 4.2 Stage2 (Gaussian training)
-
-Important keys:
-
-- `stage2.use_smpl_silhouette_mask`
-- `stage2.smpl_mask_*`
-- `stage2.use_person_mask`
-- `stage2.person_masks_npz`
-- `stage2.person_mask_dilate_px`
-- `stage2.person_mask_erode_px`
-- `stage2.person_mask_fuse_mode` (`intersect|union|replace`)
-- `stage2.early_stop_enable`
-- `stage2.early_stop_patience`
-- `stage2.early_stop_min_delta`
-- `stage2.early_stop_warmup_iters`
-
-### 4.3 Render
-
-- `render.smpl_skeleton_source` (`theta|joints`)
-- `render.smpl_skeleton_npz`
-
----
-
-## 5. Implemented Improvements (2026-02-11)
-
-### 5.1 Alignment and body quality
-
-1. Added CAR-style translation LS initialization in Stage1
-2. Added balanced sequence loss schedule in Stage1
-3. Added torso / hand-face keypoint weighting phases
-4. Added extra foot anchors (heel + foot-index) for better lower-limb stability
-
-### 5.2 Face stability for T-pose export
-
-T-pose export now uses neutral face/eye/jaw/hand params (zeros) instead of temporal mean face pose, preventing severe face deformation.
-
-### 5.3 Foreground/background robustness (not green-screen dependent)
-
-Stage2 now supports Stage1 person masks:
-
-- Load `outputs/stage1/person_masks.npz`
-- Fuse person mask with existing alpha/kpt/smpl masks
-- Default fusion mode: `intersect`
-
-This makes supervision less dependent on green background assumptions and improves behavior on cluttered backgrounds.
-
-### 5.4 Training speed improvements with accuracy guard
-
-1. Stage1 early stopping (plateau detection)
-2. Stage2 early stopping (plateau detection)
-
-Goal: reduce wasted tail iterations while preserving converged quality.
-
-### 5.5 Stage1 multi-frame body-model auto-selection prior (2026-02-11)
-
-Motivation:
-- Probe-only selection from a small frame subset can be unstable on ambiguous views.
-- We need a conservative but less brittle route before deciding female/male vs neutral.
-
-Training idea:
-- Keep the original reprojection probe (`female|male|neutral`) as the primary evidence.
-- Add a sequence-level visual prior from many sampled frames:
-  - shoulder/hip ratio (keypoints)
-  - hip/waist and chest/waist silhouette ratios (person mask)
-  - head-top silhouette proxy (hair/head coverage)
-- Fuse prior with probe scores using a small confidence-weighted shift.
-- Keep conservative fallback: if evidence is weak, still select neutral.
-
-I/O changes:
-- No new mandatory files.
-- `outputs/stage1/auto_gender_selection.json` now includes:
-  - `scores_raw_probe`
-  - `scores_fused`
-  - `visual_prior` (metrics/signals/confidence)
-  - effective thresholds after visual-confidence relaxation.
-
-Interface changes (`configs/stage1_smplfit.yaml`):
-- `stage1.auto_gender_visual_prior_enable`
-- `stage1.auto_gender_visual_prior_weight`
-- `stage1.auto_gender_visual_min_confidence`
-- `stage1.auto_gender_visual_max_frames`
-- `stage1.auto_gender_visual_use_masks`
-- `stage1.auto_gender_visual_min_keypoint_conf`
-
-Defaults chosen:
-- Keep `auto_gender_confident_only: true`
-- Use prior only as tie-breaker/soft evidence, not hard override.
-- Increase probe frame subset from 32 to 48 for better stability.
-
-### 2026-02-12 - Stage2/Render rigid-align wrapper for SMPL-vs-GT fit
-
-1) Motivation
-- Final frame overlay still had global offset (translation / yaw-pitch-roll mismatch) between SMPL silhouette and GT person.
-- Need an extra alignment layer without changing SMPL intrinsic parameters (`pose/betas/trans` in Stage1 outputs).
-
-2) Training idea changes
-- Added a rigid wrapper (`R,t`) on top of per-frame SMPL vertices before Stage2 binding updates.
-- Added two modes:
-  - manual mode: use configured Euler angles + translation directly;
-  - auto mode: optimize `(rx, ry, rz, tx, ty, tz)` by coordinate descent.
-- Auto objective on sampled frames:
-  - maximize SMPL-mask IoU with person mask;
-  - penalize outside leakage (`score = IoU - outside_weight * outside_ratio`).
-- The same rigid wrapper is reused at render time for mesh loading and skeleton overlay to keep train/render coordinate consistency.
-
-3) I/O changes
-- Input:
-  - optional person mask NPZ for auto mode: `stage2.bind_rigid_align.person_masks_npz`.
-- Output:
-  - Stage2 checkpoint now stores `bind_rigid_align` metadata (enabled/auto/params and before-after metrics when auto mode runs).
-
-4) Interface changes
-- CLI:
-  - `avatar_gs.cli.stage2_train_gaussian` forwards `stage2.bind_rigid_align` into train loop.
-  - `avatar_gs.cli.render` reads `render.bind_rigid_align` override first, then falls back to checkpoint `bind_rigid_align`.
-- YAML:
-  - new block under `configs/stage2_gaussian.yaml`:
-    - `stage2.bind_rigid_align.enable|auto`
-    - `sample_frames`, `eval_downsample`, `outside_weight`
-    - `rot_step_deg`, `trans_step`, `levels`, `iters_per_level`
-    - `max_rot_deg`, `max_trans`
-    - `person_masks_npz`
-- Default behavior:
-  - enabled + auto search by default in Stage2 config;
-  - no SMPL parameter update, only extra global rigid transform before binding/render overlay.
-
-5) Validation
-- Smoke:
-  - `python -m compileall src/avatar_gs/gaussian/rigid_align.py src/avatar_gs/gaussian/train_loop.py src/avatar_gs/cli/render.py src/avatar_gs/cli/stage2_train_gaussian.py`
-- Metrics / visual checks:
-  - verify Stage2 log prints `bind_rigid_align auto: score/iou/outside before->after`.
-  - inspect render overlay for reduced background leakage and closer silhouette alignment.
-
-6) Commands (Windows CMD)
-~~~bat
-conda activate ega-gpu
-cd /d D:\project\Projects_by_zhy\Editable Gaussian Avatars
-set PYTHONPATH=src
-
+### 运行命令（Windows PowerShell）
+```powershell
+$env:PYTHONPATH='src'
+$env:TORCH_EXTENSIONS_DIR="$PWD\.torch_extensions"
 python -m avatar_gs.cli.stage2_train_gaussian --config configs/stage2_gaussian.yaml
-python -m avatar_gs.cli.render --config configs/stage2_gaussian.yaml --override render.overlay_smpl_skeleton=true
-~~~
-
-7) Risks / rollback
-- Risk:
-  - if person mask quality is poor, auto search may bias toward wrong rigid shift.
-  - too large search bounds may overfit a sparse sampled subset.
-- Rollback:
-  - disable rigid wrapper with `stage2.bind_rigid_align.enable: false`.
-  - or keep wrapper but disable auto search (`auto: false`) and set manual small offsets.
-
-### 2026-02-12 - Move rigid-align search to pre-Stage2 gate
-
-1) Motivation
-- User concern: if rigid alignment starts only inside Stage2, early iterations may still absorb background leakage.
-- We need to lock a better global `(R,t)` before optimization begins.
-
-2) Training idea changes
-- Added a pre-Stage2 rigid-align gate in `avatar_gs.cli.stage2_train_gaussian`.
-- When `stage2.bind_rigid_align.enable=true`, `auto=true`, `pre_stage2=true`:
-  - run coordinate-descent alignment before calling train loop;
-  - freeze the searched params into manual mode (`auto=false`) for training.
-- If pre-stage2 search cannot run (missing masks/faces/etc.), fallback remains in-train auto align.
-
-3) I/O changes
-- Input:
-  - same as previous rigid-align auto mode (`person_masks_npz`, mesh sequence, frame mapping).
-- Output:
-  - new report file: `outputs/stage2/bind_rigid_align_pre_stage2.json`
-  - resolved config includes `stage2.bind_rigid_align_effective`.
-
-4) Interface changes
-- CLI:
-  - `stage2_train_gaussian` now triggers pre-stage2 rigid search automatically.
-- YAML:
-  - added `stage2.bind_rigid_align.pre_stage2` (default true).
-- Default behavior:
-  - run pre-stage2 search first, then train with fixed searched rigid params.
-
-5) Validation
-- Smoke:
-  - `python -m compileall src/avatar_gs/cli/stage2_train_gaussian.py src/avatar_gs/gaussian/rigid_align.py`
-- Metrics / visual checks:
-  - check Stage2 log for `bind_rigid_align pre-stage2 auto: ...`
-  - verify `outputs/stage2/bind_rigid_align_pre_stage2.json` exists.
-
-6) Commands (Windows CMD)
-~~~bat
-conda activate ega-gpu
-cd /d D:\project\Projects_by_zhy\Editable Gaussian Avatars
-set PYTHONPATH=src
-
-python -m avatar_gs.cli.stage2_train_gaussian --config configs/stage2_gaussian.yaml
-python -m avatar_gs.cli.render --config configs/stage2_gaussian.yaml --override render.overlay_smpl_skeleton=true
-~~~
-
-7) Risks / rollback
-- Risk:
-  - poor person masks can bias pre-stage2 alignment.
-  - fixed-camera prior errors can affect pre-stage2 score landscape.
-- Rollback:
-  - `stage2.bind_rigid_align.pre_stage2: false` to disable pre-stage2 gate.
-  - keep old behavior by letting in-train auto align handle search.
-
----
-
-## 6. Current Recommended Defaults
-
-### 6.1 Stage1
-
-- Keep strong fitting (`fit_iters: 12000`) but enable early stop
-- Keep `loss_schedule: balanced_sequence_v1`
-- Keep soft physical priors (no hard pose-angle constraint)
-
-### 6.2 Stage2
-
-- Keep SMPL silhouette supervision
-- Enable person mask fusion (`use_person_mask: true`)
-- Enable early stop with warmup
-
----
-
-## 7. Windows CMD - End-to-End Retrain
-
-```bat
-conda activate ega-gpu
-cd /d D:\project\Projects_by_zhy\Editable Gaussian Avatars
-set PYTHONPATH=src
-
-if exist outputs\stage1 rmdir /s /q outputs\stage1
-if exist outputs\stage2 rmdir /s /q outputs\stage2
-if exist outputs\renders\fg_only rmdir /s /q outputs\renders\fg_only
-
-python -m avatar_gs.cli.stage1_fit_smpl --config configs/stage1_smplfit.yaml
-python -m avatar_gs.cli.stage2_train_gaussian --config configs/stage2_gaussian.yaml
-python -m avatar_gs.cli.render --config configs/stage2_gaussian.yaml --override render.smpl_skeleton_source=theta
 ```
 
----
+```powershell
+$env:PYTHONPATH='src'
+python -m avatar_gs.cli.render --config configs/stage2_gaussian.yaml --override render.deform_smplx_use_standard_pose=true
+```
 
-## 8. Acceptance Checklist
+### 调参顺序（仅在新参数范围内）
+1. 先控噪：`outer_outside_opacity_cap`、`outer_outside_offset_decay`、`outer_boundary_*`。
+2. 再提细节：`outer_trigger_edge_th`、`outer_trigger_min_pixels`、`outer_spawn_support_th`。
+3. 最后平衡纹理：`outer_silhouette_weight`、`outer_silhouette_band_weight`。
 
-1. Required files exist after Stage1:
-- `outputs/stage1/smpl_mesh_canonical.obj`
-- `outputs/stage1/smpl_mesh_sequence/*.obj`
-- `outputs/stage1/smpl_skeleton_sequence.npz`
-
-2. Rendering checks:
-- Skeleton lines include hand chains (from `joint_parents`)
-- Reduced green/background contamination on legs
-- Better SMPL-to-GT alignment for final frame
-
-3. Editing safety checks:
-- Novel views do not show obvious body/background mismatch
-- Pose edits do not cause severe bind drift or body tearing
-
-### 2026-02-23 - Outer Gaussian driven by GT contour (not SMPL mask)
-
-1) Motivation
-- Current failure: detached details (hair strands, loose cloth, hand-held props, external accessories) are still underfit.
-- Root cause: outer-layer supervision/trigger was still partly constrained by SMPL-centric priors or part-specific heuristics.
-
-2) Core change
-- Keep inner layer body-constrained.
-- Switch outer layer to per-frame GT contour supervision as primary source:
-  - estimate contour mask from frame border-background color model per frame;
-  - fuse with stage1 person mask (`outer_gt_contour_fuse_mode`);
-  - build contour-band + edge-gated outer support map for outer visibility/weighting.
-- Remove head/hair special-case logic; use generic contour mechanism for all external structures.
-
-3) Config additions (`stage2`)
-- `outer_use_gt_contour`
-- `outer_gt_contour_fuse_mode` (`intersect|union|replace`)
-- `outer_contour_dilate_px`
-- `outer_contour_band_px`
-- `outer_contour_edge_th`
-
-4) Default direction
-- Enable contour-driven outer trigger:
-  - `outer_edge_trigger_enable: true`
-  - `outer_edge_trigger_weight: 0.35`
-  - `outer_edge_visibility_boost: 0.35`
-  - `outer_edge_prune_protect_quantile: 0.90`
-
-5) Validation focus
-- Check whether non-body detached structures are preserved across views:
-  - hair/cloth boundaries
-  - held objects / wearable accessories
-- Verify green spill suppression does not erase true outer details.
-
-
+### 已知风险
+- GT person mask 质量差会直接误导 trigger ring。
+- 触发阈值过低会引发手臂和边缘误触发；过高会漏掉细发丝。
+- 外层预算过大（`shell_max_ratio` 太高）会放大噪点重生概率。

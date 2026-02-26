@@ -85,3 +85,4 @@ def compute_gaussian_visibility(
             vis = vis * mi.clamp(0.0, 1.0)
 
     return vis.clamp(0.0, 1.0)
+

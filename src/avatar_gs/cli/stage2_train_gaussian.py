@@ -574,18 +574,39 @@ def main():
     stage1_dir = project_root / cfg["stage2"]["stage1_dir"]
     out_dir = ensure_dir(project_root / cfg["stage2"]["out_dir"])
     stage2_cfg = cfg["stage2"]
-    deprecated_trigger_keys = [k for k in ("outer_supervision_mode", "outer_residual_only", "outer_vis_floor", "outer_vis_edge_floor", "outer_edge_visibility_boost", "outer_spawn_allow_outer_source", "outer_reassign_allow_outer_source", "outer_reassign_preserve_source_offset") if k in stage2_cfg]
+    deprecated_trigger_keys = [
+        k
+        for k in (
+            "outer_supervision_mode",
+            "outer_residual_only",
+            "outer_vis_floor",
+            "outer_vis_edge_floor",
+            "outer_edge_visibility_boost",
+            "outer_support_sample_dilate_px",
+            "outer_reassign_enable",
+            "outer_reassign_every",
+            "outer_reassign_ratio",
+            "outer_reassign_seed_n",
+            "outer_reassign_inside_only",
+            "outer_reassign_warmup_iters",
+            "outer_head_min_ratio",
+            "outer_contour_dilate_px",
+            "outer_contour_band_px",
+            "outer_spawn_allow_outer_source",
+            "outer_reassign_allow_outer_source",
+            "outer_reassign_preserve_source_offset",
+        )
+        if k in stage2_cfg
+    ]
     if len(deprecated_trigger_keys) > 0:
         raise ValueError(
             "Deprecated stage2 keys detected: "
             f"{deprecated_trigger_keys}. "
             "Remove them and use only trigger-based keys: "
             "outer_trigger_smpl_gap_px / outer_trigger_edge_th / "
-            "outer_trigger_min_pixels / outer_trigger_use_edge_gate."
+            "outer_trigger_min_pixels / outer_trigger_ring_width_px / "
+            "outer_trigger_use_edge_gate."
         )
-
-    if int(stage2_cfg.get("outer_support_sample_dilate_px", 0)) != 0:
-        raise ValueError("stage2.outer_support_sample_dilate_px is hard-locked to 0 in ring-only mode.")
 
     if torch.cuda.is_available() and bool(stage2_cfg.get("enable_tf32", True)):
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -1015,16 +1036,12 @@ def main():
         outer_head_priority_down_scale=float(cfg["stage2"].get("outer_head_priority_down_scale", 0.35)),
         outer_head_priority_person_top_ratio=float(cfg["stage2"].get("outer_head_priority_person_top_ratio", 0.16)),
         outer_head_support_th=float(cfg["stage2"].get("outer_head_support_th", 0.08)),
-        outer_head_min_ratio=float(cfg["stage2"].get("outer_head_min_ratio", 0.18)),
-        outer_contour_dilate_px=int(cfg["stage2"].get("outer_contour_dilate_px", 8)),
-        outer_contour_band_px=int(cfg["stage2"].get("outer_contour_band_px", 12)),
         outer_trigger_smpl_gap_px=int(cfg["stage2"].get("outer_trigger_smpl_gap_px", 3)),
         outer_trigger_edge_th=float(cfg["stage2"].get("outer_trigger_edge_th", 0.06)),
         outer_trigger_min_pixels=int(cfg["stage2"].get("outer_trigger_min_pixels", 32)),
         outer_trigger_ring_width_px=int(cfg["stage2"].get("outer_trigger_ring_width_px", 2)),
         outer_trigger_use_edge_gate=bool(cfg["stage2"].get("outer_trigger_use_edge_gate", True)),
         outer_contour_inside_only=bool(cfg["stage2"].get("outer_contour_inside_only", False)),
-        outer_support_sample_dilate_px=int(cfg["stage2"].get("outer_support_sample_dilate_px", 0)),
         outer_head_support_sample_dilate_px=int(cfg["stage2"].get("outer_head_support_sample_dilate_px", 0)),
         outer_exclude_face=bool(cfg["stage2"].get("outer_exclude_face", False)),
         outer_face_expand_px=int(cfg["stage2"].get("outer_face_expand_px", 0)),
@@ -1034,8 +1051,6 @@ def main():
         outer_silhouette_band_weight=float(cfg["stage2"].get("outer_silhouette_band_weight", 1.0)),
         detail_hf_weight=float(cfg["stage2"].get("detail_hf_weight", 0.0)),
         detail_hf_exclude_face=bool(cfg["stage2"].get("detail_hf_exclude_face", True)),
-        outer_vis_floor=float(cfg["stage2"].get("outer_vis_floor", 0.0)),
-        outer_vis_edge_floor=float(cfg["stage2"].get("outer_vis_edge_floor", 0.0)),
         outer_inside_support_th=float(cfg["stage2"].get("outer_inside_support_th", 0.05)),
         outer_outside_support_th=float(cfg["stage2"].get("outer_outside_support_th", 0.5)),
         outer_outside_opacity_cap=float(cfg["stage2"].get("outer_outside_opacity_cap", 0.02)),
@@ -1105,20 +1120,10 @@ def main():
         outer_support_weight=float(cfg["stage2"].get("outer_support_weight", 1.2)),
         outer_spawn_support_th=float(cfg["stage2"].get("outer_spawn_support_th", 0.02)),
         outer_spawn_inside_only=bool(cfg["stage2"].get("outer_spawn_inside_only", True)),
-        outer_reassign_enable=bool(cfg["stage2"].get("outer_reassign_enable", False)),
-        outer_reassign_every=int(cfg["stage2"].get("outer_reassign_every", 120)),
-        outer_reassign_ratio=float(cfg["stage2"].get("outer_reassign_ratio", 0.20)),
-        outer_reassign_seed_n=float(cfg["stage2"].get("outer_reassign_seed_n", 0.02)),
-        outer_reassign_inside_only=bool(cfg["stage2"].get("outer_reassign_inside_only", True)),
-        outer_spawn_allow_outer_source=bool(cfg["stage2"].get("outer_spawn_allow_outer_source", False)),
-        outer_reassign_allow_outer_source=bool(cfg["stage2"].get("outer_reassign_allow_outer_source", False)),
-        outer_reassign_preserve_source_offset=bool(cfg["stage2"].get("outer_reassign_preserve_source_offset", True)),
-        outer_reassign_warmup_iters=int(cfg["stage2"].get("outer_reassign_warmup_iters", 0)),
         outer_low_support_patience=int(cfg["stage2"].get("outer_low_support_patience", 3)),
         bind_face_offset_straight_through=bool(cfg["stage2"].get("bind_face_offset_straight_through", True)),
         outer_edge_trigger_enable=bool(cfg["stage2"].get("outer_edge_trigger_enable", True)),
         outer_edge_trigger_weight=float(cfg["stage2"].get("outer_edge_trigger_weight", 0.35)),
-        outer_edge_visibility_boost=float(cfg["stage2"].get("outer_edge_visibility_boost", 0.35)),
         outer_edge_prune_protect_quantile=float(cfg["stage2"].get("outer_edge_prune_protect_quantile", 0.90)),
         inner_occlusion_soft_enable=bool(cfg["stage2"].get("inner_occlusion_soft_enable", True)),
         inner_occlusion_hard_enable=bool(cfg["stage2"].get("inner_occlusion_hard_enable", True)),
