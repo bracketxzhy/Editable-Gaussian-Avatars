@@ -301,6 +301,160 @@ def _align_uv_by_bbox(
     }
 
 
+def _align_uv_by_quantile_bbox(
+    uv: np.ndarray,
+    valid_v: np.ndarray,
+    person_mask: np.ndarray,
+    q_lo: float = 2.0,
+    q_hi: float = 98.0,
+    scale_min: float = 0.4,
+    scale_max: float = 2.5,
+) -> tuple[np.ndarray, dict]:
+    b_p = _mask_bbox(person_mask)
+    if b_p is None:
+        return uv, {"applied": False, "reason": "empty_person_bbox"}
+
+    valid = np.asarray(valid_v).reshape(-1).astype(bool)
+    if uv.shape[0] != valid.shape[0]:
+        valid = np.ones((uv.shape[0],), dtype=bool)
+    uvv = np.asarray(uv, dtype=np.float32)[valid]
+    if uvv.shape[0] < 16:
+        return uv, {"applied": False, "reason": "not_enough_valid_uv"}
+
+    ql = float(np.clip(q_lo, 0.0, 49.0))
+    qh = float(np.clip(q_hi, 51.0, 100.0))
+    xs = uvv[:, 0]
+    ys = uvv[:, 1]
+    b_s = np.asarray(
+        [
+            float(np.percentile(xs, ql)),
+            float(np.percentile(ys, ql)),
+            float(np.percentile(xs, qh)),
+            float(np.percentile(ys, qh)),
+        ],
+        dtype=np.float32,
+    )
+
+    ws = float(max(1.0, b_s[2] - b_s[0] + 1.0))
+    hs = float(max(1.0, b_s[3] - b_s[1] + 1.0))
+    wp = float(max(1.0, b_p[2] - b_p[0] + 1.0))
+    hp = float(max(1.0, b_p[3] - b_p[1] + 1.0))
+
+    csx = float(0.5 * (b_s[0] + b_s[2]))
+    csy = float(0.5 * (b_s[1] + b_s[3]))
+    cpx = float(0.5 * (b_p[0] + b_p[2]))
+    cpy = float(0.5 * (b_p[1] + b_p[3]))
+
+    s = float(0.5 * (wp / ws + hp / hs))
+    s = float(np.clip(s, scale_min, scale_max))
+
+    uv2 = np.asarray(uv, dtype=np.float32).copy()
+    uv2[:, 0] = (uv2[:, 0] - csx) * s + cpx
+    uv2[:, 1] = (uv2[:, 1] - csy) * s + cpy
+    return uv2, {
+        "applied": True,
+        "source": "uv_quantile_bbox",
+        "scale": s,
+        "center_src": [csx, csy],
+        "center_tgt": [cpx, cpy],
+        "bbox_src": b_s.tolist(),
+        "bbox_tgt": b_p.tolist(),
+        "q_lo": ql,
+        "q_hi": qh,
+    }
+
+
+def _is_mask_degenerate(mask_u8: np.ndarray, h: int, w: int) -> bool:
+    b = _mask_bbox(mask_u8)
+    if b is None:
+        return True
+    x0, y0, x1, y1 = [float(v) for v in b]
+    bw = x1 - x0 + 1.0
+    bh = y1 - y0 + 1.0
+    covers_w = bw >= 0.97 * float(w)
+    covers_h = bh >= 0.97 * float(h)
+    area_ratio = float((mask_u8 > 0).sum()) / float(max(1, h * w))
+    touch_border = (x0 <= 1.0) or (y0 <= 1.0) or (x1 >= float(w - 2)) or (y1 >= float(h - 2))
+    return bool((covers_w and covers_h) or (touch_border and area_ratio > 0.30))
+
+
+def _estimate_focal_from_gt_bbox(
+    verts_cam: np.ndarray,
+    gt_mask_u8: np.ndarray,
+    q_lo: float = 2.0,
+    q_hi: float = 98.0,
+    focal_min: float = 300.0,
+    focal_max: float = 8000.0,
+) -> float | None:
+    b = _mask_bbox(gt_mask_u8)
+    if b is None:
+        return None
+    wp = float(max(1.0, b[2] - b[0] + 1.0))
+    hp = float(max(1.0, b[3] - b[1] + 1.0))
+
+    v = np.asarray(verts_cam, dtype=np.float32).reshape(-1, 3)
+    z = v[:, 2]
+    valid = np.isfinite(z) & (z > 1e-6)
+    if int(valid.sum()) < 16:
+        return None
+    xz = (v[valid, 0] / z[valid]).astype(np.float32)
+    yz = (v[valid, 1] / z[valid]).astype(np.float32)
+
+    ql = float(np.clip(q_lo, 0.0, 49.0))
+    qh = float(np.clip(q_hi, 51.0, 100.0))
+    dx = float(np.percentile(xz, qh) - np.percentile(xz, ql))
+    dy = float(np.percentile(yz, qh) - np.percentile(yz, ql))
+    if dx <= 1e-8 or dy <= 1e-8:
+        return None
+    fx = wp / dx
+    fy = hp / dy
+    f = float(np.clip(0.5 * (fx + fy), focal_min, focal_max))
+    if not np.isfinite(f):
+        return None
+    return f
+
+
+def _build_aligned_mask_from_verts(
+    verts_cam: np.ndarray,
+    faces: np.ndarray,
+    gt_mask: np.ndarray,
+    w: int,
+    h: int,
+    focal_base: float,
+    allow_auto_focal: bool = False,
+) -> tuple[np.ndarray, dict]:
+    focal_used = float(focal_base)
+    uv, valid = _project_verts_to_uv(verts_cam=verts_cam, width=w, height=h, focal=focal_used)
+    raw = _rasterize_mesh_mask(uv=uv, valid_v=valid, faces=faces, h=h, w=w)
+    report: dict = {"focal_base": float(focal_base), "focal_used": float(focal_used)}
+
+    if allow_auto_focal and _is_mask_degenerate(raw, h=h, w=w):
+        focal_auto = _estimate_focal_from_gt_bbox(verts_cam=verts_cam, gt_mask_u8=gt_mask)
+        if focal_auto is not None:
+            focal_used = float(focal_auto)
+            uv, valid = _project_verts_to_uv(verts_cam=verts_cam, width=w, height=h, focal=focal_used)
+            raw = _rasterize_mesh_mask(uv=uv, valid_v=valid, faces=faces, h=h, w=w)
+            report["focal_auto_applied"] = True
+            report["focal_auto"] = float(focal_auto)
+        else:
+            report["focal_auto_applied"] = False
+            report["focal_auto"] = None
+
+    iou_before = _iou(raw, gt_mask)
+    uv_aligned, align_report = _align_uv_by_quantile_bbox(uv=uv, valid_v=valid, person_mask=gt_mask)
+    aligned = _rasterize_mesh_mask(uv=uv_aligned, valid_v=valid, faces=faces, h=h, w=w)
+    iou_after = _iou(aligned, gt_mask)
+    use_aligned = iou_after >= iou_before
+    out = aligned if use_aligned else raw
+
+    report.update(align_report)
+    report["accepted"] = bool(use_aligned)
+    report["iou_before"] = float(iou_before)
+    report["iou_after"] = float(iou_after)
+    report["mask_degenerate_before_align"] = bool(_is_mask_degenerate(raw, h=h, w=w))
+    return out, report
+
+
 def _draw_overlay(
     image_bgr: np.ndarray,
     gt_mask_u8: np.ndarray,
@@ -330,6 +484,13 @@ def _method_label(method: str) -> str:
     return method
 
 
+def _resolve_last_frame_index(frame_path: Path, fallback_idx: int) -> int:
+    stem = frame_path.stem
+    if stem.isdigit():
+        return int(stem)
+    return int(fallback_idx)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser("Compare stage1 modes: WHAM+PYMAF vs WHAM-only vs PYMAF-only")
     parser.add_argument("--project_root", type=str, default=".")
@@ -344,6 +505,14 @@ def main() -> None:
     parser.add_argument("--pymaf_stride", type=int, default=1)
     parser.add_argument("--focal", type=float, default=5000.0)
     parser.add_argument("--reuse_existing", action="store_true")
+    parser.add_argument("--wham_pymaf_source_stage1", type=str, default="outputs/stage1")
+    parser.add_argument("--force_run_wham_pymaf", action="store_true")
+    parser.add_argument(
+        "--methods",
+        type=str,
+        default="wham_pymaf,wham_only,pymaf_only",
+        help="Comma-separated: wham_pymaf,wham_only,pymaf_only",
+    )
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
@@ -353,6 +522,7 @@ def main() -> None:
     pymaf_repo_dir = (project_root / args.pymaf_repo_dir).resolve()
     work_root = (project_root / args.work_root).resolve()
     output_dir = (project_root / args.output_dir).resolve()
+    wham_pymaf_source_stage1 = (project_root / args.wham_pymaf_source_stage1).resolve()
     obj_out_dir = output_dir / "objs"
     vis_out_dir = output_dir / "overlays"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -369,27 +539,50 @@ def main() -> None:
         raise RuntimeError(f"Cannot read GT frame: {gt_last_path}")
     h, w = int(gt_bgr.shape[0]), int(gt_bgr.shape[1])
     gt_mask = _estimate_gt_person_mask(gt_bgr)
+    gt_last_idx = _resolve_last_frame_index(gt_last_path, fallback_idx=len(frames) - 1)
 
-    methods = ["wham_pymaf", "wham_only", "pymaf_only"]
+    req_methods = [m.strip() for m in str(args.methods).split(",") if m.strip()]
+    allowed_methods = {"wham_pymaf", "wham_only", "pymaf_only"}
+    invalid = [m for m in req_methods if m not in allowed_methods]
+    if invalid:
+        raise ValueError(f"Invalid --methods entries: {invalid}. Allowed: {sorted(allowed_methods)}")
+    methods = req_methods if len(req_methods) > 0 else ["wham_pymaf", "wham_only", "pymaf_only"]
     results: list[MethodResult] = []
+    wham_pymaf_reused = False
 
     for method in methods:
         stage1_out = work_root / method
-        if (not bool(args.reuse_existing)) or (not stage1_out.exists()):
-            if stage1_out.exists():
-                shutil.rmtree(stage1_out, ignore_errors=True)
-            _run_stage1_mode(
-                project_root=project_root,
-                frames_dir=frames_dir,
-                assets_dir=assets_dir,
-                wham_repo_dir=wham_repo_dir,
-                pymaf_repo_dir=pymaf_repo_dir,
-                out_dir=stage1_out,
-                mode=method,
-                single_person=bool(args.single_person),
-                pymaf_frame_indices=str(args.pymaf_frame_indices),
-                pymaf_stride=int(args.pymaf_stride),
-            )
+        run_stage1 = True
+        if method == "wham_pymaf" and (not bool(args.force_run_wham_pymaf)):
+            if wham_pymaf_source_stage1.exists():
+                stage1_out = wham_pymaf_source_stage1
+                run_stage1 = False
+                wham_pymaf_reused = True
+                print(f"[WHAM+PYMAF] Reuse existing stage1 output: {stage1_out}")
+            else:
+                print(
+                    f"[WHAM+PYMAF] Source not found ({wham_pymaf_source_stage1}), "
+                    "fallback to run stage1."
+                )
+
+        if run_stage1:
+            if (not bool(args.reuse_existing)) or (not stage1_out.exists()):
+                if stage1_out.exists():
+                    shutil.rmtree(stage1_out, ignore_errors=True)
+                _run_stage1_mode(
+                    project_root=project_root,
+                    frames_dir=frames_dir,
+                    assets_dir=assets_dir,
+                    wham_repo_dir=wham_repo_dir,
+                    pymaf_repo_dir=pymaf_repo_dir,
+                    out_dir=stage1_out,
+                    mode=method,
+                    single_person=bool(args.single_person),
+                    pymaf_frame_indices=(
+                        str(int(gt_last_idx)) if method == "pymaf_only" else str(args.pymaf_frame_indices)
+                    ),
+                    pymaf_stride=(1 if method == "pymaf_only" else int(args.pymaf_stride)),
+                )
 
         dst_obj = obj_out_dir / f"{method}_last.obj"
         model_type = "smplx"
@@ -401,22 +594,50 @@ def main() -> None:
             model_type = "smplx"
 
         verts, faces = load_obj_mesh(dst_obj)
-        uv, valid = _project_verts_to_uv(verts_cam=verts, width=w, height=h, focal=float(args.focal))
-        mesh_mask_raw = _rasterize_mesh_mask(uv=uv, valid_v=valid, faces=faces, h=h, w=w)
-        iou_before = _iou(mesh_mask_raw, gt_mask)
-        uv_aligned, align_report = _align_uv_by_bbox(uv=uv, smpl_mask=mesh_mask_raw, person_mask=gt_mask)
-        mesh_mask_aligned = _rasterize_mesh_mask(uv=uv_aligned, valid_v=valid, faces=faces, h=h, w=w)
-        iou_after = _iou(mesh_mask_aligned, gt_mask)
-        if iou_after > iou_before:
-            mesh_mask = mesh_mask_aligned
-            align_report["accepted"] = True
-            align_report["iou_before"] = float(iou_before)
-            align_report["iou_after"] = float(iou_after)
+        if method == "wham_only":
+            mask_a, rep_a = _build_aligned_mask_from_verts(
+                verts_cam=verts,
+                faces=faces,
+                gt_mask=gt_mask,
+                w=w,
+                h=h,
+                focal_base=float(args.focal),
+                allow_auto_focal=True,
+            )
+            verts_flip_y = np.asarray(verts, dtype=np.float32).copy()
+            verts_flip_y[:, 1] *= -1.0
+            mask_b, rep_b = _build_aligned_mask_from_verts(
+                verts_cam=verts_flip_y,
+                faces=faces,
+                gt_mask=gt_mask,
+                w=w,
+                h=h,
+                focal_base=float(args.focal),
+                allow_auto_focal=True,
+            )
+            iou_a = _iou(mask_a, gt_mask)
+            iou_b = _iou(mask_b, gt_mask)
+            if iou_b > iou_a:
+                mesh_mask = mask_b
+                align_report = dict(rep_b)
+                align_report["variant"] = "flip_y"
+                align_report["variant_iou"] = float(iou_b)
+            else:
+                mesh_mask = mask_a
+                align_report = dict(rep_a)
+                align_report["variant"] = "original"
+                align_report["variant_iou"] = float(iou_a)
+            align_report["variant_iou_other"] = float(iou_a if iou_b > iou_a else iou_b)
         else:
-            mesh_mask = mesh_mask_raw
-            align_report["accepted"] = False
-            align_report["iou_before"] = float(iou_before)
-            align_report["iou_after"] = float(iou_after)
+            mesh_mask, align_report = _build_aligned_mask_from_verts(
+                verts_cam=verts,
+                faces=faces,
+                gt_mask=gt_mask,
+                w=w,
+                h=h,
+                focal_base=float(args.focal),
+                allow_auto_focal=False,
+            )
         iou, precision, recall, f1 = _binary_metrics(pred_u8=mesh_mask, gt_u8=gt_mask)
 
         overlay_path = vis_out_dir / f"{method}_contour_compare.png"
@@ -454,6 +675,10 @@ def main() -> None:
             "WHAM-only export is SMPL topology (6890 verts) when WHAM output lacks SMPL-X vertices; "
             "other two methods are SMPL-X from PyMAF."
         ),
+        "wham_pymaf_reused_existing_stage1": bool(wham_pymaf_reused),
+        "wham_pymaf_source_stage1": str(wham_pymaf_source_stage1),
+        "requested_methods": methods,
+        "pymaf_only_last_frame_index": int(gt_last_idx),
         "best_method_by_f1_then_iou": best.name,
         "methods": [
             {

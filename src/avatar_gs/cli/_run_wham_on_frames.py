@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 import cv2
@@ -20,7 +21,7 @@ def _list_frames(frames_dir: Path) -> list[Path]:
     return sorted(out)
 
 
-def _make_temp_video(frames: list[Path], fps: float) -> tuple[Path, Path]:
+def _make_temp_video(frames: list[Path], fps: float, tmp_parent_dir: Path | None = None) -> tuple[Path, Path]:
     if len(frames) <= 0:
         raise RuntimeError("No frames provided for WHAM input video.")
 
@@ -29,7 +30,12 @@ def _make_temp_video(frames: list[Path], fps: float) -> tuple[Path, Path]:
         raise RuntimeError(f"Cannot read first frame: {frames[0]}")
 
     h, w = first.shape[:2]
-    tmp_dir = Path(tempfile.mkdtemp(prefix="wham_frames_"))
+    if tmp_parent_dir is not None:
+        tmp_parent_dir.mkdir(parents=True, exist_ok=True)
+        tmp_dir = tmp_parent_dir / f"wham_frames_{uuid.uuid4().hex[:8]}"
+        tmp_dir.mkdir(parents=True, exist_ok=False)
+    else:
+        tmp_dir = Path(tempfile.mkdtemp(prefix="wham_frames_"))
     writer = None
     out_path = None
     writer_specs = [
@@ -51,7 +57,19 @@ def _make_temp_video(frames: list[Path], fps: float) -> tuple[Path, Path]:
             break
         wobj.release()
     if writer is None or out_path is None:
-        raise RuntimeError(f"Failed to create temp video writer under: {tmp_dir}")
+        for i, p in enumerate(frames):
+            img = cv2.imread(str(p), cv2.IMREAD_COLOR)
+            if img is None:
+                continue
+            ih, iw = img.shape[:2]
+            if ih != h or iw != w:
+                img = cv2.resize(img, (w, h), interpolation=cv2.INTER_LINEAR)
+            cv2.imwrite(str(tmp_dir / f"{i:06d}.jpg"), img)
+        pattern_path = tmp_dir / "%06d.jpg"
+        if not (tmp_dir / "000000.jpg").exists():
+            raise RuntimeError(f"Failed to create temp image sequence for WHAM under: {tmp_dir}")
+        print(f"Built temp image sequence from {len(frames)} frames: {pattern_path} ({w}x{h})")
+        return pattern_path, tmp_dir
 
     for p in frames:
         img = cv2.imread(str(p), cv2.IMREAD_COLOR)
@@ -194,7 +212,8 @@ def main() -> None:
     temp_video = None
     temp_dir = None
     try:
-        temp_video, temp_dir = _make_temp_video(frames, fps=float(args.fps))
+        tmp_parent = output_dir / "_tmp_input"
+        temp_video, temp_dir = _make_temp_video(frames, fps=float(args.fps), tmp_parent_dir=tmp_parent)
         _run_wham_api(
             video_path=temp_video,
             output_dir=output_dir,

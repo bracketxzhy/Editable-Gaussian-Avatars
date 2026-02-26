@@ -122,7 +122,7 @@ def main() -> None:
     parser.add_argument("--frame_indices", type=str, default="-1")
     parser.add_argument("--single_person", action="store_true")
     parser.add_argument("--cfg_file", type=str, default="configs/pymafx_config.yaml")
-    parser.add_argument("--detection_threshold", type=float, default=0.3)
+    parser.add_argument("--detection_threshold", type=float, default=0.60)
     parser.add_argument("--detector_batch_size", type=int, default=1)
     parser.add_argument("--model_batch_size", type=int, default=8)
     args = parser.parse_args()
@@ -182,7 +182,9 @@ def main() -> None:
         "TRAIN.BHF_MODE",
         "full_body",
         "MODEL.PyMAF.HAND_VIS_TH",
-        "0.1",
+        "0.15",
+        "DATA.RESCALE_B",
+        "1.03",
     ]
     if bool(args.single_person):
         cmd.append("--single_person")
