@@ -15,7 +15,7 @@ def main():
     run([
         py,
         "-m",
-        "avatar_gs.cli.stage1_fit_wham_pymaf",
+        "avatar_gs.cli.stage1_fit_pymaf",
         "--project_root",
         ".",
         "--frames_dir",

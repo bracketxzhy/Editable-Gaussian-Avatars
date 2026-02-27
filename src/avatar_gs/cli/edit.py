@@ -102,6 +102,7 @@ def _apply_simple_edit(g: Gaussian3D, cfg: Dict[str, Any]) -> Gaussian3D:
         bind_face_idx=g.bind_face_idx,
         bind_bary=g.bind_bary,
         bind_hybrid_w=g.bind_hybrid_w,
+        inner_bind_mode=g.inner_bind_mode,
     )
 
 

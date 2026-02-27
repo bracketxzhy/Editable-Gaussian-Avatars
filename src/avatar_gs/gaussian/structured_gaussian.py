@@ -33,6 +33,8 @@ class Gaussian3D:
     bind_mix_weight: torch.Tensor | None = None
     # (N,) optional prune/freezing state: 0=active, 1=soft-frozen, 2=hard-pruned
     prune_state: torch.Tensor | None = None
+    # (N,) optional inner bind mode: 0=vertex, 1=face, -1=non-inner
+    inner_bind_mode: torch.Tensor | None = None
     # (N,) optional per-gaussian quality gate fail counter
     quality_fail_counter: torch.Tensor | None = None
     # (N,) optional EMA confidence for color gate (higher is better)
@@ -56,6 +58,7 @@ class Gaussian3D:
             shell_layer=self.shell_layer.to(device) if self.shell_layer is not None else None,
             bind_mix_weight=self.bind_mix_weight.to(device) if self.bind_mix_weight is not None else None,
             prune_state=self.prune_state.to(device) if self.prune_state is not None else None,
+            inner_bind_mode=self.inner_bind_mode.to(device) if self.inner_bind_mode is not None else None,
             quality_fail_counter=self.quality_fail_counter.to(device) if self.quality_fail_counter is not None else None,
             color_conf_ema=self.color_conf_ema.to(device) if self.color_conf_ema is not None else None,
             geom_conf_ema=self.geom_conf_ema.to(device) if self.geom_conf_ema is not None else None,
@@ -87,6 +90,8 @@ class Gaussian3D:
             sd["bind_mix_weight"] = self.bind_mix_weight
         if self.prune_state is not None:
             sd["prune_state"] = self.prune_state
+        if self.inner_bind_mode is not None:
+            sd["inner_bind_mode"] = self.inner_bind_mode
         if self.quality_fail_counter is not None:
             sd["quality_fail_counter"] = self.quality_fail_counter
         if self.color_conf_ema is not None:
@@ -112,6 +117,7 @@ class Gaussian3D:
             shell_layer=sd.get("shell_layer", None),
             bind_mix_weight=sd.get("bind_mix_weight", None),
             prune_state=sd.get("prune_state", None),
+            inner_bind_mode=sd.get("inner_bind_mode", None),
             quality_fail_counter=sd.get("quality_fail_counter", None),
             color_conf_ema=sd.get("color_conf_ema", None),
             geom_conf_ema=sd.get("geom_conf_ema", None),

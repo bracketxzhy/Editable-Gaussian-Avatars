@@ -119,6 +119,76 @@ def _sample_points_on_surface(
     return pts, anchor_idx, off, face_idx, bary
 
 
+def _sample_face_centroids(
+    verts: np.ndarray,
+    faces: np.ndarray,
+    n_samples: int,
+    rng: np.random.Generator,
+    allowed_face_ids: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    if int(n_samples) <= 0 or faces is None or len(faces) == 0:
+        z3 = np.zeros((0, 3), dtype=np.float32)
+        z1 = np.zeros((0,), dtype=np.int64)
+        return z3, z1, z3, z1, z3
+
+    faces_all = np.asarray(faces, dtype=np.int64)
+    face_ids = np.arange(int(faces_all.shape[0]), dtype=np.int64)
+    if allowed_face_ids is not None and int(np.asarray(allowed_face_ids).size) > 0:
+        sel = np.asarray(allowed_face_ids, dtype=np.int64)
+        sel = sel[(sel >= 0) & (sel < int(faces_all.shape[0]))]
+        if int(sel.size) > 0:
+            face_ids = np.unique(sel)
+    tri = verts[faces_all[face_ids]]
+    e1 = tri[:, 1, :] - tri[:, 0, :]
+    e2 = tri[:, 2, :] - tri[:, 0, :]
+    area = 0.5 * np.linalg.norm(np.cross(e1, e2), axis=1)
+    valid = area > 1e-12
+    if not np.any(valid):
+        z3 = np.zeros((0, 3), dtype=np.float32)
+        z1 = np.zeros((0,), dtype=np.int64)
+        return z3, z1, z3, z1, z3
+
+    face_ids_v = face_ids[valid]
+    tri_v = verts[faces_all[face_ids_v]]
+    area_v = area[valid]
+    probs = area_v / np.clip(area_v.sum(), 1e-8, None)
+    pick = rng.choice(face_ids_v.shape[0], size=int(n_samples), replace=True, p=probs)
+    fs = face_ids_v[pick]
+    tri_pick = verts[faces_all[fs]]
+    bary = np.full((int(n_samples), 3), 1.0 / 3.0, dtype=np.float32)
+    pts = tri_pick.mean(axis=1).astype(np.float32)
+    anchor_idx = faces_all[fs, 0].astype(np.int64)
+    off = (pts - verts[anchor_idx]).astype(np.float32)
+    return pts, anchor_idx, off, fs.astype(np.int64), bary
+
+
+def _estimate_vertex_curvature_np(
+    verts: np.ndarray,
+    faces: np.ndarray | None,
+) -> np.ndarray:
+    n_verts = int(verts.shape[0])
+    if n_verts <= 0 or faces is None or len(faces) == 0:
+        return np.zeros((max(n_verts, 0),), dtype=np.float32)
+    nrm = _vertex_normals_np(verts, faces)
+    f = np.asarray(faces, dtype=np.int64)
+    nbrs: list[set[int]] = [set() for _ in range(n_verts)]
+    for tri in f:
+        i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
+        if min(i0, i1, i2) < 0 or max(i0, i1, i2) >= n_verts:
+            continue
+        nbrs[i0].add(i1); nbrs[i0].add(i2)
+        nbrs[i1].add(i0); nbrs[i1].add(i2)
+        nbrs[i2].add(i0); nbrs[i2].add(i1)
+    curv = np.zeros((n_verts,), dtype=np.float32)
+    for vi in range(n_verts):
+        if len(nbrs[vi]) == 0:
+            continue
+        ni = nrm[vi]
+        dots = np.clip(np.sum(nrm[list(nbrs[vi])] * ni[None, :], axis=1), -1.0, 1.0)
+        curv[vi] = float(np.mean(1.0 - dots))
+    return np.clip(curv, 0.0, 1.0).astype(np.float32)
+
+
 def init_gaussians_from_mesh_3d(
     mesh_obj: str | Path,
     n_keep: int = 3000,
@@ -138,6 +208,15 @@ def init_gaussians_from_mesh_3d(
     shell_enable: bool = False,
     shell_init_ratio: float = 0.15,
     shell_offset_n: float = 0.015,
+    inner_dual_candidate_enable: bool = True,
+    inner_high_curv_dual_activate_th: float = 0.2,
+    inner_face_candidate_ratio: float = 0.35,
+    inner_vertex_candidate_ratio: float = 0.65,
+    inner_bind_mode_default: str = "vertex",
+    outer_init_from_inner: bool = False,
+    outer_dormant_slot_ratio: float = 0.30,
+    outer_face_anchor_rule: str = "centroid",
+    outer_pruned_opacity_logit: float = -12.0,
 ) -> Gaussian3D:
     rng = np.random.default_rng(seed)
     V_all, F_all = load_obj_mesh(mesh_obj)
@@ -157,13 +236,103 @@ def init_gaussians_from_mesh_3d(
     if int(n_keep_eff) <= 0:
         raise ValueError(f"n_keep must be > 0. Got {n_keep_eff}")
 
-    if bool(sample_on_surface) and F_all is not None and len(F_all) > 0:
-        V_fg, idx_fg, off_fg, face_fg, bary_fg = _sample_points_on_surface(
+    default_mode = str(inner_bind_mode_default).strip().lower()
+    default_mode = "face" if default_mode == "face" else "vertex"
+    if bool(sample_on_surface) and F_all is not None and len(F_all) > 0 and bool(inner_dual_candidate_enable):
+        n_inner = int(n_keep_eff)
+        face_ratio = float(np.clip(float(inner_face_candidate_ratio), 0.0, 1.0))
+        vert_ratio = float(np.clip(float(inner_vertex_candidate_ratio), 0.0, 1.0))
+        if face_ratio + vert_ratio <= 1e-6:
+            vert_ratio = 1.0
+            face_ratio = 0.0
+        s = face_ratio + vert_ratio
+        face_ratio /= s
+        n_face = int(round(float(n_inner) * face_ratio))
+        n_face = max(0, min(n_inner, n_face))
+        n_vertex = max(0, n_inner - n_face)
+
+        if n_vertex > 0:
+            idx_v = rng.choice(V_all.shape[0], size=n_vertex, replace=(V_all.shape[0] < n_vertex)).astype(np.int64)
+            V_v = V_all[idx_v].astype(np.float32)
+            off_v = np.zeros_like(V_v, dtype=np.float32)
+            face_v = -np.ones((n_vertex,), dtype=np.int64)
+            bary_v = np.zeros((n_vertex, 3), dtype=np.float32)
+            mode_v = np.zeros((n_vertex,), dtype=np.int64)
+        else:
+            V_v = np.zeros((0, 3), dtype=np.float32)
+            idx_v = np.zeros((0,), dtype=np.int64)
+            off_v = np.zeros((0, 3), dtype=np.float32)
+            face_v = np.zeros((0,), dtype=np.int64)
+            bary_v = np.zeros((0, 3), dtype=np.float32)
+            mode_v = np.zeros((0,), dtype=np.int64)
+
+        face_allow = None
+        if n_face > 0:
+            curv = _estimate_vertex_curvature_np(V_all, F_all)
+            curv_th = float(np.clip(float(inner_high_curv_dual_activate_th), 0.0, 1.0))
+            high_v = np.nonzero(curv >= curv_th)[0].astype(np.int64)
+            if int(high_v.size) > 0:
+                tri = np.asarray(F_all, dtype=np.int64)
+                face_allow = np.nonzero(
+                    np.isin(tri[:, 0], high_v) | np.isin(tri[:, 1], high_v) | np.isin(tri[:, 2], high_v)
+                )[0].astype(np.int64)
+        V_f, idx_f, off_f, face_f, bary_f = _sample_face_centroids(
             verts=V_all,
             faces=F_all,
-            n_samples=int(n_keep_eff),
+            n_samples=n_face,
             rng=rng,
+            allowed_face_ids=face_allow,
         )
+        mode_f = np.ones((int(V_f.shape[0]),), dtype=np.int64)
+
+        V_fg = np.concatenate([V_v, V_f], axis=0)
+        idx_fg = np.concatenate([idx_v, idx_f], axis=0)
+        off_fg = np.concatenate([off_v, off_f], axis=0)
+        face_fg = np.concatenate([face_v, face_f], axis=0)
+        bary_fg = np.concatenate([bary_v, bary_f], axis=0)
+        inner_bind_mode_fg = np.concatenate([mode_v, mode_f], axis=0)
+        if int(V_fg.shape[0]) > 1:
+            perm = rng.permutation(int(V_fg.shape[0]))
+            V_fg = V_fg[perm]
+            idx_fg = idx_fg[perm]
+            off_fg = off_fg[perm]
+            face_fg = face_fg[perm]
+            bary_fg = bary_fg[perm]
+            inner_bind_mode_fg = inner_bind_mode_fg[perm]
+        if int(V_fg.shape[0]) > int(n_inner):
+            V_fg = V_fg[:n_inner]
+            idx_fg = idx_fg[:n_inner]
+            off_fg = off_fg[:n_inner]
+            face_fg = face_fg[:n_inner]
+            bary_fg = bary_fg[:n_inner]
+            inner_bind_mode_fg = inner_bind_mode_fg[:n_inner]
+        elif int(V_fg.shape[0]) < int(n_inner):
+            pad = int(n_inner - V_fg.shape[0])
+            idx_pad = rng.choice(V_all.shape[0], size=pad, replace=True).astype(np.int64)
+            V_pad = V_all[idx_pad].astype(np.float32)
+            V_fg = np.concatenate([V_fg, V_pad], axis=0)
+            idx_fg = np.concatenate([idx_fg, idx_pad], axis=0)
+            off_fg = np.concatenate([off_fg, np.zeros((pad, 3), dtype=np.float32)], axis=0)
+            face_fg = np.concatenate([face_fg, -np.ones((pad,), dtype=np.int64)], axis=0)
+            bary_fg = np.concatenate([bary_fg, np.zeros((pad, 3), dtype=np.float32)], axis=0)
+            inner_bind_mode_fg = np.concatenate([inner_bind_mode_fg, np.zeros((pad,), dtype=np.int64)], axis=0)
+    elif bool(sample_on_surface) and F_all is not None and len(F_all) > 0:
+        if default_mode == "face":
+            V_fg, idx_fg, off_fg, face_fg, bary_fg = _sample_face_centroids(
+                verts=V_all,
+                faces=F_all,
+                n_samples=int(n_keep_eff),
+                rng=rng,
+            )
+            inner_bind_mode_fg = np.ones((int(V_fg.shape[0]),), dtype=np.int64)
+        else:
+            V_fg, idx_fg, off_fg, face_fg, bary_fg = _sample_points_on_surface(
+                verts=V_all,
+                faces=F_all,
+                n_samples=int(n_keep_eff),
+                rng=rng,
+            )
+            inner_bind_mode_fg = np.zeros((int(V_fg.shape[0]),), dtype=np.int64)
     else:
         replace = V_all.shape[0] < int(n_keep_eff)
         idx_fg = rng.choice(V_all.shape[0], size=int(n_keep_eff), replace=replace).astype(np.int64)
@@ -171,6 +340,7 @@ def init_gaussians_from_mesh_3d(
         off_fg = np.zeros_like(V_fg, dtype=np.float32)
         face_fg = -np.ones((int(n_keep_eff),), dtype=np.int64)
         bary_fg = np.zeros((int(n_keep_eff), 3), dtype=np.float32)
+        inner_bind_mode_fg = np.zeros((int(n_keep_eff),), dtype=np.int64)
 
     V = V_fg
     idx = idx_fg
@@ -180,28 +350,46 @@ def init_gaussians_from_mesh_3d(
 
     shell_layer = np.zeros((V.shape[0],), dtype=np.int64)
     face_local_offset = np.zeros((V.shape[0], 3), dtype=np.float32)
+    inner_bind_mode = inner_bind_mode_fg.astype(np.int64, copy=True)
 
     if bool(shell_enable) and float(shell_init_ratio) > 0.0 and int(V_fg.shape[0]) > 0:
-        n_outer = int(round(float(shell_init_ratio) * float(V_fg.shape[0])))
+        outer_ratio = float(outer_dormant_slot_ratio) if float(outer_dormant_slot_ratio) > 0.0 else float(shell_init_ratio)
+        n_outer = int(round(float(outer_ratio) * float(V_fg.shape[0])))
         if n_outer > 0:
-            pick = rng.choice(V_fg.shape[0], size=n_outer, replace=(V_fg.shape[0] < n_outer)).astype(np.int64)
-            normals = _vertex_normals_np(V_all, F_all)
-            base_anchor = idx_fg[pick]
-            base_pts = V_fg[pick]
-            nrm = normals[base_anchor]
-            shell_pts = (base_pts + float(shell_offset_n) * nrm).astype(np.float32)
-            shell_off = (shell_pts - V_all[base_anchor]).astype(np.float32)
+            if bool(outer_init_from_inner):
+                pick = rng.choice(V_fg.shape[0], size=n_outer, replace=(V_fg.shape[0] < n_outer)).astype(np.int64)
+                normals = _vertex_normals_np(V_all, F_all)
+                base_anchor = idx_fg[pick]
+                base_pts = V_fg[pick]
+                nrm = normals[base_anchor]
+                shell_pts = (base_pts + float(shell_offset_n) * nrm).astype(np.float32)
+                shell_off = (shell_pts - V_all[base_anchor]).astype(np.float32)
+                shell_face_idx = bind_face_idx[pick].astype(np.int64)
+                shell_bary = bind_bary[pick].astype(np.float32)
+                shell_face_local = np.zeros((n_outer, 3), dtype=np.float32)
+                shell_face_local[:, 2] = float(shell_offset_n)
+            else:
+                if str(outer_face_anchor_rule).strip().lower() != "centroid":
+                    raise ValueError(f"outer_face_anchor_rule only supports 'centroid'. Got: {outer_face_anchor_rule}")
+                shell_pts, base_anchor, shell_off, shell_face_idx, shell_bary = _sample_face_centroids(
+                    verts=V_all,
+                    faces=F_all,
+                    n_samples=n_outer,
+                    rng=rng,
+                )
+                if int(shell_pts.shape[0]) <= 0:
+                    n_outer = 0
+                shell_face_local = np.zeros((n_outer, 3), dtype=np.float32)
 
-            V = np.concatenate([V, shell_pts], axis=0)
-            idx = np.concatenate([idx, base_anchor.astype(np.int64)], axis=0)
-            bind_offset = np.concatenate([bind_offset, shell_off], axis=0)
-            bind_face_idx = np.concatenate([bind_face_idx, bind_face_idx[pick].astype(np.int64)], axis=0)
-            bind_bary = np.concatenate([bind_bary, bind_bary[pick].astype(np.float32)], axis=0)
-            shell_layer = np.concatenate([shell_layer, np.ones((n_outer,), dtype=np.int64)], axis=0)
-
-            shell_face_local = np.zeros((n_outer, 3), dtype=np.float32)
-            shell_face_local[:, 2] = float(shell_offset_n)
-            face_local_offset = np.concatenate([face_local_offset, shell_face_local], axis=0)
+            if n_outer > 0:
+                V = np.concatenate([V, shell_pts], axis=0)
+                idx = np.concatenate([idx, base_anchor.astype(np.int64)], axis=0)
+                bind_offset = np.concatenate([bind_offset, shell_off], axis=0)
+                bind_face_idx = np.concatenate([bind_face_idx, shell_face_idx], axis=0)
+                bind_bary = np.concatenate([bind_bary, shell_bary], axis=0)
+                shell_layer = np.concatenate([shell_layer, np.ones((n_outer,), dtype=np.int64)], axis=0)
+                face_local_offset = np.concatenate([face_local_offset, shell_face_local], axis=0)
+                inner_bind_mode = np.concatenate([inner_bind_mode, -np.ones((n_outer,), dtype=np.int64)], axis=0)
 
     if int(n_bg) > 0:
         ex, ey, ez = float(bg_extent[0]), float(bg_extent[1]), float(bg_extent[2])
@@ -254,6 +442,7 @@ def init_gaussians_from_mesh_3d(
         bind_bary = np.concatenate([bind_bary, bary_bg], axis=0)
         shell_layer = np.concatenate([shell_layer, -np.ones((int(n_bg),), dtype=np.int64)], axis=0)
         face_local_offset = np.concatenate([face_local_offset, np.zeros((int(n_bg), 3), dtype=np.float32)], axis=0)
+        inner_bind_mode = np.concatenate([inner_bind_mode, -np.ones((int(n_bg),), dtype=np.int64)], axis=0)
 
     N = V.shape[0]
     xyz = torch.from_numpy(V)
@@ -276,6 +465,10 @@ def init_gaussians_from_mesh_3d(
 
     bind_mix_weight = torch.full((N, 1), 0.5, dtype=torch.float32)
     prune_state = torch.zeros((N,), dtype=torch.int64)
+    if bool(shell_enable) and not bool(outer_init_from_inner):
+        outer_mask = torch.from_numpy(np.asarray(shell_layer == 1))
+        prune_state[outer_mask] = 2
+        opacity_logit[outer_mask, :] = float(outer_pruned_opacity_logit)
 
     return Gaussian3D(
         xyz=xyz,
@@ -291,4 +484,5 @@ def init_gaussians_from_mesh_3d(
         shell_layer=torch.from_numpy(np.asarray(shell_layer, dtype=np.int64)),
         bind_mix_weight=bind_mix_weight,
         prune_state=prune_state,
+        inner_bind_mode=torch.from_numpy(np.asarray(inner_bind_mode, dtype=np.int64)),
     )

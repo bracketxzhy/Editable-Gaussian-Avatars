@@ -10,7 +10,7 @@ stage2:
   enable_tf32: true
   cudnn_benchmark: true
   n_frames: 0
-  n_gaussians: 120000
+  n_gaussians: 90000
   sample_on_surface: true
   n_gaussians_bg: 0
   bg_extent:
@@ -31,7 +31,7 @@ stage2:
   outer_log_scale_min: -8.8
   outer_log_scale_max: -6.8
   outer_prune_support_th: 0.02
-  iters: 6000
+  iters: 4000
   lr_gauss: 0.003
   lr_cam: 0.0
   camera_mode: fixed
@@ -148,7 +148,7 @@ stage2:
   person_mask_contour_width_px: 2
   person_mask_contour_leak_weight: 0.0
   outer_use_gt_contour: true
-  outer_gt_contour_fuse_mode: union
+  outer_gt_contour_fuse_mode: intersect
   outer_head_priority_enable: false
   outer_head_priority_weight: 1.0
   outer_head_priority_face_pad: 0.55
@@ -156,17 +156,14 @@ stage2:
   outer_head_priority_down_scale: 0.4
   outer_head_priority_person_top_ratio: 0.18
   outer_head_support_th: 0.08
-  outer_head_min_ratio: 0.0
-  outer_contour_dilate_px: 0
-  outer_contour_band_px: 0
   outer_trigger_smpl_gap_px: 2
-  outer_trigger_edge_th: 0.04
-  outer_trigger_min_pixels: 24
-  outer_trigger_use_edge_gate: true
+  outer_trigger_edge_th: 0.06
+  outer_trigger_min_pixels: 8
+  outer_trigger_ring_width_px: 2
+  outer_trigger_use_edge_gate: false
   outer_contour_inside_only: true
-  outer_support_sample_dilate_px: 4
-  outer_head_support_sample_dilate_px: 2
-  outer_exclude_face: true
+  outer_head_support_sample_dilate_px: 0
+  outer_exclude_face: false
   outer_face_expand_px: 0
   outer_face_exclude_lower_ratio: 0.65
   outer_silhouette_weight: 0.12
@@ -174,21 +171,19 @@ stage2:
   outer_silhouette_band_weight: 2.0
   detail_hf_weight: 0.0
   detail_hf_exclude_face: true
-  outer_vis_floor: 0.0
-  outer_vis_edge_floor: 0.0
   outer_inside_support_th: 0.05
   outer_outside_support_th: 0.2
-  outer_outside_opacity_cap: 0.015
+  outer_outside_opacity_cap: 0.01
   outer_outside_offset_decay: 0.97
   outer_outside_opacity_weight: 0.08
   outer_outside_offset_weight: 0.01
   separate_fg_bg_training: true
   fg_region_weight: 1.6
   bg_region_weight: 0.8
-  early_stop_enable: true
-  early_stop_patience: 6000
+  early_stop_enable: false
+  early_stop_patience: 0
   early_stop_min_delta: 1.0e-05
-  early_stop_warmup_iters: 8000
+  early_stop_warmup_iters: 0
   inner_count_auto: true
   inner_count_kV: 1.2
   inner_count_kF: 0.35
@@ -210,9 +205,16 @@ stage2:
   densify_top_percent: 10.0
   phase0_ratio: 0.08
   phase2_ratio: 0.15
+  phase_ratio_inner_only: 0.2
+  phase_ratio_outer_only: 0.2
+  phase_ratio_occlusion_simplify: 0.3
+  phase_ratio_joint_finetune: 0.3
   shell_enable: true
-  shell_init_ratio: 0.3
-  shell_max_ratio: 0.7
+  shell_init_ratio: 0.2
+  outer_init_from_inner: false
+  outer_dormant_slot_ratio: 0.3
+  outer_face_anchor_rule: centroid
+  shell_max_ratio: 0.55
   shell_spawn_top_percent: 20.0
   shell_spawn_every: 120
   shell_prune_every: 500
@@ -230,28 +232,34 @@ stage2:
   shell_offset_reg_weight: 0.001
   shell_offset_reg_phase0_scale: 0.2
   shell_offset_freeze_phase0: false
+  inner_dual_candidate_enable: false
+  inner_high_curv_dual_activate_th: 0.2
+  inner_face_candidate_ratio: 0.35
+  inner_vertex_candidate_ratio: 0.65
+  inner_bind_mode_default: vertex
+  outer_trigger_face_activate_enable: true
+  outer_trigger_face_sample_dilate_px: 0
+  outer_spawn_from_trigger_ring_only: false
+  outer_viewplane_init_enable: true
+  outer_center_init_rule: segment_midpoint
+  outer_center_phase1_normal_tune_enable: true
+  outer_center_phase1_normal_tune_cap: 0.04
+  outer_center_freeze_after_phase1: true
+  outer_contact_alpha_edge_th: 0.05
   outer_offset_grad_scale: 3.0
   outer_offset_edge_grad_scale: 2.0
   outer_offset_grad_scale_max: 8.0
   outer_support_weight: 1.0
-  outer_spawn_support_th: 0.02
+  outer_spawn_support_th: 0.005
   outer_spawn_inside_only: true
-  outer_reassign_enable: true
-  outer_reassign_every: 120
-  outer_reassign_ratio: 0.2
-  outer_reassign_seed_n: 0.02
-  outer_reassign_inside_only: true
-  outer_spawn_allow_outer_source: false
-  outer_reassign_allow_outer_source: false
-  outer_reassign_preserve_source_offset: false
-  outer_reassign_warmup_iters: 600
   outer_low_support_patience: 4
   outer_pruned_opacity_logit_max: -12.0
-  outer_quality_log_every: 100
+  outer_quality_log_every: 300
+  outer_boundary_enforce: false
+  outer_boundary_check_every: 120
   bind_face_offset_straight_through: true
   outer_edge_trigger_enable: true
   outer_edge_trigger_weight: 0.45
-  outer_edge_visibility_boost: 0.4
   outer_edge_prune_protect_quantile: 0.95
   inner_occlusion_soft_enable: true
   inner_occlusion_hard_enable: true
@@ -303,9 +311,9 @@ stage2:
     rx_deg: 0.0
     ry_deg: 0.0
     rz_deg: 0.0
-    tx: 0.0020854578018188476
+    tx: 0.0
     ty: 0.0
-    tz: 0.04872044705402899
+    tz: 0.025786704647627907
     sample_frames: 8
     eval_downsample: 0.5
     outside_weight: 2.0

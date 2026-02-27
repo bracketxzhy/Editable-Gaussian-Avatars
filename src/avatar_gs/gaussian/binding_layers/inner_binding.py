@@ -86,7 +86,17 @@ def update_inner_gaussians_with_binding(
     quat_old = g.quat.index_select(0, bound_ids)
     mu_old = g.xyz.index_select(0, bound_ids)
 
-    # Inner logic: strictly vertex-driven geometry/orientation.
+    # Inner logic: mode-gated single binding per gaussian.
+    # mode=0 -> vertex only, mode=1 -> face only, others -> legacy fallback.
+    if g.inner_bind_mode is not None:
+        mode_local = g.inner_bind_mode.index_select(0, bound_ids).to(device=bind_mask.device, dtype=torch.int64)
+    else:
+        mode_local = torch.full((n_bound,), -1, dtype=torch.int64, device=bind_mask.device)
+
+    mode_vertex = mode_local == 0
+    mode_face = mode_local == 1
+    mode_legacy = ~(mode_vertex | mode_face)
+
     mu_vert, quat_vert, scale_vert, v_valid, prev_out = build_vertex_binding_targets(
         frame=frame,
         bind_vertex_idx=bind_vertex_idx,
@@ -102,8 +112,9 @@ def update_inner_gaussians_with_binding(
     target_quat = _normalize_torch(quat_old.clone(), eps=1e-8)
     target_scale = scales_old.clone()
 
-    if bool(v_valid.any()):
-        local = torch.nonzero(v_valid, as_tuple=False).view(-1)
+    use_vertex = v_valid & (mode_vertex | mode_legacy)
+    if bool(use_vertex.any()):
+        local = torch.nonzero(use_vertex, as_tuple=False).view(-1)
         target_mu[local] = mu_vert.index_select(0, local)
         target_quat[local] = quat_vert.index_select(0, local)
         target_scale[local] = scale_vert.index_select(0, local)
@@ -122,9 +133,9 @@ def update_inner_gaussians_with_binding(
         f_idx = bind_face_idx.index_select(0, bound_ids)
         n_faces = int(frame.faces_t.shape[0])
         f_valid = (f_idx >= 0) & (f_idx < n_faces)
-        use_face_fallback = f_valid & (~v_valid)
-        if bool(use_face_fallback.any()):
-            local = torch.nonzero(use_face_fallback, as_tuple=False).view(-1)
+        use_face = f_valid & (mode_face | (mode_legacy & (~v_valid)))
+        if bool(use_face.any()):
+            local = torch.nonzero(use_face, as_tuple=False).view(-1)
             fs = f_idx.index_select(0, local)
             bary = _safe_barycentric(bind_bary.index_select(0, bound_ids.index_select(0, local)))
             tri_idx = frame.faces_t.index_select(0, fs)
@@ -152,7 +163,11 @@ def update_inner_gaussians_with_binding(
         g.quat.index_copy_(0, bound_ids, q_apply.detach())
         g.log_scales.index_copy_(0, bound_ids, target_log_scale.detach())
 
-    valid_local = v_valid | f_valid
+    valid_local = (
+        (mode_vertex & v_valid)
+        | (mode_face & f_valid)
+        | (mode_legacy & (v_valid | f_valid))
+    )
     valid_mask = torch.zeros_like(bind_mask)
     valid_mask[bound_ids] = valid_local
     return prev_out, valid_mask

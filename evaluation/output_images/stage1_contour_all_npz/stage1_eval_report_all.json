@@ -1,0 +1,919 @@
+{
+  "n_frames": 76,
+  "frame_reports": [
+    {
+      "frame_name": "000000.jpg",
+      "frame_index": 0,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000000_gt_stage1_contour.png",
+      "iou_before": 0.9975701782154499,
+      "iou_after": 0.9975701782154499,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000001.jpg",
+      "frame_index": 1,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000001_gt_stage1_contour.png",
+      "iou_before": 0.9975724407692703,
+      "iou_after": 0.9975724407692703,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000002.jpg",
+      "frame_index": 2,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000002_gt_stage1_contour.png",
+      "iou_before": 0.9974443289659755,
+      "iou_after": 0.9974443289659755,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000003.jpg",
+      "frame_index": 3,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000003_gt_stage1_contour.png",
+      "iou_before": 0.9957082643640893,
+      "iou_after": 0.9957082643640893,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000004.jpg",
+      "frame_index": 4,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000004_gt_stage1_contour.png",
+      "iou_before": 0.9918607476311131,
+      "iou_after": 0.9918607476311131,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000005.jpg",
+      "frame_index": 5,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000005_gt_stage1_contour.png",
+      "iou_before": 0.9955560004003603,
+      "iou_after": 0.9955560004003603,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000006.jpg",
+      "frame_index": 6,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000006_gt_stage1_contour.png",
+      "iou_before": 0.9991752847231313,
+      "iou_after": 0.9991752847231313,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000007.jpg",
+      "frame_index": 7,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000007_gt_stage1_contour.png",
+      "iou_before": 0.9977193720523437,
+      "iou_after": 0.9977193720523437,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000008.jpg",
+      "frame_index": 8,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000008_gt_stage1_contour.png",
+      "iou_before": 0.9901233629949002,
+      "iou_after": 0.9901233629949002,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000009.jpg",
+      "frame_index": 9,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000009_gt_stage1_contour.png",
+      "iou_before": 0.9952745487194027,
+      "iou_after": 0.9952745487194027,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000010.jpg",
+      "frame_index": 10,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000010_gt_stage1_contour.png",
+      "iou_before": 0.9962951375738914,
+      "iou_after": 0.9962951375738914,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000011.jpg",
+      "frame_index": 11,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000011_gt_stage1_contour.png",
+      "iou_before": 0.9977319882063387,
+      "iou_after": 0.9977319882063387,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000012.jpg",
+      "frame_index": 12,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000012_gt_stage1_contour.png",
+      "iou_before": 0.9982895324441149,
+      "iou_after": 0.9982895324441149,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000013.jpg",
+      "frame_index": 13,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000013_gt_stage1_contour.png",
+      "iou_before": 0.9945241856543355,
+      "iou_after": 0.9945241856543355,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000014.jpg",
+      "frame_index": 14,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000014_gt_stage1_contour.png",
+      "iou_before": 0.9927861667968411,
+      "iou_after": 0.9927861667968411,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000015.jpg",
+      "frame_index": 15,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000015_gt_stage1_contour.png",
+      "iou_before": 0.9945241856543355,
+      "iou_after": 0.9945241856543355,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000016.jpg",
+      "frame_index": 16,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000016_gt_stage1_contour.png",
+      "iou_before": 0.9927861667968411,
+      "iou_after": 0.9927861667968411,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000017.jpg",
+      "frame_index": 17,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000017_gt_stage1_contour.png",
+      "iou_before": 0.9990147660381123,
+      "iou_after": 0.9990147660381123,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000018.jpg",
+      "frame_index": 18,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000018_gt_stage1_contour.png",
+      "iou_before": 0.9967269347088936,
+      "iou_after": 0.9967269347088936,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000019.jpg",
+      "frame_index": 19,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000019_gt_stage1_contour.png",
+      "iou_before": 0.9928824882155233,
+      "iou_after": 0.9928824882155233,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000020.jpg",
+      "frame_index": 20,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000020_gt_stage1_contour.png",
+      "iou_before": 0.9967635789948163,
+      "iou_after": 0.9967635789948163,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000021.jpg",
+      "frame_index": 21,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000021_gt_stage1_contour.png",
+      "iou_before": 0.9968959490831312,
+      "iou_after": 0.9968959490831312,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000022.jpg",
+      "frame_index": 22,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000022_gt_stage1_contour.png",
+      "iou_before": 0.9975326597927434,
+      "iou_after": 0.9975326597927434,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000023.jpg",
+      "frame_index": 23,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000023_gt_stage1_contour.png",
+      "iou_before": 0.9978419958058145,
+      "iou_after": 0.9978419958058145,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000024.jpg",
+      "frame_index": 24,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000024_gt_stage1_contour.png",
+      "iou_before": 0.9978989380406499,
+      "iou_after": 0.9978989380406499,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000025.jpg",
+      "frame_index": 25,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000025_gt_stage1_contour.png",
+      "iou_before": 0.997840642931153,
+      "iou_after": 0.997840642931153,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000026.jpg",
+      "frame_index": 26,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000026_gt_stage1_contour.png",
+      "iou_before": 0.997975795315167,
+      "iou_after": 0.997975795315167,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000027.jpg",
+      "frame_index": 27,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000027_gt_stage1_contour.png",
+      "iou_before": 0.997554991467939,
+      "iou_after": 0.997554991467939,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000028.jpg",
+      "frame_index": 28,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000028_gt_stage1_contour.png",
+      "iou_before": 0.9953727066672369,
+      "iou_after": 0.9953727066672369,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000029.jpg",
+      "frame_index": 29,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000029_gt_stage1_contour.png",
+      "iou_before": 0.9909803367811628,
+      "iou_after": 0.9909803367811628,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000030.jpg",
+      "frame_index": 30,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000030_gt_stage1_contour.png",
+      "iou_before": 0.9914494943136515,
+      "iou_after": 0.9914494943136515,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000031.jpg",
+      "frame_index": 31,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000031_gt_stage1_contour.png",
+      "iou_before": 0.9991239709879803,
+      "iou_after": 0.9991239709879803,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000032.jpg",
+      "frame_index": 32,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000032_gt_stage1_contour.png",
+      "iou_before": 0.9985967109688493,
+      "iou_after": 0.9985967109688493,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000033.jpg",
+      "frame_index": 33,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000033_gt_stage1_contour.png",
+      "iou_before": 0.9966549693201174,
+      "iou_after": 0.9966549693201174,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000034.jpg",
+      "frame_index": 34,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000034_gt_stage1_contour.png",
+      "iou_before": 0.9964520754439501,
+      "iou_after": 0.9964520754439501,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000035.jpg",
+      "frame_index": 35,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000035_gt_stage1_contour.png",
+      "iou_before": 0.9954370163535291,
+      "iou_after": 0.9954370163535291,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000036.jpg",
+      "frame_index": 36,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000036_gt_stage1_contour.png",
+      "iou_before": 0.9976386647413573,
+      "iou_after": 0.9976386647413573,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000037.jpg",
+      "frame_index": 37,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000037_gt_stage1_contour.png",
+      "iou_before": 0.9994526403586509,
+      "iou_after": 0.9994526403586509,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000038.jpg",
+      "frame_index": 38,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000038_gt_stage1_contour.png",
+      "iou_before": 0.9985871495417957,
+      "iou_after": 0.9985871495417957,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000039.jpg",
+      "frame_index": 39,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000039_gt_stage1_contour.png",
+      "iou_before": 0.9942636671702119,
+      "iou_after": 0.9942636671702119,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000040.jpg",
+      "frame_index": 40,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000040_gt_stage1_contour.png",
+      "iou_before": 0.9946708679856053,
+      "iou_after": 0.9946708679856053,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000041.jpg",
+      "frame_index": 41,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000041_gt_stage1_contour.png",
+      "iou_before": 0.9950425356474871,
+      "iou_after": 0.9950425356474871,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000042.jpg",
+      "frame_index": 42,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000042_gt_stage1_contour.png",
+      "iou_before": 0.9939683480799051,
+      "iou_after": 0.9939683480799051,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000043.jpg",
+      "frame_index": 43,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000043_gt_stage1_contour.png",
+      "iou_before": 0.9994526403586509,
+      "iou_after": 0.9994526403586509,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000044.jpg",
+      "frame_index": 44,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000044_gt_stage1_contour.png",
+      "iou_before": 0.9985871495417957,
+      "iou_after": 0.9985871495417957,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000045.jpg",
+      "frame_index": 45,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000045_gt_stage1_contour.png",
+      "iou_before": 0.9942636671702119,
+      "iou_after": 0.9942636671702119,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000046.jpg",
+      "frame_index": 46,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000046_gt_stage1_contour.png",
+      "iou_before": 0.9946708679856053,
+      "iou_after": 0.9946708679856053,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000047.jpg",
+      "frame_index": 47,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000047_gt_stage1_contour.png",
+      "iou_before": 0.9973664184145496,
+      "iou_after": 0.9973664184145496,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000048.jpg",
+      "frame_index": 48,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000048_gt_stage1_contour.png",
+      "iou_before": 0.9964460732091873,
+      "iou_after": 0.9964460732091873,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000049.jpg",
+      "frame_index": 49,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000049_gt_stage1_contour.png",
+      "iou_before": 0.9960770877944326,
+      "iou_after": 0.9960770877944326,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000050.jpg",
+      "frame_index": 50,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000050_gt_stage1_contour.png",
+      "iou_before": 0.9961971271023837,
+      "iou_after": 0.9961971271023837,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000051.jpg",
+      "frame_index": 51,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000051_gt_stage1_contour.png",
+      "iou_before": 0.9962330833548833,
+      "iou_after": 0.9962330833548833,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000052.jpg",
+      "frame_index": 52,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000052_gt_stage1_contour.png",
+      "iou_before": 0.9935126689762924,
+      "iou_after": 0.9935126689762924,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000053.jpg",
+      "frame_index": 53,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000053_gt_stage1_contour.png",
+      "iou_before": 0.9935909796251917,
+      "iou_after": 0.9935909796251917,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000054.jpg",
+      "frame_index": 54,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000054_gt_stage1_contour.png",
+      "iou_before": 0.9988575381519369,
+      "iou_after": 0.9988575381519369,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000055.jpg",
+      "frame_index": 55,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000055_gt_stage1_contour.png",
+      "iou_before": 0.9990557972771235,
+      "iou_after": 0.9990557972771235,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000056.jpg",
+      "frame_index": 56,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000056_gt_stage1_contour.png",
+      "iou_before": 0.996955578563329,
+      "iou_after": 0.996955578563329,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000057.jpg",
+      "frame_index": 57,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000057_gt_stage1_contour.png",
+      "iou_before": 0.9963382124617953,
+      "iou_after": 0.9963382124617953,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000058.jpg",
+      "frame_index": 58,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000058_gt_stage1_contour.png",
+      "iou_before": 0.9944304320504102,
+      "iou_after": 0.9944304320504102,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000059.jpg",
+      "frame_index": 59,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000059_gt_stage1_contour.png",
+      "iou_before": 0.9975647102901172,
+      "iou_after": 0.9975647102901172,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000060.jpg",
+      "frame_index": 60,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000060_gt_stage1_contour.png",
+      "iou_before": 0.9973246062589487,
+      "iou_after": 0.9973246062589487,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000061.jpg",
+      "frame_index": 61,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000061_gt_stage1_contour.png",
+      "iou_before": 0.9975175185148285,
+      "iou_after": 0.9975175185148285,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000062.jpg",
+      "frame_index": 62,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000062_gt_stage1_contour.png",
+      "iou_before": 0.9958830405335717,
+      "iou_after": 0.9958830405335717,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000063.jpg",
+      "frame_index": 63,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000063_gt_stage1_contour.png",
+      "iou_before": 0.9944321200908397,
+      "iou_after": 0.9944321200908397,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000064.jpg",
+      "frame_index": 64,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000064_gt_stage1_contour.png",
+      "iou_before": 0.9917929981459265,
+      "iou_after": 0.9917929981459265,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000065.jpg",
+      "frame_index": 65,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000065_gt_stage1_contour.png",
+      "iou_before": 0.997549260949005,
+      "iou_after": 0.997549260949005,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000066.jpg",
+      "frame_index": 66,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000066_gt_stage1_contour.png",
+      "iou_before": 0.99913697286695,
+      "iou_after": 0.99913697286695,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000067.jpg",
+      "frame_index": 67,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000067_gt_stage1_contour.png",
+      "iou_before": 0.9954722077692044,
+      "iou_after": 0.9954722077692044,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000068.jpg",
+      "frame_index": 68,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000068_gt_stage1_contour.png",
+      "iou_before": 0.9952532233493108,
+      "iou_after": 0.9952532233493108,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000069.jpg",
+      "frame_index": 69,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000069_gt_stage1_contour.png",
+      "iou_before": 0.9952355838421039,
+      "iou_after": 0.9952355838421039,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000070.jpg",
+      "frame_index": 70,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000070_gt_stage1_contour.png",
+      "iou_before": 0.9942056894283922,
+      "iou_after": 0.9942056894283922,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000071.jpg",
+      "frame_index": 71,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000071_gt_stage1_contour.png",
+      "iou_before": 0.9971411464087233,
+      "iou_after": 0.9971411464087233,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000072.jpg",
+      "frame_index": 72,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000072_gt_stage1_contour.png",
+      "iou_before": 0.9964506028002696,
+      "iou_after": 0.9964506028002696,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000073.jpg",
+      "frame_index": 73,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000073_gt_stage1_contour.png",
+      "iou_before": 0.9964034348058027,
+      "iou_after": 0.9964034348058027,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000074.jpg",
+      "frame_index": 74,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000074_gt_stage1_contour.png",
+      "iou_before": 0.9964866959442005,
+      "iou_after": 0.9964866959442005,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    },
+    {
+      "frame_name": "000075.jpg",
+      "frame_index": 75,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1_contour_all_npz\\000075_gt_stage1_contour.png",
+      "iou_before": 0.9962083519198436,
+      "iou_after": 0.9962083519198436,
+      "align": {
+        "applied": false,
+        "reason": "disabled_or_missing_person_mask"
+      },
+      "gt_mask_source": "npz"
+    }
+  ],
+  "stage1_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1",
+  "frames_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\data\\frames\\input"
+}

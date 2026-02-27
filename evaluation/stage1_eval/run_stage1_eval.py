@@ -169,6 +169,48 @@ def _largest_component_by_overlap(mask_u8: np.ndarray, ref_mask_u8: np.ndarray |
     return out
 
 
+def _pick_main_component(mask_u8: np.ndarray, prefer_non_border: bool = True, min_area: int = 128) -> np.ndarray:
+    m = (np.asarray(mask_u8, dtype=np.uint8) > 0).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+    if n <= 1:
+        return (m * 255).astype(np.uint8)
+    h, w = m.shape[:2]
+    best_i = -1
+    best_area = -1
+    for i in range(1, n):
+        x, y, ww, hh, area = stats[i]
+        if int(area) < int(min_area):
+            continue
+        touch_border = (x <= 0) or (y <= 0) or (x + ww >= w - 1) or (y + hh >= h - 1)
+        if prefer_non_border and touch_border:
+            continue
+        if int(area) > best_area:
+            best_area = int(area)
+            best_i = int(i)
+    if best_i < 0:
+        areas = stats[1:, cv2.CC_STAT_AREA]
+        if len(areas) <= 0:
+            return np.zeros_like(mask_u8, dtype=np.uint8)
+        best_i = 1 + int(np.argmax(areas))
+    out = np.zeros_like(mask_u8, dtype=np.uint8)
+    out[labels == best_i] = 255
+    return out
+
+
+def _estimate_person_mask_chromakey(img_bgr: np.ndarray) -> np.ndarray:
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    # Same green-screen range used in stage1 mask generation.
+    lower = np.array([35, 35, 25], dtype=np.uint8)
+    upper = np.array([95, 255, 255], dtype=np.uint8)
+    green = cv2.inRange(hsv, lower, upper)
+    fg = (green == 0).astype(np.uint8) * 255
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k, iterations=1)
+    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k, iterations=2)
+    fg = _pick_main_component(fg, prefer_non_border=True, min_area=128)
+    return fg
+
+
 
 
 def _mask_border_touch_ratio(mask_u8: np.ndarray) -> float:
@@ -246,16 +288,133 @@ def _grabcut_person_mask(img_bgr: np.ndarray, smpl_mask_hint: np.ndarray | None 
     return fg
 
 
+def _resolve_person_mask(
+    *,
+    gt_mask_mode: str,
+    pm_npz: Path,
+    frame_name: str,
+    image_hw: tuple[int, int],
+    img_bgr: np.ndarray,
+    smpl_mask_raw: np.ndarray,
+) -> tuple[np.ndarray, str]:
+    mode = str(gt_mask_mode).strip().lower()
+
+    if mode == "npz":
+        person_mask = None
+        if pm_npz.exists():
+            person_mask = load_person_mask_from_npz(npz_path=pm_npz, frame_name=frame_name, image_hw=image_hw)
+        if person_mask is None or int(person_mask.sum()) <= 0:
+            raise RuntimeError(f"gt_mask_mode=npz but no valid person mask for frame={frame_name} in {pm_npz}")
+        return person_mask, "npz"
+
+    if mode == "chromakey":
+        return _estimate_person_mask_chromakey(img_bgr), "chromakey"
+
+    if mode == "grabcut":
+        return _grabcut_person_mask(img_bgr, smpl_mask_hint=smpl_mask_raw), "grabcut"
+
+    # auto: npz first, then chromakey, then grabcut.
+    person_mask = None
+    if pm_npz.exists():
+        person_mask = load_person_mask_from_npz(npz_path=pm_npz, frame_name=frame_name, image_hw=image_hw)
+    if person_mask is not None and int(person_mask.sum()) > 0:
+        if _is_person_mask_plausible(person_mask=person_mask, smpl_mask=smpl_mask_raw):
+            return person_mask, "npz"
+
+    ck_mask = _estimate_person_mask_chromakey(img_bgr)
+    if int((ck_mask > 0).sum()) > 0:
+        return ck_mask, "chromakey"
+
+    return _grabcut_person_mask(img_bgr, smpl_mask_hint=smpl_mask_raw), "grabcut"
+
+
+def _evaluate_one_frame(
+    *,
+    idx: int,
+    frame_name: str,
+    verts_cam: np.ndarray,
+    faces: np.ndarray,
+    cam_json_path: Path,
+    frames_dir: Path,
+    out_dir: Path,
+    pm_npz: Path,
+    use_auto_align: bool,
+    gt_mask_mode: str,
+) -> dict:
+    img_path = frames_dir / frame_name
+    img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+    if img is None:
+        raise FileNotFoundError(f"Cannot read GT image: {img_path}")
+    h, w = img.shape[:2]
+
+    K = _read_camera_K(cam_json_path, w=w, h=h)
+    uv, valid_v = _project_vertices_to_image(verts_cam=verts_cam, K=K)
+    smpl_mask_raw = _rasterize_mesh_mask(uv=uv, valid_v=valid_v, faces=faces, image_hw=(h, w))
+
+    person_mask, person_mask_source = _resolve_person_mask(
+        gt_mask_mode=gt_mask_mode,
+        pm_npz=pm_npz,
+        frame_name=frame_name,
+        image_hw=(h, w),
+        img_bgr=img,
+        smpl_mask_raw=smpl_mask_raw,
+    )
+
+    smpl_mask = smpl_mask_raw
+    align_report = {"applied": False, "reason": "disabled_or_missing_person_mask"}
+    iou_before = _iou(smpl_mask_raw, person_mask)
+    iou_after = iou_before
+    if use_auto_align and person_mask is not None and int(person_mask.sum()) > 0:
+        uv_aligned, align_report = _align_uv_by_bbox(uv=uv, smpl_mask=smpl_mask_raw, person_mask=person_mask)
+        smpl_mask_aligned = _rasterize_mesh_mask(uv=uv_aligned, valid_v=valid_v, faces=faces, image_hw=(h, w))
+        iou_after = _iou(smpl_mask_aligned, person_mask)
+        if iou_after >= iou_before:
+            smpl_mask = smpl_mask_aligned
+            align_report["accepted"] = True
+        else:
+            align_report["accepted"] = False
+
+    out = img.copy()
+    smpl_cnt = extract_person_contours((smpl_mask > 0).astype(np.uint8) * 255)
+    gt_cnt = extract_person_contours((person_mask > 0).astype(np.uint8) * 255)
+    contour_thickness = 2
+    if len(gt_cnt) > 0:
+        cv2.drawContours(out, gt_cnt, -1, color=(0, 255, 255), thickness=contour_thickness, lineType=cv2.LINE_AA)
+    if len(smpl_cnt) > 0:
+        cv2.drawContours(out, smpl_cnt, -1, color=(0, 0, 255), thickness=contour_thickness, lineType=cv2.LINE_AA)
+
+    out_img = out_dir / f"{Path(frame_name).stem}_gt_stage1_contour.png"
+    if not cv2.imwrite(str(out_img), out):
+        raise RuntimeError(f"Failed to write image: {out_img}")
+
+    return {
+        "frame_name": frame_name,
+        "frame_index": int(idx),
+        "output_image": str(out_img),
+        "iou_before": float(iou_before),
+        "iou_after": float(iou_after),
+        "align": align_report,
+        "gt_mask_source": str(person_mask_source),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser("Stage1 contour evaluation (GT vs Stage1 SMPL)")
     parser.add_argument("--project_root", type=str, default=".")
     parser.add_argument("--stage1_dir", type=str, default="outputs/stage1")
     parser.add_argument("--frames_dir", type=str, default="data/frames/input")
     parser.add_argument("--out_dir", type=str, default="evaluation/output_images/stage1")
-    parser.add_argument("--frame_select", type=str, default="last", choices=["first", "last", "index", "name"])
+    parser.add_argument("--frame_select", type=str, default="last", choices=["all", "first", "last", "index", "name"])
     parser.add_argument("--frame_index", type=int, default=-1)
     parser.add_argument("--frame_name", type=str, default="")
     parser.add_argument("--person_masks_npz", type=str, default="")
+    parser.add_argument(
+        "--gt_mask_mode",
+        type=str,
+        default="auto",
+        choices=["auto", "npz", "chromakey", "grabcut"],
+        help="GT person mask source: auto(npz->chromakey->grabcut), npz, chromakey, or grabcut.",
+    )
     parser.add_argument("--auto_align", action="store_true")
     parser.add_argument("--no_auto_align", action="store_true")
     args = parser.parse_args()
@@ -276,22 +435,21 @@ def main() -> None:
     frame_names = [str(x) for x in seq["frame_names"].tolist()]
     verts_cam_all = np.asarray(seq["verts_cam"], dtype=np.float32)
     n_frames = int(verts_cam_all.shape[0])
-    idx = _resolve_pick_index(
-        mode=str(args.frame_select),
-        n=n_frames,
-        index=int(args.frame_index),
-        frame_name=(None if str(args.frame_name).strip() == "" else str(args.frame_name).strip()),
-        names=frame_names,
-    )
-    frame_name = frame_names[idx]
+    mode = str(args.frame_select).strip().lower()
+    if mode == "all":
+        eval_indices = list(range(n_frames))
+    else:
+        idx = _resolve_pick_index(
+            mode=mode,
+            n=n_frames,
+            index=int(args.frame_index),
+            frame_name=(None if str(args.frame_name).strip() == "" else str(args.frame_name).strip()),
+            names=frame_names,
+        )
+        eval_indices = [int(idx)]
 
-    img_path = frames_dir / frame_name
-    img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-    if img is None:
-        raise FileNotFoundError(f"Cannot read GT image: {img_path}")
-    h, w = img.shape[:2]
-
-    frame_stem = Path(frame_name).stem
+    frame_name_ref = frame_names[int(eval_indices[-1])]
+    frame_stem = Path(frame_name_ref).stem
     mesh_candidates = [
         stage1_dir / "smpl_mesh_tpose.obj",
         stage1_dir / "sequence" / f"{frame_stem}.obj",
@@ -309,74 +467,51 @@ def main() -> None:
     if faces is None or len(faces) <= 0:
         raise RuntimeError(f"No faces in mesh topology: {mesh_obj}")
 
-    K = _read_camera_K(stage1_dir / "cameras.json", w=w, h=h)
-    verts_cam = verts_cam_all[idx]
-    uv, valid_v = _project_vertices_to_image(verts_cam=verts_cam, K=K)
-    smpl_mask_raw = _rasterize_mesh_mask(uv=uv, valid_v=valid_v, faces=faces, image_hw=(h, w))
-
     pm_npz = (stage1_dir / "person_masks.npz") if str(args.person_masks_npz).strip() == "" else Path(args.person_masks_npz)
     if not pm_npz.is_absolute():
         pm_npz = (project_root / pm_npz).resolve()
-
-    person_mask = None
-    if pm_npz.exists():
-        person_mask = load_person_mask_from_npz(npz_path=pm_npz, frame_name=frame_name, image_hw=(h, w))
-
-    need_recompute = (person_mask is None) or (int(person_mask.sum()) <= 0)
-    if not need_recompute:
-        if not _is_person_mask_plausible(person_mask=person_mask, smpl_mask=smpl_mask_raw):
-            need_recompute = True
-
-    if need_recompute:
-        person_mask = _grabcut_person_mask(img, smpl_mask_hint=smpl_mask_raw)
 
     use_auto_align = (not bool(args.no_auto_align))
     if bool(args.auto_align):
         use_auto_align = True
 
-    smpl_mask = smpl_mask_raw
-    align_report = {"applied": False, "reason": "disabled_or_missing_person_mask"}
-    iou_before = _iou(smpl_mask_raw, person_mask)
-    iou_after = iou_before
-    if use_auto_align and person_mask is not None and int(person_mask.sum()) > 0:
-        uv_aligned, align_report = _align_uv_by_bbox(uv=uv, smpl_mask=smpl_mask_raw, person_mask=person_mask)
-        smpl_mask_aligned = _rasterize_mesh_mask(uv=uv_aligned, valid_v=valid_v, faces=faces, image_hw=(h, w))
-        iou_after = _iou(smpl_mask_aligned, person_mask)
-        if iou_after >= iou_before:
-            smpl_mask = smpl_mask_aligned
-            align_report["accepted"] = True
-        else:
-            align_report["accepted"] = False
+    reports: list[dict] = []
+    for idx in eval_indices:
+        frame_name = frame_names[idx]
+        report_i = _evaluate_one_frame(
+            idx=int(idx),
+            frame_name=frame_name,
+            verts_cam=verts_cam_all[idx],
+            faces=faces,
+            cam_json_path=stage1_dir / "cameras.json",
+            frames_dir=frames_dir,
+            out_dir=out_dir,
+            pm_npz=pm_npz,
+            use_auto_align=use_auto_align,
+            gt_mask_mode=str(args.gt_mask_mode),
+        )
+        reports.append(report_i)
+        print(
+            f"Saved: {report_i['output_image']} | "
+            f"Frame: idx={report_i['frame_index']}, name={report_i['frame_name']} | "
+            f"IoU: {report_i['iou_before']:.4f} -> {report_i['iou_after']:.4f}"
+        )
 
-    out = img.copy()
-    smpl_cnt = extract_person_contours((smpl_mask > 0).astype(np.uint8) * 255)
-    gt_cnt = extract_person_contours((person_mask > 0).astype(np.uint8) * 255)
-    if len(gt_cnt) > 0:
-        cv2.drawContours(out, gt_cnt[:1], -1, color=(0, 255, 255), thickness=2)
-    if len(smpl_cnt) > 0:
-        cv2.drawContours(out, smpl_cnt[:1], -1, color=(0, 0, 255), thickness=2)
-
-    out_img = out_dir / f"{Path(frame_name).stem}_gt_stage1_contour.png"
-    if not cv2.imwrite(str(out_img), out):
-        raise RuntimeError(f"Failed to write image: {out_img}")
-
-    report = {
-        "frame_name": frame_name,
-        "frame_index": int(idx),
-        "output_image": str(out_img),
-        "iou_before": float(iou_before),
-        "iou_after": float(iou_after),
-        "align": align_report,
-        "stage1_dir": str(stage1_dir),
-        "frames_dir": str(frames_dir),
-    }
-    report_path = out_dir / f"{Path(frame_name).stem}_stage1_eval_report.json"
+    if len(reports) == 1:
+        report = dict(reports[0])
+        report["stage1_dir"] = str(stage1_dir)
+        report["frames_dir"] = str(frames_dir)
+        report_path = out_dir / f"{Path(str(report['frame_name'])).stem}_stage1_eval_report.json"
+    else:
+        report = {
+            "n_frames": len(reports),
+            "frame_reports": reports,
+            "stage1_dir": str(stage1_dir),
+            "frames_dir": str(frames_dir),
+        }
+        report_path = out_dir / "stage1_eval_report_all.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-
-    print(f"Saved: {out_img}")
     print(f"Report: {report_path}")
-    print(f"Frame: idx={idx}, name={frame_name}")
-    print(f"IoU: {iou_before:.4f} -> {iou_after:.4f}")
 
 
 if __name__ == "__main__":

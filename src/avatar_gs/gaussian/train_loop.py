@@ -40,6 +40,7 @@ from avatar_gs.training import (
     FrameResidualEMA,
     build_outer_trigger_mask,
     frame_weight_from_residual,
+    map_trigger_ring_to_faces,
     resolve_inner_supervision_mask,
 )
 from avatar_gs.gaussian.visibility import (
@@ -487,6 +488,7 @@ def _make_gaussian_with_xyz(g: Gaussian3D, xyz: torch.Tensor) -> Gaussian3D:
         shell_layer=g.shell_layer,
         bind_mix_weight=g.bind_mix_weight,
         prune_state=g.prune_state,
+        inner_bind_mode=g.inner_bind_mode,
         quality_fail_counter=g.quality_fail_counter,
         color_conf_ema=g.color_conf_ema,
         geom_conf_ema=g.geom_conf_ema,
@@ -713,6 +715,10 @@ def train_gaussians_3d_learnable_camera(
     densify_top_percent: float = 10.0,
     phase0_ratio: float = 0.15,
     phase2_ratio: float = 0.15,
+    phase_ratio_inner_only: float = 0.20,
+    phase_ratio_outer_only: float = 0.20,
+    phase_ratio_occlusion_simplify: float = 0.30,
+    phase_ratio_joint_finetune: float = 0.30,
     shell_enable: bool = False,
     shell_max_ratio: float = 0.40,
     shell_spawn_top_percent: float = 15.0,
@@ -736,6 +742,18 @@ def train_gaussians_3d_learnable_camera(
     outer_offset_edge_grad_scale: float = 2.0,
     outer_offset_grad_scale_max: float = 8.0,
     bind_face_offset_straight_through: bool = True,
+    inner_bind_mode_default: str = "vertex",
+    outer_init_from_inner: bool = False,
+    outer_dormant_slot_ratio: float = 0.30,
+    outer_trigger_face_activate_enable: bool = True,
+    outer_trigger_face_sample_dilate_px: int = 0,
+    outer_spawn_from_trigger_ring_only: bool = True,
+    outer_viewplane_init_enable: bool = True,
+    outer_center_init_rule: str = "segment_midpoint",
+    outer_center_phase1_normal_tune_enable: bool = True,
+    outer_center_phase1_normal_tune_cap: float = 0.04,
+    outer_center_freeze_after_phase1: bool = True,
+    outer_contact_alpha_edge_th: float = 0.05,
     outer_edge_trigger_enable: bool = True,
     outer_edge_trigger_weight: float = 0.35,
     outer_boundary_enforce: str = "hard",
@@ -808,6 +826,12 @@ def train_gaussians_3d_learnable_camera(
         raise ValueError(f"outer_trigger_ring_width_px must be > 0. Got: {outer_trigger_ring_width_px}")
     if float(outer_trigger_edge_th) < 0.0:
         raise ValueError(f"outer_trigger_edge_th must be >= 0. Got: {outer_trigger_edge_th}")
+    center_init_rule = str(outer_center_init_rule).strip().lower()
+    if center_init_rule not in ("segment_midpoint", "fixed"):
+        raise ValueError(
+            "outer_center_init_rule must be segment_midpoint|fixed. "
+            f"Got: {outer_center_init_rule}"
+        )
     inner_opacity_prior_target = float(np.clip(float(inner_opacity_prior_target), 1e-3, 0.999))
     outer_opacity_prior_target = float(np.clip(float(outer_opacity_prior_target), 1e-3, 0.999))
     outer_offset_min_active_weight = float(max(float(outer_offset_min_active_weight), 0.0))
@@ -843,6 +867,16 @@ def train_gaussians_3d_learnable_camera(
         g.prune_state = torch.zeros((n_gauss,), dtype=torch.int64, device=device)
     else:
         g.prune_state = g.prune_state.to(device=device, dtype=torch.int64)
+    default_inner_mode = 1 if str(inner_bind_mode_default).strip().lower() == "face" else 0
+    if g.inner_bind_mode is None:
+        inner_mode_base = torch.full((n_gauss,), -1, dtype=torch.int64, device=device)
+        inner_mode_base[g.shell_layer == 0] = int(default_inner_mode)
+        g.inner_bind_mode = inner_mode_base
+    else:
+        g.inner_bind_mode = g.inner_bind_mode.to(device=device, dtype=torch.int64)
+        inner_sel_init = (g.shell_layer == 0) & (g.inner_bind_mode < 0)
+        if bool(inner_sel_init.any()):
+            g.inner_bind_mode[inner_sel_init] = int(default_inner_mode)
     if g.quality_fail_counter is None:
         g.quality_fail_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     else:
@@ -1684,9 +1718,30 @@ def train_gaussians_3d_learnable_camera(
                 )
 
     # ---- Adaptive training helpers ----
-    phase0_end = max(1, int(round(float(iters) * float(np.clip(phase0_ratio, 0.0, 0.9)))))
-    phase2_start = max(phase0_end + 1, int(round(float(iters) * float(1.0 - np.clip(phase2_ratio, 0.0, 0.9)))))
-    phase2_lr_scale = 0.35
+    phase_ratios_raw = np.asarray(
+        [
+            max(float(phase_ratio_inner_only), 0.0),
+            max(float(phase_ratio_outer_only), 0.0),
+            max(float(phase_ratio_occlusion_simplify), 0.0),
+            max(float(phase_ratio_joint_finetune), 0.0),
+        ],
+        dtype=np.float32,
+    )
+    if float(phase_ratios_raw.sum()) <= 1e-8:
+        # Backward-compatible fallback for old configs.
+        p0 = float(np.clip(phase0_ratio, 0.0, 0.9))
+        p2 = float(np.clip(phase2_ratio, 0.0, 0.9))
+        phase_ratios_raw = np.asarray([0.5 * p0, 0.5 * p0, max(0.0, 1.0 - p0 - p2), p2], dtype=np.float32)
+    phase_ratios = phase_ratios_raw / float(np.clip(phase_ratios_raw.sum(), 1e-8, None))
+    phase_counts = np.floor(phase_ratios * float(iters)).astype(np.int64)
+    residual_iters = int(iters - int(phase_counts.sum()))
+    if residual_iters > 0:
+        order = np.argsort(-(phase_ratios * float(iters) - phase_counts.astype(np.float32)))
+        for k in order[:residual_iters]:
+            phase_counts[int(k)] += 1
+    phase_inner_end = int(phase_counts[0])
+    phase_outer_end = int(phase_inner_end + phase_counts[1])
+    phase_occlusion_end = int(phase_outer_end + phase_counts[2])
 
     binding_raw = binding if isinstance(binding, dict) else {}
     hybrid_dynamic = bool(binding_raw.get("hybrid_dynamic", getattr(binding_cfg, "hybrid_dynamic", False)))
@@ -1782,18 +1837,27 @@ def train_gaussians_3d_learnable_camera(
     for it in tqdm(range(iters), desc="Stage2 3DGS (learnable camera)"):
         opt.zero_grad(set_to_none=True)
 
-        # Training phase schedule
-        if it < phase0_end:
-            phase_tag = "phase0"
-        elif it >= phase2_start:
-            phase_tag = "phase2"
+        # Training phase schedule: 40/30/30 split as
+        # [inner-only, outer-only, occlusion-simplify, joint-finetune].
+        if it < phase_inner_end:
+            phase_tag = "phase_inner"
+        elif it < phase_outer_end:
+            phase_tag = "phase_outer"
+        elif it < phase_occlusion_end:
+            phase_tag = "phase_occlusion"
         else:
-            phase_tag = "phase1"
+            phase_tag = "phase_joint"
 
         for pg in opt.param_groups:
             base_lr = float(pg.get("initial_lr", pg["lr"]))
             pg.setdefault("initial_lr", base_lr)
-            pg["lr"] = base_lr * (phase2_lr_scale if phase_tag == "phase2" else 1.0)
+            if phase_tag == "phase_joint":
+                lr_mul = 0.35
+            elif phase_tag == "phase_occlusion":
+                lr_mul = 0.70
+            else:
+                lr_mul = 1.0
+            pg["lr"] = base_lr * lr_mul
 
         # Enable camera learning after warmup
         if learn_cam and it == cam_warmup_iters:
@@ -1826,6 +1890,8 @@ def train_gaussians_3d_learnable_camera(
         outer_head_support_accum: list[torch.Tensor] = []
         outer_person_support_accum: list[torch.Tensor] = []
         outer_hand_support_accum: list[torch.Tensor] = []
+        outer_trigger_face_support_accum: list[torch.Tensor] = []
+        trigger_frame_data: BindingFrameData | None = None
         color_eval_vals: list[float] = []
         color_var_vals: list[float] = []
         geom_eval_vals: list[float] = []
@@ -2054,6 +2120,29 @@ def train_gaussians_3d_learnable_camera(
                 outer_supervision_mask = None
                 edge_trigger_map_curr = None
 
+            if (
+                bool(shell_enable)
+                and bool(outer_trigger_face_activate_enable)
+                and outer_supervision_mask is not None
+                and frame_data is not None
+                and frame_data.faces_t is not None
+            ):
+                face_trigger_support, _ = map_trigger_ring_to_faces(
+                    trigger_ring_mask=outer_supervision_mask,
+                    verts_t=frame_data.verts_t,
+                    faces_t=frame_data.faces_t,
+                    K=K,
+                    R=R,
+                    t=t,
+                    image_h=H,
+                    image_w=W,
+                    sample_dilate_px=int(max(outer_trigger_face_sample_dilate_px, 0)),
+                )
+                if face_trigger_support is not None:
+                    outer_trigger_face_support_accum.append(face_trigger_support.detach() * float(wj))
+                    if trigger_frame_data is None or int(fj) == int(fi):
+                        trigger_frame_data = frame_data
+
             weight = None
             if face_boxes is not None and face_boxes[fj] is not None and float(face_weight) > 1.0:
                 fx0, fy0, fx1, fy1 = face_boxes[fj]
@@ -2248,7 +2337,7 @@ def train_gaussians_3d_learnable_camera(
             visibility = visibility * active_mask.float()
             # Visibility floor is applied to inner points only.
             # This avoids reviving weak outer points outside trigger-support regions.
-            inner_vis_floor = 0.08 if (it < phase0_end) else 0.02
+            inner_vis_floor = 0.08 if (it < phase_inner_end) else 0.02
             if inner_vis_floor > 0.0:
                 vis_pos = visibility > 0.0
                 if g.shell_layer is not None:
@@ -2435,6 +2524,9 @@ def train_gaussians_3d_learnable_camera(
             if len(outer_hand_support_accum) > 0
             else torch.zeros((n_gauss,), dtype=torch.float32, device=device)
         )
+        outer_trigger_face_support_mean = None
+        if len(outer_trigger_face_support_accum) > 0:
+            outer_trigger_face_support_mean = torch.stack(outer_trigger_face_support_accum, dim=0).mean(dim=0)
         # Keep all policy vectors strictly 1D to avoid accidental broadcasting (NxN).
         vis_mean = vis_mean.view(-1)
         edge_mean = edge_mean.view(-1)
@@ -2507,11 +2599,16 @@ def train_gaussians_3d_learnable_camera(
             inner_soft_counter = torch.where(inner_soft_cond, inner_soft_counter + 1.0, torch.zeros_like(inner_soft_counter))
             inner_hard_counter = torch.where(inner_soft_cond, inner_hard_counter + 1.0, torch.zeros_like(inner_hard_counter))
 
-            if bool(inner_occlusion_soft_enable):
+            if bool(inner_occlusion_soft_enable) and phase_tag == "phase_occlusion":
                 to_soft = inner_mask & (inner_soft_counter >= float(max(int(inner_soft_patience), 1)))
                 g.prune_state[to_soft] = 1
 
-            if bool(inner_occlusion_hard_enable) and int(inner_prune_every) > 0 and ((it + 1) % int(inner_prune_every) == 0):
+            if (
+                bool(inner_occlusion_hard_enable)
+                and phase_tag == "phase_occlusion"
+                and int(inner_prune_every) > 0
+                and ((it + 1) % int(inner_prune_every) == 0)
+            ):
                 to_hard = select_inner_hardprune_candidates(
                     inner_mask=inner_mask,
                     soft_counter=inner_soft_counter,
@@ -2552,7 +2649,11 @@ def train_gaussians_3d_learnable_camera(
                 prune_low_vis_th = min(1.0, prune_low_vis_th * float(dq_prune_boost_if_fail))
                 prune_low_score_percent = min(100.0, prune_low_score_percent * float(dq_prune_boost_if_fail))
 
-            if int(shell_prune_every) > 0 and ((it + 1) % int(shell_prune_every) == 0):
+            if (
+                phase_tag != "phase_inner"
+                and int(shell_prune_every) > 0
+                and ((it + 1) % int(shell_prune_every) == 0)
+            ):
                 to_prune_outer = select_outer_prune_candidates(
                     outer_mask=outer_mask,
                     outer_vis=vis_mean,
@@ -2560,7 +2661,7 @@ def train_gaussians_3d_learnable_camera(
                     low_vis_th=prune_low_vis_th,
                     low_score_percent=prune_low_score_percent,
                 )
-                if float(outer_prune_support_th) > 0.0 and (it + 1) > int(phase0_end):
+                if float(outer_prune_support_th) > 0.0 and (it + 1) > int(phase_outer_end):
                     low_sup = outer_mask & active_mask & (outer_support_mean.detach() < float(outer_prune_support_th))
                     low_sup_idx = torch.nonzero(low_sup, as_tuple=False).view(-1)
                     if int(low_sup_idx.numel()) > 0:
@@ -2594,7 +2695,11 @@ def train_gaussians_3d_learnable_camera(
                 if int(to_prune_outer.numel()) > 0:
                     g.prune_state[to_prune_outer] = 2
 
-            if int(shell_spawn_every) > 0 and ((it + 1) % int(shell_spawn_every) == 0):
+            if (
+                phase_tag in ("phase_outer", "phase_occlusion")
+                and int(shell_spawn_every) > 0
+                and ((it + 1) % int(shell_spawn_every) == 0)
+            ):
                 n_inner_active = int((inner_mask & active_mask).sum().item())
                 n_outer_active = int((outer_mask & active_mask).sum().item())
                 _outer_init_budget, outer_budget = estimate_outer_budget(
@@ -2606,56 +2711,110 @@ def train_gaussians_3d_learnable_camera(
                 if dq_enable and dq_fail_active:
                     max_new = int(round(float(max_new) * float(max(dq_spawn_scale_if_fail, 0.0))))
                 if max_new > 0:
-                    spawn_active_mask = active_mask & inner_mask
-                    if bool(outer_spawn_inside_only):
-                        spawn_active_mask = spawn_active_mask & inside_support_mask
-                    spawn_active_mask = spawn_active_mask & (outer_support_mean.detach() > 1e-6)
-                    if float(outer_spawn_support_th) > 0.0:
-                        spawn_active_mask = spawn_active_mask & (outer_support_mean.detach() >= float(outer_spawn_support_th))
-                    spawn_src = select_outer_spawn_candidates(
-                        shell_score=shell_score,
-                        visibility=vis_mean,
-                        vis_count=densify_stats.vis_count,
-                        V_min=int(V_min),
-                        tau_vis=float(tau_vis),
-                        top_percent=float(shell_spawn_top_percent),
-                        max_new=max_new,
-                        active_mask=spawn_active_mask,
-                    )
                     # Reuse previously hard-pruned outer slots to keep tensor shapes stable.
                     spawn_slots = torch.nonzero((g.shell_layer == 1) & (g.prune_state == 2), as_tuple=False).view(-1)
-                    n_spawn = min(int(spawn_src.numel()), int(spawn_slots.numel()))
-                    if n_spawn > 0:
-                        src = spawn_src[:n_spawn]
-                        dst = spawn_slots[:n_spawn]
-                        with torch.no_grad():
-                            g.log_scales[dst] = g.log_scales[src]
-                            g.quat[dst] = g.quat[src]
-                            g.opacity_logit[dst] = g.opacity_logit[src]
-                            g.rgb_logit[dst] = g.rgb_logit[src]
-                            if g.bind_idx is not None:
-                                g.bind_idx[dst] = g.bind_idx[src]
-                            if g.bind_offset is not None:
-                                g.bind_offset[dst] = g.bind_offset[src]
-                            if g.bind_face_idx is not None:
-                                g.bind_face_idx[dst] = g.bind_face_idx[src]
-                            if g.bind_bary is not None:
-                                g.bind_bary[dst] = g.bind_bary[src]
-                            g.bind_face_offset_local.data[dst] = g.bind_face_offset_local.data[src]
-                            if not bool(outer_offset_unbounded):
-                                dst_edge = edge_mean.detach().index_select(0, dst)
-                                dst_sup = outer_support_mean.detach().index_select(0, dst)
-                                t_cap, n_cap = _outer_dynamic_caps(dst_edge, dst_sup)
-                                offs = g.bind_face_offset_local.data[dst]
-                                offs[:, 0] = torch.maximum(torch.minimum(offs[:, 0], t_cap), -t_cap)
-                                offs[:, 1] = torch.maximum(torch.minimum(offs[:, 1], t_cap), -t_cap)
-                                offs[:, 2] = torch.maximum(torch.minimum(offs[:, 2], n_cap), -n_cap)
-                                g.bind_face_offset_local.data[dst] = offs
-                            g.prune_state[dst] = 0
+                    if (
+                        bool(outer_spawn_from_trigger_ring_only)
+                        and bool(outer_trigger_face_activate_enable)
+                        and outer_trigger_face_support_mean is not None
+                        and trigger_frame_data is not None
+                        and trigger_frame_data.faces_t is not None
+                        and trigger_frame_data.face_n_t is not None
+                        and g.bind_face_idx is not None
+                        and g.bind_bary is not None
+                        and int(spawn_slots.numel()) > 0
+                    ):
+                        face_score = outer_trigger_face_support_mean.detach().view(-1)
+                        face_th = max(float(outer_spawn_support_th), 1e-6)
+                        face_idx = torch.nonzero(face_score >= face_th, as_tuple=False).view(-1)
+                        if int(face_idx.numel()) > 0:
+                            if int(face_idx.numel()) > int(max_new):
+                                top = torch.topk(face_score.index_select(0, face_idx), k=int(max_new), largest=True).indices
+                                face_idx = face_idx.index_select(0, top)
+                            n_spawn = min(int(face_idx.numel()), int(spawn_slots.numel()))
+                            if n_spawn > 0:
+                                dst = spawn_slots[:n_spawn]
+                                fs = face_idx[:n_spawn]
+                                with torch.no_grad():
+                                    ftri = trigger_frame_data.faces_t.index_select(0, fs)
+                                    tri = trigger_frame_data.verts_t.index_select(0, ftri.reshape(-1)).reshape(-1, 3, 3)
+                                    cent = tri.mean(dim=1)
+                                    nf = trigger_frame_data.face_n_t.index_select(0, fs)
+                                    if bool(outer_viewplane_init_enable):
+                                        if center_init_rule == "segment_midpoint":
+                                            n_init = 0.5 * float(shell_offset_max_n)
+                                        else:
+                                            n_init = 0.25 * float(shell_offset_max_n)
+                                    else:
+                                        n_init = 0.0
+                                    n_init = float(min(n_init, float(max(outer_center_phase1_normal_tune_cap, 0.0))))
+                                    xyz_init = cent + n_init * nf
+                                    g.xyz[dst] = xyz_init
+                                    g.bind_face_idx[dst] = fs
+                                    g.bind_bary[dst, :] = (1.0 / 3.0)
+                                    if g.bind_idx is not None:
+                                        anchor = ftri[:, 0]
+                                        g.bind_idx[dst] = anchor
+                                        if g.bind_offset is not None:
+                                            av = trigger_frame_data.verts_t.index_select(0, anchor)
+                                            g.bind_offset[dst] = cent - av
+                                    g.bind_face_offset_local.data[dst, :] = 0.0
+                                    g.bind_face_offset_local.data[dst, 2] = n_init
+                                    g.opacity_logit[dst] = -5.0
+                                    if g.inner_bind_mode is not None:
+                                        g.inner_bind_mode[dst] = -1
+                                    g.prune_state[dst] = 0
+                    else:
+                        spawn_active_mask = active_mask & inner_mask
+                        if bool(outer_spawn_inside_only):
+                            spawn_active_mask = spawn_active_mask & inside_support_mask
+                        spawn_active_mask = spawn_active_mask & (outer_support_mean.detach() > 1e-6)
+                        if float(outer_spawn_support_th) > 0.0:
+                            spawn_active_mask = spawn_active_mask & (outer_support_mean.detach() >= float(outer_spawn_support_th))
+                        spawn_src = select_outer_spawn_candidates(
+                            shell_score=shell_score,
+                            visibility=vis_mean,
+                            vis_count=densify_stats.vis_count,
+                            V_min=int(V_min),
+                            tau_vis=float(tau_vis),
+                            top_percent=float(shell_spawn_top_percent),
+                            max_new=max_new,
+                            active_mask=spawn_active_mask,
+                        )
+                        n_spawn = min(int(spawn_src.numel()), int(spawn_slots.numel()))
+                        if n_spawn > 0:
+                            src = spawn_src[:n_spawn]
+                            dst = spawn_slots[:n_spawn]
+                            with torch.no_grad():
+                                g.log_scales[dst] = g.log_scales[src]
+                                g.quat[dst] = g.quat[src]
+                                g.opacity_logit[dst] = g.opacity_logit[src]
+                                g.rgb_logit[dst] = g.rgb_logit[src]
+                                if g.bind_idx is not None:
+                                    g.bind_idx[dst] = g.bind_idx[src]
+                                if g.bind_offset is not None:
+                                    g.bind_offset[dst] = g.bind_offset[src]
+                                if g.bind_face_idx is not None:
+                                    g.bind_face_idx[dst] = g.bind_face_idx[src]
+                                if g.bind_bary is not None:
+                                    g.bind_bary[dst] = g.bind_bary[src]
+                                g.bind_face_offset_local.data[dst] = g.bind_face_offset_local.data[src]
+                                if not bool(outer_offset_unbounded):
+                                    dst_edge = edge_mean.detach().index_select(0, dst)
+                                    dst_sup = outer_support_mean.detach().index_select(0, dst)
+                                    t_cap, n_cap = _outer_dynamic_caps(dst_edge, dst_sup)
+                                    offs = g.bind_face_offset_local.data[dst]
+                                    offs[:, 0] = torch.maximum(torch.minimum(offs[:, 0], t_cap), -t_cap)
+                                    offs[:, 1] = torch.maximum(torch.minimum(offs[:, 1], t_cap), -t_cap)
+                                    offs[:, 2] = torch.maximum(torch.minimum(offs[:, 2], n_cap), -n_cap)
+                                    g.bind_face_offset_local.data[dst] = offs
+                                if g.inner_bind_mode is not None:
+                                    g.inner_bind_mode[dst] = -1
+                                g.prune_state[dst] = 0
 
         # Global regularizers (stronger on low-visibility gaussians).
         low_vis_boost = 1.0 + float((1.0 - vis_mean).mean().detach().cpu())
-        phase_alpha_mul = 2.0 if phase_tag == "phase0" else 1.0
+        phase_alpha_mul = 2.0 if phase_tag in ("phase_inner", "phase_outer") else 1.0
         opacity_all = g.opacity()
         active_for_prior = (g.prune_state != 2)
         if g.shell_layer is not None:
@@ -2681,7 +2840,7 @@ def train_gaussians_3d_learnable_camera(
         reg_opacity = float(alpha_prior_weight) * phase_alpha_mul * low_vis_boost * reg_opacity_term
         reg_cov = float(cov_penalty_weight) * low_vis_boost * covariance_penalty(g.scales(), float(cov_min), float(cov_max))
         offset_reg_w_eff = float(shell_offset_reg_weight)
-        if phase_tag == "phase0":
+        if phase_tag in ("phase_inner", "phase_outer"):
             offset_reg_w_eff *= float(max(shell_offset_reg_phase0_scale, 0.0))
         if g.bind_face_offset_local is not None and g.shell_layer is not None and bool((g.shell_layer == 1).any()):
             outer_sel = (g.shell_layer == 1)
@@ -2738,6 +2897,22 @@ def train_gaussians_3d_learnable_camera(
         else:
             reg_outer_outside_opacity = opacity_all.new_tensor(0.0)
             reg_outer_outside_offset = opacity_all.new_tensor(0.0)
+        if (
+            bool(shell_enable)
+            and g.shell_layer is not None
+            and float(outer_contact_alpha_edge_th) > 0.0
+            and bool((g.shell_layer == 1).any())
+        ):
+            contact_sel = (g.shell_layer == 1) & active_for_prior
+            if bool(contact_sel.any()):
+                support_c = outer_inside_support_mean.detach()[contact_sel].clamp(0.0, 1.0)
+                target_n = 0.5 * float(shell_offset_max_n) * support_c
+                offset_n = g.bind_face_offset_local[contact_sel, 2].abs()
+                reg_outer_contact = float(outer_contact_alpha_edge_th) * (offset_n - target_n).pow(2).mean()
+            else:
+                reg_outer_contact = opacity_all.new_tensor(0.0)
+        else:
+            reg_outer_contact = opacity_all.new_tensor(0.0)
 
         reg_total = (
             reg_opacity
@@ -2747,6 +2922,7 @@ def train_gaussians_3d_learnable_camera(
             + reg_alpha_balance
             + reg_outer_outside_opacity
             + reg_outer_outside_offset
+            + reg_outer_contact
         )
         loss_value += float(reg_total.detach().cpu())
         reg_total.backward()
@@ -2787,36 +2963,68 @@ def train_gaussians_3d_learnable_camera(
                             continue
                         p.grad[outer_active] *= float(dq_outer_lr_scale_if_fail)
 
-        # Keep outer-layer offsets learnable and sufficiently responsive on edge-rich regions.
+        freeze_outer_center_now = False
+        outer_center_ref: torch.Tensor | None = None
+        if bool(shell_enable):
+            inner_layer = (g.shell_layer == 0)
+            outer_layer = (g.shell_layer == 1)
+            if phase_tag == "phase_inner":
+                with torch.no_grad():
+                    for p in (g.log_scales, g.quat, g.opacity_logit, g.rgb_logit):
+                        if p.grad is not None:
+                            p.grad[outer_layer] = 0.0
+            elif phase_tag == "phase_outer":
+                with torch.no_grad():
+                    for p in (g.log_scales, g.quat, g.opacity_logit, g.rgb_logit):
+                        if p.grad is not None:
+                            p.grad[inner_layer] = 0.0
+            else:
+                freeze_outer_center_now = bool(outer_center_freeze_after_phase1)
+
+        # Offset center policy:
+        # - inner center is always frozen;
+        # - outer center can tune only in phase_outer (P1b).
         if bool(shell_enable) and g.bind_face_offset_local.grad is not None:
             outer_active = (g.shell_layer == 1) & (g.prune_state != 2)
             inner_or_bg = ~outer_active
             with torch.no_grad():
                 g.bind_face_offset_local.grad[inner_or_bg] = 0.0
+            allow_outer_center_tune = (
+                phase_tag == "phase_outer"
+                and bool(outer_center_phase1_normal_tune_enable)
+                and (not bool(freeze_outer_center_now))
+            )
             if bool(outer_active.any()):
-                base_scale = float(max(outer_offset_grad_scale, 0.0))
-                edge_scale = float(max(outer_offset_edge_grad_scale, 0.0))
-                max_scale = float(max(outer_offset_grad_scale_max, 1.0))
-                if base_scale <= 0.0:
+                if not allow_outer_center_tune:
                     with torch.no_grad():
                         g.bind_face_offset_local.grad[outer_active] = 0.0
                 else:
-                    grad_mul = torch.ones((n_gauss,), dtype=torch.float32, device=device)
-                    grad_mul[outer_active] = base_scale
-                    if edge_scale > 0.0:
-                        edge_w = edge_mean.detach().clamp(0.0, 1.0)
-                        grad_mul[outer_active] = grad_mul[outer_active] * (1.0 + edge_scale * edge_w[outer_active])
-                    grad_mul = grad_mul.clamp(min=0.0, max=max_scale)
-                    with torch.no_grad():
-                        g.bind_face_offset_local.grad[outer_active] *= grad_mul[outer_active].unsqueeze(1)
+                    base_scale = float(max(outer_offset_grad_scale, 0.0))
+                    edge_scale = float(max(outer_offset_edge_grad_scale, 0.0))
+                    max_scale = float(max(outer_offset_grad_scale_max, 1.0))
+                    if base_scale <= 0.0:
+                        with torch.no_grad():
+                            g.bind_face_offset_local.grad[outer_active] = 0.0
+                    else:
+                        grad_mul = torch.ones((n_gauss,), dtype=torch.float32, device=device)
+                        grad_mul[outer_active] = base_scale
+                        if edge_scale > 0.0:
+                            edge_w = edge_mean.detach().clamp(0.0, 1.0)
+                            grad_mul[outer_active] = grad_mul[outer_active] * (1.0 + edge_scale * edge_w[outer_active])
+                        grad_mul = grad_mul.clamp(min=0.0, max=max_scale)
+                        with torch.no_grad():
+                            g.bind_face_offset_local.grad[outer_active] *= grad_mul[outer_active].unsqueeze(1)
+                            if float(outer_center_phase1_normal_tune_cap) > 0.0:
+                                g.bind_face_offset_local.grad[outer_active, 0:2] = 0.0
 
-        if phase_tag == "phase0":
+        if bool(freeze_outer_center_now):
             with torch.no_grad():
-                if g.log_scales.grad is not None:
-                    g.log_scales.grad.zero_()
-                if bool(shell_offset_freeze_phase0) and g.bind_face_offset_local.grad is not None:
-                    g.bind_face_offset_local.grad.zero_()
+                outer_center_ref = g.bind_face_offset_local.detach().clone()
         opt.step()
+        if outer_center_ref is not None:
+            with torch.no_grad():
+                outer_layer = (g.shell_layer == 1)
+                g.bind_face_offset_local[outer_layer] = outer_center_ref[outer_layer]
 
         # Mild regularization: keep parameters in a reasonable range
         with torch.no_grad():
@@ -2878,6 +3086,9 @@ def train_gaussians_3d_learnable_camera(
                         offs[:, 0] = torch.maximum(torch.minimum(offs[:, 0], t_cap), -t_cap)
                         offs[:, 1] = torch.maximum(torch.minimum(offs[:, 1], t_cap), -t_cap)
                         offs[:, 2] = torch.maximum(torch.minimum(offs[:, 2], n_cap), -n_cap)
+                        if phase_tag == "phase_outer" and float(outer_center_phase1_normal_tune_cap) > 0.0:
+                            n_cap_fixed = float(max(outer_center_phase1_normal_tune_cap, 0.0))
+                            offs[:, 2] = offs[:, 2].clamp(min=-n_cap_fixed, max=n_cap_fixed)
                         g.bind_face_offset_local[outer_idx] = offs
             elif not bool(outer_offset_unbounded):
                 g.bind_face_offset_local[:, 0].clamp_(min=-float(shell_offset_max_t), max=float(shell_offset_max_t))
@@ -3052,6 +3263,31 @@ def train_gaussians_3d_learnable_camera(
             "hand_extension_scale": hand_extension_scale,
             "outer_exclude_hands": outer_exclude_hands,
             "outer_hand_expand_px": outer_hand_expand_px,
+            "phase0_ratio": phase0_ratio,
+            "phase2_ratio": phase2_ratio,
+            "phase_ratio_inner_only": phase_ratio_inner_only,
+            "phase_ratio_outer_only": phase_ratio_outer_only,
+            "phase_ratio_occlusion_simplify": phase_ratio_occlusion_simplify,
+            "phase_ratio_joint_finetune": phase_ratio_joint_finetune,
+            "shell_enable": shell_enable,
+            "shell_max_ratio": shell_max_ratio,
+            "shell_spawn_top_percent": shell_spawn_top_percent,
+            "shell_spawn_every": shell_spawn_every,
+            "shell_prune_every": shell_prune_every,
+            "shell_offset_max_n": shell_offset_max_n,
+            "shell_offset_max_t": shell_offset_max_t,
+            "inner_bind_mode_default": inner_bind_mode_default,
+            "outer_init_from_inner": outer_init_from_inner,
+            "outer_dormant_slot_ratio": outer_dormant_slot_ratio,
+            "outer_trigger_face_activate_enable": outer_trigger_face_activate_enable,
+            "outer_trigger_face_sample_dilate_px": outer_trigger_face_sample_dilate_px,
+            "outer_spawn_from_trigger_ring_only": outer_spawn_from_trigger_ring_only,
+            "outer_viewplane_init_enable": outer_viewplane_init_enable,
+            "outer_center_init_rule": outer_center_init_rule,
+            "outer_center_phase1_normal_tune_enable": outer_center_phase1_normal_tune_enable,
+            "outer_center_phase1_normal_tune_cap": outer_center_phase1_normal_tune_cap,
+            "outer_center_freeze_after_phase1": outer_center_freeze_after_phase1,
+            "outer_contact_alpha_edge_th": outer_contact_alpha_edge_th,
             "frame_weights": frame_weights,
             "frame_loss_weights": frame_loss_weights,
             "temporal_ref_window": temporal_ref_window,
