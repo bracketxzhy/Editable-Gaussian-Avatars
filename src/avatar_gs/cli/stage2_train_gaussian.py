@@ -4,6 +4,7 @@ import json
 import cv2
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from avatar_gs.utils.cfg import load_yaml, apply_overrides, parse_args_base, save_yaml
 from avatar_gs.utils.io import ensure_dir, read_json
@@ -340,7 +341,12 @@ def _maybe_pre_stage2_rigid_align(
     K_eval[1, 2] *= sy
     outside_w = float(cfg.get("outside_weight", 2.0))
     gt_masks_eval: dict[int, np.ndarray] = {}
-    for fj in sample_ids:
+    sample_iter = tqdm(
+        sample_ids,
+        desc="pre-stage2 align: build GT masks",
+        leave=True,
+    )
+    for fj in sample_iter:
         pm_i = int(_lookup_pm_idx(frames[fj]))
         if pm_i < 0:
             continue
@@ -486,6 +492,12 @@ def _maybe_pre_stage2_rigid_align(
     init_params["ty"] = float(np.clip(init_params["ty"], -float(max_trans_cfg[1]), float(max_trans_cfg[1])))
     init_params["tz"] = float(np.clip(init_params["tz"], -float(max_trans_cfg[2]), float(max_trans_cfg[2])))
 
+    logger.info(
+        "pre-stage2 rigid align search: sample_frames=%d, levels=%d, iters_per_level=%d",
+        int(len(sample_ids)),
+        int(cfg.get("levels", 3)),
+        int(cfg.get("iters_per_level", 2)),
+    )
     best_params, score_before, score_after = coordinate_descent_rigid_search(
         score_fn=_eval_score,
         init_params=init_params,
@@ -495,6 +507,9 @@ def _maybe_pre_stage2_rigid_align(
         iters_per_level=int(cfg.get("iters_per_level", 2)),
         max_rot_deg=float(cfg.get("max_rot_deg", 20.0)),
         max_trans=max_trans_cfg,
+        show_progress=True,
+        progress_desc="pre-stage2 rigid align search",
+        progress_leave=True,
     )
     iou_before, outside_before, _ = _eval_metrics(init_params)
     iou_after, outside_after, _ = _eval_metrics(best_params)
@@ -796,6 +811,7 @@ def main():
         inner_bind_mode_default=str(cfg["stage2"].get("inner_bind_mode_default", "vertex")),
         outer_init_from_inner=bool(cfg["stage2"].get("outer_init_from_inner", False)),
         outer_dormant_slot_ratio=float(cfg["stage2"].get("outer_dormant_slot_ratio", cfg["stage2"].get("shell_init_ratio", 0.15))),
+        outer_dormant_face_ratio=float(cfg["stage2"].get("outer_dormant_face_ratio", 0.0)),
         outer_face_anchor_rule=str(cfg["stage2"].get("outer_face_anchor_rule", "centroid")),
         outer_pruned_opacity_logit=float(cfg["stage2"].get("outer_pruned_opacity_logit_max", -12.0)),
     )
@@ -1038,6 +1054,8 @@ def main():
         person_mask_contour_leak_weight=float(cfg["stage2"].get("person_mask_contour_leak_weight", 0.0)),
         outer_use_gt_contour=bool(cfg["stage2"].get("outer_use_gt_contour", True)),
         outer_gt_contour_fuse_mode=str(cfg["stage2"].get("outer_gt_contour_fuse_mode", "union")),
+        outer_gt_contour_grabcut_scale=float(cfg["stage2"].get("outer_gt_contour_grabcut_scale", 1.0)),
+        outer_gt_contour_grabcut_iters=int(cfg["stage2"].get("outer_gt_contour_grabcut_iters", 5)),
         outer_head_priority_enable=bool(cfg["stage2"].get("outer_head_priority_enable", False)),
         outer_head_priority_weight=float(cfg["stage2"].get("outer_head_priority_weight", 1.5)),
         outer_head_priority_face_pad=float(cfg["stage2"].get("outer_head_priority_face_pad", 0.45)),
@@ -1133,6 +1151,7 @@ def main():
         outer_support_weight=float(cfg["stage2"].get("outer_support_weight", 1.2)),
         outer_spawn_support_th=float(cfg["stage2"].get("outer_spawn_support_th", 0.02)),
         outer_spawn_inside_only=bool(cfg["stage2"].get("outer_spawn_inside_only", True)),
+        outer_phase_inner_vis_scale=float(cfg["stage2"].get("outer_phase_inner_vis_scale", 0.0)),
         outer_low_support_patience=int(cfg["stage2"].get("outer_low_support_patience", 3)),
         bind_face_offset_straight_through=bool(cfg["stage2"].get("bind_face_offset_straight_through", True)),
         inner_bind_mode_default=str(cfg["stage2"].get("inner_bind_mode_default", "vertex")),
@@ -1163,6 +1182,11 @@ def main():
         inner_prune_protect_parts=cfg["stage2"].get("inner_prune_protect_parts", ["face", "hands"]),
         outer_pruned_opacity_logit_max=float(cfg["stage2"].get("outer_pruned_opacity_logit_max", -12.0)),
         outer_quality_log_every=int(cfg["stage2"].get("outer_quality_log_every", 100)),
+        outer_progress_log_every=int(cfg["stage2"].get("outer_progress_log_every", 20)),
+        outer_zero_stop_enable=bool(cfg["stage2"].get("outer_zero_stop_enable", False)),
+        outer_zero_stop_patience=int(cfg["stage2"].get("outer_zero_stop_patience", 120)),
+        outer_zero_stop_warmup_iters=int(cfg["stage2"].get("outer_zero_stop_warmup_iters", 200)),
+        outer_zero_stop_after_phase_inner=bool(cfg["stage2"].get("outer_zero_stop_after_phase_inner", True)),
         outer_boundary_enforce=str(cfg["stage2"].get("outer_boundary_enforce", "hard")),
         outer_boundary_tol_px=int(cfg["stage2"].get("outer_boundary_tol_px", 1)),
         outer_boundary_check_every=int(cfg["stage2"].get("outer_boundary_check_every", 50)),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 import numpy as np
+from tqdm import tqdm
 
 
 def _as_float3(value, default: tuple[float, float, float]) -> tuple[float, float, float]:
@@ -159,6 +160,9 @@ def coordinate_descent_rigid_search(
     iters_per_level: int = 2,
     max_rot_deg: float = 20.0,
     max_trans: tuple[float, float, float] = (0.35, 0.35, 0.45),
+    show_progress: bool = False,
+    progress_desc: str | None = None,
+    progress_leave: bool = False,
 ) -> tuple[dict, float, float]:
     """
     Coordinate-descent search on rigid params:
@@ -197,29 +201,44 @@ def coordinate_descent_rigid_search(
         ("tz", lambda s: float(np.clip(s, -max_t[2], max_t[2]))),
     ]
 
-    for _lvl in range(int(max(1, levels))):
-        for _inner in range(int(max(1, iters_per_level))):
-            improved = False
-            for di, (key, clamp_fn) in enumerate(dims):
-                step = step_rot if di < 3 else step_t[di - 3]
-                best_local = cur_score
-                best_value = cur[key]
-                for sgn in (-1.0, 1.0):
-                    cand = dict(cur)
-                    cand[key] = clamp_fn(cand[key] + sgn * step)
-                    if float(cand[key]) == float(cur[key]):
-                        continue
-                    s = float(score_fn(cand))
-                    if s > best_local + 1e-9:
-                        best_local = s
-                        best_value = float(cand[key])
-                if best_value != cur[key]:
-                    cur[key] = best_value
-                    cur_score = best_local
-                    improved = True
-            if not improved:
-                break
-        step_rot *= 0.5
-        step_t = [x * 0.5 for x in step_t]
+    n_levels = int(max(1, levels))
+    n_inner = int(max(1, iters_per_level))
+    total_steps = n_levels * n_inner * len(dims) * 2
+    pbar = tqdm(
+        total=total_steps,
+        desc=(progress_desc or "Rigid align search"),
+        leave=bool(progress_leave),
+        disable=(not bool(show_progress)),
+    )
+    try:
+        for _lvl in range(n_levels):
+            for _inner in range(n_inner):
+                improved = False
+                for di, (key, clamp_fn) in enumerate(dims):
+                    step = step_rot if di < 3 else step_t[di - 3]
+                    best_local = cur_score
+                    best_value = cur[key]
+                    for sgn in (-1.0, 1.0):
+                        cand = dict(cur)
+                        cand[key] = clamp_fn(cand[key] + sgn * step)
+                        pbar.update(1)
+                        if float(cand[key]) == float(cur[key]):
+                            continue
+                        s = float(score_fn(cand))
+                        if s > best_local + 1e-9:
+                            best_local = s
+                            best_value = float(cand[key])
+                            if bool(show_progress):
+                                pbar.set_postfix(score=f"{best_local:.4f}", key=key)
+                    if best_value != cur[key]:
+                        cur[key] = best_value
+                        cur_score = best_local
+                        improved = True
+                if not improved:
+                    break
+            step_rot *= 0.5
+            step_t = [x * 0.5 for x in step_t]
+    finally:
+        pbar.close()
 
     return cur, init_score, cur_score

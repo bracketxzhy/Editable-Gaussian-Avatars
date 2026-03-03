@@ -40,8 +40,17 @@ def build_outer_trigger_mask(
         outer_trigger_mask = (outer_trigger_mask * edge_gate).clamp(0.0, 1.0)
 
     trigger_pixels = int((outer_trigger_mask > 0.5).sum().item())
-    if trigger_pixels < max(int(outer_trigger_min_pixels), 0):
-        return None, None, trigger_pixels
+    min_px = max(int(outer_trigger_min_pixels), 0)
+    if trigger_pixels < min_px and smpl_ref is not None and int(outer_trigger_smpl_gap_px) > 0:
+        relaxed = (outer_base_mask.clamp(0.0, 1.0) * (1.0 - smpl_ref.clamp(0.0, 1.0))).clamp(0.0, 1.0)
+        if int(outer_trigger_ring_width_px) > 0:
+            relaxed = contour_band_fn(relaxed, width_px=1).clamp(0.0, 1.0)
+        relaxed_pixels = int((relaxed > 0.5).sum().item())
+        if relaxed_pixels > trigger_pixels:
+            outer_trigger_mask = relaxed
+            trigger_pixels = relaxed_pixels
+    if trigger_pixels <= 0:
+        return None, None, 0
 
     outer_supervision_mask = outer_trigger_mask
     if bool(outer_contour_inside_only):

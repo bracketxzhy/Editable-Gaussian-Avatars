@@ -215,6 +215,7 @@ def init_gaussians_from_mesh_3d(
     inner_bind_mode_default: str = "vertex",
     outer_init_from_inner: bool = False,
     outer_dormant_slot_ratio: float = 0.30,
+    outer_dormant_face_ratio: float = 0.0,
     outer_face_anchor_rule: str = "centroid",
     outer_pruned_opacity_logit: float = -12.0,
 ) -> Gaussian3D:
@@ -354,7 +355,12 @@ def init_gaussians_from_mesh_3d(
 
     if bool(shell_enable) and float(shell_init_ratio) > 0.0 and int(V_fg.shape[0]) > 0:
         outer_ratio = float(outer_dormant_slot_ratio) if float(outer_dormant_slot_ratio) > 0.0 else float(shell_init_ratio)
-        n_outer = int(round(float(outer_ratio) * float(V_fg.shape[0])))
+        n_outer_ratio = int(round(float(outer_ratio) * float(V_fg.shape[0])))
+        n_outer_faces = 0
+        if F_all is not None and int(len(F_all)) > 0 and float(outer_dormant_face_ratio) > 0.0:
+            n_outer_faces = int(round(float(outer_dormant_face_ratio) * float(len(F_all))))
+        # Capacity is controlled by the stronger budget between inner-ratio and face-based floor.
+        n_outer = max(int(n_outer_ratio), int(n_outer_faces))
         if n_outer > 0:
             if bool(outer_init_from_inner):
                 pick = rng.choice(V_fg.shape[0], size=n_outer, replace=(V_fg.shape[0] < n_outer)).astype(np.int64)

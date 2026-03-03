@@ -12,6 +12,7 @@ from pathlib import Path
 import cv2
 import joblib
 import numpy as np
+from tqdm import tqdm
 
 from avatar_gs.io.mesh_export import build_obj_face_text, export_obj
 
@@ -433,7 +434,10 @@ def _resolve_pred_index(
     if frame_ids.size <= 0:
         return None
     cand = np.where(frame_ids == local_idx)[0]
-    return int(cand[0]) if cand.size > 0 else int(np.argmax(frame_ids))
+    if cand.size > 0:
+        return int(cand[0])
+    nearest = int(np.argmin(np.abs(frame_ids - int(local_idx))))
+    return nearest
 
 
 def _extract_tpose_cam_from_smplx(
@@ -606,10 +610,6 @@ def _build_pymaf_frame_records(
     if len(selected_global_idx) != len(selected_files):
         selected_global_idx = list(range(len(selected_files)))
 
-    frame_ids = np.asarray(pred_results.get("frame_ids", []), dtype=np.int64).reshape(-1)
-    if frame_ids.size == 0:
-        frame_ids = np.arange(len(selected_files), dtype=np.int64)
-
     if "smplx_verts" not in pred_results or pred_results["smplx_verts"] is None:
         raise RuntimeError(
             "PyMAF output does not contain smplx_verts. "
@@ -633,28 +633,97 @@ def _build_pymaf_frame_records(
         if arr.ndim == 3 and arr.shape[0] == verts_all.shape[0] and arr.shape[2] == 3:
             joints3d_all = arr
 
+    frame_ids = np.asarray(pred_results.get("frame_ids", []), dtype=np.int64).reshape(-1)
+    if frame_ids.size == 0:
+        frame_ids = np.arange(verts_all.shape[0], dtype=np.int64)
+    if frame_ids.size != verts_all.shape[0]:
+        print(
+            "Warning: PyMAF frame_ids length mismatch. "
+            f"frame_ids={int(frame_ids.size)} verts={int(verts_all.shape[0])}. "
+            "Fallback to sequential frame ids."
+        )
+        frame_ids = np.arange(verts_all.shape[0], dtype=np.int64)
+
     local_to_pred: dict[int, int] = {}
     for pi, li in enumerate(frame_ids.tolist()):
         lii = int(li)
         if lii not in local_to_pred:
             local_to_pred[lii] = int(pi)
+    avail_local = np.asarray(sorted(local_to_pred.keys()), dtype=np.int64)
+    avail_pred = np.asarray([local_to_pred[int(li)] for li in avail_local.tolist()], dtype=np.int64)
+
+    def _lerp_np(a: np.ndarray, b: np.ndarray, alpha: float) -> np.ndarray:
+        aa = float(np.clip(alpha, 0.0, 1.0))
+        return (((1.0 - aa) * a) + (aa * b)).astype(np.float32)
+
+    def _resolve_local_source(local_idx: int) -> tuple[str, int, int, float]:
+        li = int(local_idx)
+        if li in local_to_pred:
+            p = int(local_to_pred[li])
+            return "exact", p, p, 0.0
+        if avail_local.size <= 0:
+            return "nearest_fallback", 0, 0, 0.0
+        pos = int(np.searchsorted(avail_local, li))
+        if pos <= 0:
+            p = int(avail_pred[0])
+            return "nearest_start", p, p, 0.0
+        if pos >= int(avail_local.shape[0]):
+            p = int(avail_pred[-1])
+            return "nearest_end", p, p, 0.0
+        l_local = int(avail_local[pos - 1])
+        r_local = int(avail_local[pos])
+        l_pred = int(avail_pred[pos - 1])
+        r_pred = int(avail_pred[pos])
+        if r_local <= l_local:
+            return "nearest_mid", l_pred, l_pred, 0.0
+        alpha = float(li - l_local) / float(r_local - l_local)
+        return "interpolated", l_pred, r_pred, alpha
 
     records: list[dict] = []
     last_pred = int(max(0, verts_all.shape[0] - 1))
     for local_idx, frame_name in enumerate(selected_files):
-        pred_idx = int(local_to_pred.get(int(local_idx), min(local_idx, last_pred)))
-        pred_idx = int(np.clip(pred_idx, 0, last_pred))
+        source_mode, pred_l, pred_r, source_alpha = _resolve_local_source(int(local_idx))
+        pred_l = int(np.clip(pred_l, 0, last_pred))
+        pred_r = int(np.clip(pred_r, 0, last_pred))
+        pred_idx = int(pred_l)
 
-        verts_local = np.asarray(verts_all[pred_idx], dtype=np.float32)
-        cam_t = np.asarray(cam_t_all[pred_idx], dtype=np.float32).reshape(3)
+        if source_mode == "interpolated" and pred_l != pred_r:
+            verts_local = _lerp_np(
+                np.asarray(verts_all[pred_l], dtype=np.float32),
+                np.asarray(verts_all[pred_r], dtype=np.float32),
+                source_alpha,
+            )
+            cam_t = _lerp_np(
+                np.asarray(cam_t_all[pred_l], dtype=np.float32).reshape(3),
+                np.asarray(cam_t_all[pred_r], dtype=np.float32).reshape(3),
+                source_alpha,
+            ).reshape(3)
+        else:
+            verts_local = np.asarray(verts_all[pred_idx], dtype=np.float32)
+            cam_t = np.asarray(cam_t_all[pred_idx], dtype=np.float32).reshape(3)
         verts_cam = np.asarray(verts_local + cam_t.reshape(1, 3), dtype=np.float32)
 
         joints2d = None
         if joints2d_all is not None:
-            joints2d = np.asarray(joints2d_all[pred_idx], dtype=np.float32)
+            if source_mode == "interpolated" and pred_l != pred_r:
+                joints2d = _lerp_np(
+                    np.asarray(joints2d_all[pred_l], dtype=np.float32),
+                    np.asarray(joints2d_all[pred_r], dtype=np.float32),
+                    source_alpha,
+                )
+            else:
+                joints2d = np.asarray(joints2d_all[pred_idx], dtype=np.float32)
         joints_cam = None
         if joints3d_all is not None:
-            joints_cam = np.asarray(joints3d_all[pred_idx], dtype=np.float32) + cam_t.reshape(1, 3)
+            if source_mode == "interpolated" and pred_l != pred_r:
+                joints_local = _lerp_np(
+                    np.asarray(joints3d_all[pred_l], dtype=np.float32),
+                    np.asarray(joints3d_all[pred_r], dtype=np.float32),
+                    source_alpha,
+                )
+            else:
+                joints_local = np.asarray(joints3d_all[pred_idx], dtype=np.float32)
+            joints_cam = np.asarray(joints_local + cam_t.reshape(1, 3), dtype=np.float32)
 
         global_idx = int(selected_global_idx[local_idx]) if local_idx < len(selected_global_idx) else int(local_idx)
         frame_idx = _frame_index_from_name(frame_name=frame_name, fallback=global_idx)
@@ -665,6 +734,10 @@ def _build_pymaf_frame_records(
                 "frame_idx": int(frame_idx),
                 "global_idx": int(global_idx),
                 "pred_idx": int(pred_idx),
+                "pred_source": str(source_mode),
+                "pred_source_left_idx": int(pred_l),
+                "pred_source_right_idx": int(pred_r),
+                "pred_source_alpha": float(source_alpha),
                 "verts_local": verts_local,
                 "verts_cam": verts_cam,
                 "cam_t": cam_t,
@@ -729,7 +802,8 @@ def _write_stage1_sequence_assets_full(
             shared_faces = first_faces
             shared_face_text = build_obj_face_text(first_faces)
 
-    for rec in records:
+    export_iter = tqdm(records, desc="Stage1 export sequence", leave=False)
+    for rec in export_iter:
         frame_name = str(rec["frame_name"])
         frame_idx = int(rec["frame_idx"])
         verts_cam = np.asarray(rec["verts_cam"], dtype=np.float32)
@@ -1036,6 +1110,15 @@ def main() -> None:
 
     first_rec = records[0]
     last_rec = records[-1]
+    pred_source_counts: dict[str, int] = {}
+    for rec in records:
+        src = str(rec.get("pred_source", "unknown"))
+        pred_source_counts[src] = int(pred_source_counts.get(src, 0) + 1)
+    non_exact_local_idx = [
+        int(i)
+        for i, rec in enumerate(records)
+        if str(rec.get("pred_source", "exact")) != "exact"
+    ]
 
     canonical_verts_cam = None
     canonical_joints_cam = None
@@ -1080,6 +1163,8 @@ def main() -> None:
         "sequence_last_frame_idx": int(last_rec["frame_idx"]),
         "model_type": ("smplx" if model_type_set == ["smplx"] else ",".join(model_type_set)),
         "pymaf_checkpoint": (None if pymaf_ckpt is None else str(pymaf_ckpt)),
+        "pred_source_counts": pred_source_counts,
+        "pred_non_exact_local_indices": non_exact_local_idx,
         "missing_requirements": req,
         "stage2_compat_assets": compat_assets,
         "stage1_sequence_obj": str(stage1_seq_obj),

@@ -11,6 +11,18 @@
   "sequence_last_frame_idx": 75,
   "model_type": "smplx",
   "pymaf_checkpoint": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\assets\\checkpoints\\PyMAF-X_model_checkpoint_v1.1.pt",
+  "pred_source_counts": {
+    "exact": 70,
+    "interpolated": 6
+  },
+  "pred_non_exact_local_indices": [
+    13,
+    14,
+    37,
+    38,
+    39,
+    40
+  ],
   "missing_requirements": {
     "pymaf": [],
     "python": []

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 import json
 import math
 import cv2
@@ -313,14 +314,26 @@ def _mask_border_touch_ratio_np(mask_u8: np.ndarray) -> float:
     return inter / area
 
 
-def _grabcut_person_mask_eval_style_np(img_bgr: np.ndarray, hint_mask_u8: np.ndarray | None = None) -> np.ndarray:
+def _grabcut_person_mask_eval_style_np(
+    img_bgr: np.ndarray,
+    hint_mask_u8: np.ndarray | None = None,
+    grabcut_iters: int = 5,
+) -> np.ndarray:
     h, w = img_bgr.shape[:2]
     bg_model = np.zeros((1, 65), dtype=np.float64)
     fg_model = np.zeros((1, 65), dtype=np.float64)
     if hint_mask_u8 is None or int((hint_mask_u8 > 0).sum()) <= 0:
         rect = (int(0.08 * w), int(0.04 * h), int(0.84 * w), int(0.92 * h))
         gc_mask = np.full((h, w), cv2.GC_BGD, dtype=np.uint8)
-        cv2.grabCut(img_bgr, gc_mask, rect, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_RECT)
+        cv2.grabCut(
+            img_bgr,
+            gc_mask,
+            rect,
+            bg_model,
+            fg_model,
+            int(max(1, grabcut_iters)),
+            mode=cv2.GC_INIT_WITH_RECT,
+        )
     else:
         hint = (hint_mask_u8 > 0).astype(np.uint8)
         if hint.shape[0] != h or hint.shape[1] != w:
@@ -335,7 +348,15 @@ def _grabcut_person_mask_eval_style_np(img_bgr: np.ndarray, hint_mask_u8: np.nda
         gc_mask[-bd:, :] = cv2.GC_BGD
         gc_mask[:, :bd] = cv2.GC_BGD
         gc_mask[:, -bd:] = cv2.GC_BGD
-        cv2.grabCut(img_bgr, gc_mask, None, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_MASK)
+        cv2.grabCut(
+            img_bgr,
+            gc_mask,
+            None,
+            bg_model,
+            fg_model,
+            int(max(1, grabcut_iters)),
+            mode=cv2.GC_INIT_WITH_MASK,
+        )
     fg = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k, iterations=1)
@@ -400,56 +421,74 @@ def _estimate_gt_person_contour_mask_np(
     border_ratio: float = 0.04,
     bg_percentile: float = 97.0,
     min_delta: float = 6.0,
+    hint_mask_u8: np.ndarray | None = None,
+    grabcut_scale: float = 1.0,
+    grabcut_iters: int = 5,
 ) -> np.ndarray:
     """
-    Estimate foreground contour from a single GT frame using border-background color modeling.
+    Estimate foreground contour from a single GT frame using GrabCut only.
     Returns uint8 mask in {0,1} with shape (H,W).
     """
     if rgb_chw.ndim != 3 or rgb_chw.shape[0] != 3:
         raise ValueError(f"rgb_chw must be (3,H,W), got {rgb_chw.shape}")
     rgb_u8 = (rgb_chw.detach().cpu().permute(1, 2, 0).numpy().clip(0.0, 1.0) * 255.0).astype(np.uint8)
+    bgr_u8 = rgb_u8[:, :, ::-1].copy()
     h, w = int(rgb_u8.shape[0]), int(rgb_u8.shape[1])
     if h <= 2 or w <= 2:
         return np.zeros((h, w), dtype=np.uint8)
 
-    band = max(2, int(round(float(min(h, w)) * float(max(border_ratio, 0.01)))))
-    border = np.zeros((h, w), dtype=np.uint8)
-    border[:band, :] = 1
-    border[-band:, :] = 1
-    border[:, :band] = 1
-    border[:, -band:] = 1
+    scale = float(np.clip(float(grabcut_scale), 0.25, 1.0))
+    if scale < 0.999:
+        hs = max(64, int(round(float(h) * scale)))
+        ws = max(64, int(round(float(w) * scale)))
+        bgr_proc = cv2.resize(bgr_u8, (ws, hs), interpolation=cv2.INTER_AREA)
+        hint_proc = None
+        if hint_mask_u8 is not None and int((hint_mask_u8 > 0).sum()) > 0:
+            hint_proc = cv2.resize(
+                (hint_mask_u8 > 0).astype(np.uint8) * 255,
+                (ws, hs),
+                interpolation=cv2.INTER_NEAREST,
+            )
+        fg_proc = _grabcut_person_mask_eval_style_np(
+            bgr_proc,
+            hint_mask_u8=hint_proc,
+            grabcut_iters=int(max(1, grabcut_iters)),
+        )
+        fg_proc = _clean_person_mask_eval_style_np(fg_proc, ref_mask_u8=hint_proc)
+        fg = cv2.resize((fg_proc > 0).astype(np.uint8) * 255, (w, h), interpolation=cv2.INTER_NEAREST)
+        fg = _clean_person_mask_eval_style_np(fg, ref_mask_u8=hint_mask_u8)
+    else:
+        fg = _grabcut_person_mask_eval_style_np(
+            bgr_u8,
+            hint_mask_u8=hint_mask_u8,
+            grabcut_iters=int(max(1, grabcut_iters)),
+        )
+        fg = _clean_person_mask_eval_style_np(fg, ref_mask_u8=hint_mask_u8)
 
-    lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB).astype(np.float32)
-    border_lab = lab[border > 0]
-    if border_lab.shape[0] < 16:
-        return np.zeros((h, w), dtype=np.uint8)
+    area_ratio = float((fg > 0).mean())
+    border_ratio = float(_mask_border_touch_ratio_np(fg))
+    bad_fg = (area_ratio < 0.02) or (area_ratio > 0.60) or (border_ratio > 0.08)
+    if bad_fg:
+        center_hint = np.zeros((h, w), dtype=np.uint8)
+        cx, cy = int(round(0.5 * w)), int(round(0.56 * h))
+        ax, ay = max(8, int(round(0.42 * w))), max(8, int(round(0.46 * h)))
+        cv2.ellipse(center_hint, (cx, cy), (ax, ay), 0.0, 0.0, 360.0, 255, thickness=-1)
+        fg_refined = _grabcut_person_mask_eval_style_np(
+            bgr_u8,
+            hint_mask_u8=center_hint,
+            grabcut_iters=int(max(1, grabcut_iters)),
+        )
+        fg_refined = _clean_person_mask_eval_style_np(fg_refined, ref_mask_u8=center_hint)
+        area_ref = float((fg_refined > 0).mean())
+        border_ref = float(_mask_border_touch_ratio_np(fg_refined))
 
-    bg_med = np.median(border_lab, axis=0).astype(np.float32)
-    d_all = np.linalg.norm(lab - bg_med.reshape(1, 1, 3), axis=2)
-    d_border = np.linalg.norm(border_lab - bg_med.reshape(1, 3), axis=1)
-    th_border = float(np.percentile(d_border, float(np.clip(bg_percentile, 50.0, 100.0)))) + float(max(min_delta, 0.0))
-    th_global = float(np.percentile(d_all, 55.0))
-    th = max(th_border, th_global)
+        def _score(area: float, border: float) -> float:
+            return float(-2.0 * abs(area - 0.18) - 2.0 * border)
 
-    fg = (d_all > th).astype(np.uint8) * 255
-    k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k5, iterations=1)
-    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k5, iterations=2)
+        if _score(area_ref, border_ref) >= _score(area_ratio, border_ratio):
+            fg = fg_refined
 
-    center_ref = np.zeros((h, w), dtype=np.uint8)
-    cx, cy = int(round(0.5 * w)), int(round(0.56 * h))
-    ax, ay = max(8, int(round(0.42 * w))), max(8, int(round(0.46 * h)))
-    cv2.ellipse(center_ref, (cx, cy), (ax, ay), 0.0, 0.0, 360.0, 255, thickness=-1)
-    fg = _largest_component_by_overlap_np(
-        fg,
-        center_ref,
-        min_area=max(128, int(round(0.01 * float(h * w)))),
-    )
-
-    fg01 = (fg > 0).astype(np.uint8)
-    if int(fg01.sum()) > 0:
-        fg01 = cv2.dilate(fg01, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
-    return (fg01 > 0).astype(np.uint8)
+    return (fg > 0).astype(np.uint8)
 
 
 def _sample_mask_at_projected_uv(
@@ -645,6 +684,8 @@ def train_gaussians_3d_learnable_camera(
     person_mask_contour_leak_weight: float = 0.0,
     outer_use_gt_contour: bool = True,
     outer_gt_contour_fuse_mode: str = "union",
+    outer_gt_contour_grabcut_scale: float = 1.0,
+    outer_gt_contour_grabcut_iters: int = 5,
     outer_head_priority_enable: bool = False,
     outer_head_priority_weight: float = 1.5,
     outer_head_priority_face_pad: float = 0.45,
@@ -680,6 +721,7 @@ def train_gaussians_3d_learnable_camera(
     outer_offset_suppress_decay: float = 1.0,
     outer_offset_suppress_opacity_cap: float = 1.0,
     outer_spawn_inside_only: bool = True,
+    outer_phase_inner_vis_scale: float = 0.0,
     outer_low_support_patience: int = 3,
     separate_fg_bg_training: bool = False,
     fg_region_weight: float = 1.0,
@@ -777,6 +819,11 @@ def train_gaussians_3d_learnable_camera(
     inner_prune_protect_parts: list[str] | tuple[str, ...] | None = None,
     outer_pruned_opacity_logit_max: float = -12.0,
     outer_quality_log_every: int = 100,
+    outer_progress_log_every: int = 20,
+    outer_zero_stop_enable: bool = False,
+    outer_zero_stop_patience: int = 120,
+    outer_zero_stop_warmup_iters: int = 200,
+    outer_zero_stop_after_phase_inner: bool = True,
     dual_quality_gate: dict | None = None,
 ):
     """
@@ -795,6 +842,7 @@ def train_gaussians_3d_learnable_camera(
     frames_dir = Path(frames_dir)
     if len(frames_list) == 0:
         raise ValueError("frames_list is empty.")
+    out_ckpt_path = Path(out_ckpt)
 
     # Intrinsics
     K = torch.tensor(K_list, dtype=torch.float32, device=device).view(3, 3)
@@ -1120,7 +1168,13 @@ def train_gaussians_3d_learnable_camera(
         pe = max(int(person_mask_erode_px), 0)
         k_d = np.ones((2 * pd + 1, 2 * pd + 1), dtype=np.uint8) if pd > 0 else None
         k_e = np.ones((2 * pe + 1, 2 * pe + 1), dtype=np.uint8) if pe > 0 else None
-        for i, fn in enumerate(frames_list):
+        person_mask_iter = tqdm(
+            enumerate(frames_list),
+            total=nF,
+            desc="stage2 precompute: person masks",
+            leave=True,
+        )
+        for i, fn in person_mask_iter:
             if fn not in name_to_idx:
                 continue
             m = p_masks[int(name_to_idx[fn])].astype(np.float32)
@@ -1146,24 +1200,107 @@ def train_gaussians_3d_learnable_camera(
     outer_gt_masks_frames: list[torch.Tensor | None] | None = None
     if bool(outer_use_gt_contour):
         outer_gt_masks_frames = [None] * nF
-        for i in range(nF):
-            gt_mask_np = _estimate_gt_person_contour_mask_np(gts[i])
-            pm_np = None
-            if person_masks_frames is not None and person_masks_frames[i] is not None:
-                pm_np = (person_masks_frames[i][0].detach().cpu().numpy() > 0.5).astype(np.uint8)
-            if pm_np is not None:
-                if outer_contour_fuse == "gt_only":
-                    pass
-                elif outer_contour_fuse == "replace":
-                    gt_mask_np = pm_np
-                elif outer_contour_fuse == "union":
-                    gt_mask_np = np.maximum(gt_mask_np, pm_np)
-                else:
-                    gt_mask_np = (gt_mask_np * pm_np).astype(np.uint8)
-            if int(np.sum(gt_mask_np > 0)) > 0:
-                outer_gt_masks_frames[i] = torch.from_numpy(gt_mask_np.astype(np.float32)).to(device=device).unsqueeze(0)
-            elif pm_np is not None and int(np.sum(pm_np > 0)) > 0:
-                outer_gt_masks_frames[i] = torch.from_numpy(pm_np.astype(np.float32)).to(device=device).unsqueeze(0)
+        cache_sig = {
+            "ver": 1,
+            "frames_dir": str(frames_dir.resolve()),
+            "frames_list": [str(x) for x in frames_list],
+            "H": int(H),
+            "W": int(W),
+            "outer_gt_contour_fuse_mode": str(outer_contour_fuse),
+            "outer_gt_contour_grabcut_scale": float(outer_gt_contour_grabcut_scale),
+            "outer_gt_contour_grabcut_iters": int(outer_gt_contour_grabcut_iters),
+            "use_person_mask": bool(use_person_mask),
+            "person_masks_npz": None if person_masks_npz is None else str(Path(person_masks_npz)),
+            "person_mask_dilate_px": int(person_mask_dilate_px),
+            "person_mask_erode_px": int(person_mask_erode_px),
+            "person_mask_eval_clean": bool(person_mask_eval_clean),
+            "person_mask_eval_refine_grabcut": bool(person_mask_eval_refine_grabcut),
+        }
+        cache_key = hashlib.sha1(
+            json.dumps(cache_sig, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+        cache_dir = out_ckpt_path.parent
+        cache_path = cache_dir / f"outer_gt_contours_cache_{cache_key}.npz"
+        cache_loaded = False
+
+        if cache_path.exists():
+            try:
+                c = np.load(cache_path, allow_pickle=True)
+                c_names = [str(x) for x in c["frame_names"].tolist()]
+                c_masks = np.asarray(c["masks"], dtype=np.uint8)
+                if (
+                    len(c_names) == nF
+                    and c_masks.ndim == 3
+                    and c_masks.shape[0] == nF
+                    and c_masks.shape[1] == H
+                    and c_masks.shape[2] == W
+                    and all(a == b for a, b in zip(c_names, frames_list))
+                ):
+                    for i in range(nF):
+                        m = (c_masks[i] > 0).astype(np.uint8)
+                        if int(m.sum()) > 0:
+                            outer_gt_masks_frames[i] = (
+                                torch.from_numpy(m.astype(np.float32)).to(device=device).unsqueeze(0)
+                            )
+                    cache_loaded = True
+                    print(f"stage2 precompute: GT contours cache hit: {cache_path}")
+            except Exception as e:
+                print(f"Warning: failed to load GT contour cache ({cache_path}): {e}")
+
+        if not cache_loaded:
+            cache_masks = np.zeros((nF, H, W), dtype=np.uint8)
+            outer_gt_iter = tqdm(
+                range(nF),
+                total=nF,
+                desc="stage2 precompute: GT contours",
+                leave=True,
+            )
+            for i in outer_gt_iter:
+                gt_mask_np = _estimate_gt_person_contour_mask_np(
+                    gts[i],
+                    grabcut_scale=float(outer_gt_contour_grabcut_scale),
+                    grabcut_iters=int(outer_gt_contour_grabcut_iters),
+                )
+                pm_np = None
+                if person_masks_frames is not None and person_masks_frames[i] is not None:
+                    pm_np = (person_masks_frames[i][0].detach().cpu().numpy() > 0.5).astype(np.uint8)
+                if pm_np is not None:
+                    if outer_contour_fuse == "gt_only":
+                        pass
+                    elif outer_contour_fuse == "replace":
+                        gt_mask_np = pm_np
+                    elif outer_contour_fuse == "union":
+                        gt_mask_np = np.maximum(gt_mask_np, pm_np)
+                    else:
+                        # Guard against over-tight proxy masks (e.g., near-SMPL masks)
+                        # swallowing detached GT contour regions.
+                        inter = (gt_mask_np * pm_np).astype(np.uint8)
+                        gt_area = int(np.sum(gt_mask_np > 0))
+                        inter_area = int(np.sum(inter > 0))
+                        keep_ratio = (float(inter_area) / float(max(gt_area, 1))) if gt_area > 0 else 0.0
+                        if keep_ratio >= 0.995:
+                            gt_mask_np = inter
+                final_mask_np: np.ndarray | None = None
+                if int(np.sum(gt_mask_np > 0)) > 0:
+                    final_mask_np = (gt_mask_np > 0).astype(np.uint8)
+                elif pm_np is not None and int(np.sum(pm_np > 0)) > 0:
+                    final_mask_np = (pm_np > 0).astype(np.uint8)
+                if final_mask_np is not None:
+                    outer_gt_masks_frames[i] = (
+                        torch.from_numpy(final_mask_np.astype(np.float32)).to(device=device).unsqueeze(0)
+                    )
+                    cache_masks[i] = final_mask_np
+
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                np.savez_compressed(
+                    cache_path,
+                    frame_names=np.asarray(frames_list),
+                    masks=cache_masks,
+                )
+                print(f"stage2 precompute: GT contours cache saved: {cache_path}")
+            except Exception as e:
+                print(f"Warning: failed to save GT contour cache ({cache_path}): {e}")
 
     person_contour_band_frames: list[torch.Tensor | None] | None = None
     if person_masks_frames is not None and float(person_mask_contour_leak_weight) > 0.0:
@@ -1757,6 +1894,7 @@ def train_gaussians_3d_learnable_camera(
     densify_stats = GaussianDensifyStats.create(n_gaussians=n_gauss, device=device)
     border_att_cache: dict[int, np.ndarray] = {}
     edge_strength_cache: dict[int, torch.Tensor] = {}
+    outer_gt_mask_hint_cache: dict[int, torch.Tensor] = {}
 
     inner_soft_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     inner_hard_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
@@ -1771,6 +1909,11 @@ def train_gaussians_3d_learnable_camera(
     if quality_log_path.exists():
         quality_log_path.unlink()
     quality_log_every = max(int(outer_quality_log_every), 1)
+    progress_log_every = max(int(outer_progress_log_every), 1)
+    outer_zero_stop_enable = bool(outer_zero_stop_enable) and bool(shell_enable)
+    outer_zero_stop_patience = max(int(outer_zero_stop_patience), 1)
+    outer_zero_stop_warmup_iters = max(int(outer_zero_stop_warmup_iters), 0)
+    outer_zero_consecutive = 0
     quality_thresholds = {
         "outer_active_outside_contour_ratio_max": 0.015,
         "outer_active_outside_person_ratio_max": 0.010,
@@ -1834,7 +1977,8 @@ def train_gaussians_3d_learnable_camera(
     dq_last_color_var = 0.0
     dq_last_geom_score = 0.0
 
-    for it in tqdm(range(iters), desc="Stage2 3DGS (learnable camera)"):
+    pbar = tqdm(range(iters), desc="Stage2 3DGS (learnable camera)")
+    for it in pbar:
         opt.zero_grad(set_to_none=True)
 
         # Training phase schedule: 40/30/30 split as
@@ -2069,7 +2213,43 @@ def train_gaussians_3d_learnable_camera(
             )
             outer_supervision_mask = None
             outer_base_mask = None
-            if outer_gt_masks_frames is not None:
+            if bool(outer_use_gt_contour):
+                if outer_gt_masks_frames is not None and outer_gt_masks_frames[fj] is not None:
+                    outer_base_mask = outer_gt_masks_frames[fj]
+                elif fj in outer_gt_mask_hint_cache:
+                    outer_base_mask = outer_gt_mask_hint_cache[fj]
+                else:
+                    smpl_hint_u8 = None
+                    if smpl_mask is not None:
+                        smpl_hint_u8 = ((smpl_mask[0].detach().cpu().numpy() > 0.5).astype(np.uint8) * 255)
+                    gt_mask_np = _estimate_gt_person_contour_mask_np(
+                        gt,
+                        hint_mask_u8=smpl_hint_u8,
+                        grabcut_scale=float(outer_gt_contour_grabcut_scale),
+                        grabcut_iters=int(outer_gt_contour_grabcut_iters),
+                    )
+                    pm_np = None
+                    if person_mask_curr is not None:
+                        pm_np = (person_mask_curr[0].detach().cpu().numpy() > 0.5).astype(np.uint8)
+                    if pm_np is not None:
+                        if outer_contour_fuse == "replace":
+                            gt_mask_np = pm_np
+                        elif outer_contour_fuse == "union":
+                            gt_mask_np = np.maximum(gt_mask_np, pm_np)
+                        elif outer_contour_fuse == "intersect":
+                            inter = (gt_mask_np * pm_np).astype(np.uint8)
+                            gt_area = int(np.sum(gt_mask_np > 0))
+                            inter_area = int(np.sum(inter > 0))
+                            keep_ratio = (float(inter_area) / float(max(gt_area, 1))) if gt_area > 0 else 0.0
+                            if keep_ratio >= 0.995:
+                                gt_mask_np = inter
+                    if int(np.sum(gt_mask_np > 0)) > 0:
+                        outer_base_mask = torch.from_numpy(gt_mask_np.astype(np.float32)).to(device=device).unsqueeze(0)
+                    elif pm_np is not None and int(np.sum(pm_np > 0)) > 0:
+                        outer_base_mask = torch.from_numpy(pm_np.astype(np.float32)).to(device=device).unsqueeze(0)
+                    if outer_base_mask is not None:
+                        outer_gt_mask_hint_cache[fj] = outer_base_mask
+            if outer_base_mask is None and outer_gt_masks_frames is not None:
                 outer_base_mask = outer_gt_masks_frames[fj]
             if outer_base_mask is None:
                 outer_base_mask = person_mask_curr
@@ -2239,15 +2419,22 @@ def train_gaussians_3d_learnable_camera(
                 u_proj, v_proj, valid_proj = _project_points_torch(xyz_render.detach(), K, R, t)
                 inside_proj = valid_proj & (u_proj >= 0) & (u_proj <= float(W - 1)) & (v_proj >= 0) & (v_proj <= float(H - 1))
                 layer_vis = torch.ones((n_gauss,), dtype=torch.float32, device=device)
+                inner_sel = (g.shell_layer == 0)
 
                 if inner_supervision_mask is not None:
                     inner_s = _sample_mask_at_projected_uv(inner_supervision_mask, u_proj, v_proj, inside_proj, H, W)
-                    inner_sel = (g.shell_layer == 0)
                     if bool(inner_sel.any()):
                         layer_vis[inner_sel] = layer_vis[inner_sel] * inner_s[inner_sel]
 
                 if outer_supervision_mask is not None:
                     outer_s = _sample_mask_at_projected_uv(outer_supervision_mask, u_proj, v_proj, inside_proj, H, W)
+                    # In outer-only phase, suppress inner visibility only on trigger-ring regions
+                    # so outer points can absorb contour/color residuals.
+                    if phase_tag == "phase_outer" and bool(inner_sel.any()):
+                        inner_scale = float(np.clip(float(outer_phase_inner_vis_scale), 0.0, 1.0))
+                        if inner_scale < 1.0:
+                            inner_keep = (1.0 - outer_s * (1.0 - inner_scale)).clamp(min=inner_scale, max=1.0)
+                            layer_vis[inner_sel] = layer_vis[inner_sel] * inner_keep[inner_sel]
                     outer_inside_s = outer_s
                     if outer_base_mask is not None:
                         outer_inside_s = _sample_mask_at_projected_uv(outer_base_mask, u_proj, v_proj, inside_proj, H, W)
@@ -2650,7 +2837,7 @@ def train_gaussians_3d_learnable_camera(
                 prune_low_score_percent = min(100.0, prune_low_score_percent * float(dq_prune_boost_if_fail))
 
             if (
-                phase_tag != "phase_inner"
+                phase_tag in ("phase_outer", "phase_occlusion")
                 and int(shell_prune_every) > 0
                 and ((it + 1) % int(shell_prune_every) == 0)
             ):
@@ -2702,12 +2889,16 @@ def train_gaussians_3d_learnable_camera(
             ):
                 n_inner_active = int((inner_mask & active_mask).sum().item())
                 n_outer_active = int((outer_mask & active_mask).sum().item())
-                _outer_init_budget, outer_budget = estimate_outer_budget(
-                    n_inner=max(n_inner_active, 1),
-                    init_ratio=0.15,
-                    max_ratio=float(shell_max_ratio),
-                )
-                max_new = max(0, outer_budget - n_outer_active)
+                if float(shell_max_ratio) <= 0.0:
+                    # Disable ratio-based outer cap: spawn is only limited by available outer slots.
+                    max_new = int((g.shell_layer == 1).sum().item())
+                else:
+                    _outer_init_budget, outer_budget = estimate_outer_budget(
+                        n_inner=max(n_inner_active, 1),
+                        init_ratio=0.15,
+                        max_ratio=float(shell_max_ratio),
+                    )
+                    max_new = max(0, outer_budget - n_outer_active)
                 if dq_enable and dq_fail_active:
                     max_new = int(round(float(max_new) * float(max(dq_spawn_scale_if_fail, 0.0))))
                 if max_new > 0:
@@ -2768,9 +2959,13 @@ def train_gaussians_3d_learnable_camera(
                         spawn_active_mask = active_mask & inner_mask
                         if bool(outer_spawn_inside_only):
                             spawn_active_mask = spawn_active_mask & inside_support_mask
-                        spawn_active_mask = spawn_active_mask & (outer_support_mean.detach() > 1e-6)
-                        if float(outer_spawn_support_th) > 0.0:
-                            spawn_active_mask = spawn_active_mask & (outer_support_mean.detach() >= float(outer_spawn_support_th))
+                        support_mask = (outer_support_mean.detach() > 1e-6)
+                        if bool(support_mask.any()):
+                            spawn_active_mask = spawn_active_mask & support_mask
+                            if float(outer_spawn_support_th) > 0.0:
+                                spawn_active_mask = spawn_active_mask & (
+                                    outer_support_mean.detach() >= float(outer_spawn_support_th)
+                                )
                         spawn_src = select_outer_spawn_candidates(
                             shell_score=shell_score,
                             visibility=vis_mean,
@@ -3131,11 +3326,18 @@ def train_gaussians_3d_learnable_camera(
                     max=float(outer_pruned_opacity_logit_max)
                 )
 
+        inner_active_iter = -1
+        outer_active_iter = -1
+        outer_pruned_iter = -1
         if bool(shell_enable):
             with torch.no_grad():
                 outer_active_q = (g.shell_layer == 1) & (g.prune_state != 2)
                 outer_total = int(outer_active_q.sum().item())
                 hard_pruned_outer = int(((g.shell_layer == 1) & (g.prune_state == 2)).sum().item())
+                inner_total = int(((g.shell_layer == 0) & (g.prune_state != 2)).sum().item())
+                inner_active_iter = int(inner_total)
+                outer_active_iter = int(outer_total)
+                outer_pruned_iter = int(hard_pruned_outer)
                 inside_support_th = float(np.clip(float(outer_inside_support_th), 0.0, 1.0))
                 outside_support_th = float(np.clip(float(outer_outside_support_th), 0.0, 1.0))
                 outside_contour_q = outer_active_q & (outer_inside_support_mean.detach() < outside_support_th)
@@ -3185,6 +3387,33 @@ def train_gaussians_3d_learnable_camera(
                 if ((it + 1) % quality_log_every) == 0 or (it == 0) or ((it + 1) == int(iters)):
                     with quality_log_path.open("a", encoding="utf-8") as f:
                         f.write(json.dumps(last_quality_metrics, ensure_ascii=False) + "\n")
+                if ((it + 1) % progress_log_every) == 0 or (it == 0):
+                    pbar.set_postfix(
+                        phase=phase_tag,
+                        inner=inner_active_iter,
+                        outer=outer_active_iter,
+                        outer_pruned=outer_pruned_iter,
+                    )
+                    print(
+                        f"[Iter {it + 1}/{iters}] phase={phase_tag} "
+                        f"inner_active={inner_active_iter} outer_active={outer_active_iter} "
+                        f"outer_pruned={outer_pruned_iter}"
+                    )
+                if outer_zero_stop_enable:
+                    phase_ok = (not bool(outer_zero_stop_after_phase_inner)) or (phase_tag != "phase_inner")
+                    if phase_ok and (it + 1) >= int(outer_zero_stop_warmup_iters):
+                        if outer_active_iter <= 0:
+                            outer_zero_consecutive += 1
+                        else:
+                            outer_zero_consecutive = 0
+                        if outer_zero_consecutive >= int(outer_zero_stop_patience):
+                            print(
+                                f"Early stop at iter {it + 1}/{iters}: "
+                                f"outer_active_count stayed 0 for {outer_zero_consecutive} consecutive iterations."
+                            )
+                            break
+                    else:
+                        outer_zero_consecutive = 0
 
         if es_enable:
             if loss_value + es_min_delta < es_best:
@@ -3325,6 +3554,8 @@ def train_gaussians_3d_learnable_camera(
             "person_mask_contour_leak_weight": person_mask_contour_leak_weight,
             "outer_use_gt_contour": outer_use_gt_contour,
             "outer_gt_contour_fuse_mode": outer_gt_contour_fuse_mode,
+            "outer_gt_contour_grabcut_scale": outer_gt_contour_grabcut_scale,
+            "outer_gt_contour_grabcut_iters": outer_gt_contour_grabcut_iters,
             "outer_head_priority_enable": outer_head_priority_enable,
             "outer_head_priority_weight": outer_head_priority_weight,
             "outer_head_priority_face_pad": outer_head_priority_face_pad,
@@ -3403,9 +3634,15 @@ def train_gaussians_3d_learnable_camera(
             "outer_support_weight": outer_support_weight,
             "outer_spawn_support_th": outer_spawn_support_th,
             "outer_spawn_inside_only": outer_spawn_inside_only,
+            "outer_phase_inner_vis_scale": outer_phase_inner_vis_scale,
             "outer_low_support_patience": outer_low_support_patience,
             "outer_pruned_opacity_logit_max": outer_pruned_opacity_logit_max,
             "outer_quality_log_every": outer_quality_log_every,
+            "outer_progress_log_every": outer_progress_log_every,
+            "outer_zero_stop_enable": outer_zero_stop_enable,
+            "outer_zero_stop_patience": outer_zero_stop_patience,
+            "outer_zero_stop_warmup_iters": outer_zero_stop_warmup_iters,
+            "outer_zero_stop_after_phase_inner": outer_zero_stop_after_phase_inner,
             "bind_face_offset_straight_through": bind_face_offset_straight_through,
             "dual_quality_gate": dual_quality_gate,
             "dual_quality_gate_last": {
