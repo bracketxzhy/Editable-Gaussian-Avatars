@@ -125,6 +125,7 @@ def _sample_face_centroids(
     n_samples: int,
     rng: np.random.Generator,
     allowed_face_ids: np.ndarray | None = None,
+    unique_faces: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if int(n_samples) <= 0 or faces is None or len(faces) == 0:
         z3 = np.zeros((0, 3), dtype=np.float32)
@@ -152,10 +153,15 @@ def _sample_face_centroids(
     tri_v = verts[faces_all[face_ids_v]]
     area_v = area[valid]
     probs = area_v / np.clip(area_v.sum(), 1e-8, None)
-    pick = rng.choice(face_ids_v.shape[0], size=int(n_samples), replace=True, p=probs)
+    n_pick = int(n_samples)
+    replace = True
+    if bool(unique_faces):
+        n_pick = min(int(n_samples), int(face_ids_v.shape[0]))
+        replace = False
+    pick = rng.choice(face_ids_v.shape[0], size=int(n_pick), replace=replace, p=probs)
     fs = face_ids_v[pick]
     tri_pick = verts[faces_all[fs]]
-    bary = np.full((int(n_samples), 3), 1.0 / 3.0, dtype=np.float32)
+    bary = np.full((int(n_pick), 3), 1.0 / 3.0, dtype=np.float32)
     pts = tri_pick.mean(axis=1).astype(np.float32)
     anchor_idx = faces_all[fs, 0].astype(np.int64)
     off = (pts - verts[anchor_idx]).astype(np.float32)
@@ -363,17 +369,39 @@ def init_gaussians_from_mesh_3d(
         n_outer = max(int(n_outer_ratio), int(n_outer_faces))
         if n_outer > 0:
             if bool(outer_init_from_inner):
-                pick = rng.choice(V_fg.shape[0], size=n_outer, replace=(V_fg.shape[0] < n_outer)).astype(np.int64)
+                face_src = np.asarray(bind_face_idx, dtype=np.int64)
+                valid_pick = np.nonzero(face_src >= 0)[0].astype(np.int64)
+                if int(valid_pick.size) > 0:
+                    _, first_idx = np.unique(face_src[valid_pick], return_index=True)
+                    unique_pick = valid_pick[np.sort(first_idx)]
+                    if int(unique_pick.size) > 0:
+                        n_outer = min(int(n_outer), int(unique_pick.size))
+                        choose = rng.choice(unique_pick.shape[0], size=n_outer, replace=False).astype(np.int64)
+                        pick = unique_pick[choose]
+                    else:
+                        n_outer = 0
+                        pick = np.zeros((0,), dtype=np.int64)
+                else:
+                    n_outer = 0
+                    pick = np.zeros((0,), dtype=np.int64)
                 normals = _vertex_normals_np(V_all, F_all)
-                base_anchor = idx_fg[pick]
-                base_pts = V_fg[pick]
-                nrm = normals[base_anchor]
-                shell_pts = (base_pts + float(shell_offset_n) * nrm).astype(np.float32)
-                shell_off = (shell_pts - V_all[base_anchor]).astype(np.float32)
-                shell_face_idx = bind_face_idx[pick].astype(np.int64)
-                shell_bary = bind_bary[pick].astype(np.float32)
-                shell_face_local = np.zeros((n_outer, 3), dtype=np.float32)
-                shell_face_local[:, 2] = float(shell_offset_n)
+                if n_outer > 0:
+                    base_anchor = idx_fg[pick]
+                    base_pts = V_fg[pick]
+                    nrm = normals[base_anchor]
+                    shell_pts = (base_pts + float(shell_offset_n) * nrm).astype(np.float32)
+                    shell_off = (shell_pts - V_all[base_anchor]).astype(np.float32)
+                    shell_face_idx = bind_face_idx[pick].astype(np.int64)
+                    shell_bary = bind_bary[pick].astype(np.float32)
+                    shell_face_local = np.zeros((n_outer, 3), dtype=np.float32)
+                    shell_face_local[:, 2] = float(shell_offset_n)
+                else:
+                    shell_pts = np.zeros((0, 3), dtype=np.float32)
+                    base_anchor = np.zeros((0,), dtype=np.int64)
+                    shell_off = np.zeros((0, 3), dtype=np.float32)
+                    shell_face_idx = np.zeros((0,), dtype=np.int64)
+                    shell_bary = np.zeros((0, 3), dtype=np.float32)
+                    shell_face_local = np.zeros((0, 3), dtype=np.float32)
             else:
                 if str(outer_face_anchor_rule).strip().lower() != "centroid":
                     raise ValueError(f"outer_face_anchor_rule only supports 'centroid'. Got: {outer_face_anchor_rule}")
@@ -382,9 +410,9 @@ def init_gaussians_from_mesh_3d(
                     faces=F_all,
                     n_samples=n_outer,
                     rng=rng,
+                    unique_faces=True,
                 )
-                if int(shell_pts.shape[0]) <= 0:
-                    n_outer = 0
+                n_outer = int(shell_pts.shape[0])
                 shell_face_local = np.zeros((n_outer, 3), dtype=np.float32)
 
             if n_outer > 0:

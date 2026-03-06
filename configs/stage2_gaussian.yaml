@@ -13,8 +13,8 @@ stage2:
   cudnn_benchmark: true
 
   # ---------- Stage2 training schedule (Stage A: stabilize) ----------
-  n_frames: 0
-  n_gaussians: 50000
+  n_frames: 76
+  n_gaussians: 70000
   sample_on_surface: true
   # Extra background gaussians (unbound)
   n_gaussians_bg: 0
@@ -33,10 +33,13 @@ stage2:
   fg_opacity_logit_max: 3.2
   fg_log_scale_min: -7.2
   fg_log_scale_max: -5.9
-  outer_log_scale_min: -7.8
-  outer_log_scale_max: -5.8
-  outer_prune_support_th: 0.001
-  iters: 1200
+  outer_log_scale_min: -7.6
+  outer_log_scale_max: -5.3
+  outer_prune_support_th: 0.03
+  outer_prune_dual_enable: true
+  outer_prune_dual_max_vis: 0.06
+  outer_prune_dual_min_support: 0.001
+  iters: 3600
 
   # Learning rates
   lr_gauss: 0.003
@@ -117,7 +120,7 @@ stage2:
     temporal_frame: true
     scale_clamp_min: 0.0005
     scale_clamp_max: 0.25
-    outer_geom_scale_blend: 0.02
+    outer_geom_scale_blend: 0.04
     outer_scale_clamp_max: 0.015
     max_temporal_angle_deg: 75.0
     temporal_alpha: 0.35
@@ -139,7 +142,7 @@ stage2:
   smpl_alpha_leak_weight: 0.12
   smpl_mask_override_alpha: false
   smpl_mask_precompute: true
-  smpl_mask_precompute_max_frames: 32
+  smpl_mask_precompute_max_frames: 24
   # Dataset-agnostic person/background separation (not tied to green-screen assumptions).
   use_person_mask: true
   person_masks_npz: outputs/stage1/person_masks.npz
@@ -154,8 +157,8 @@ stage2:
   outer_use_gt_contour: true
   outer_gt_contour_fuse_mode: gt_only
   outer_gt_contour_grabcut_scale: 0.7
-  outer_gt_contour_grabcut_iters: 3
-  outer_head_priority_enable: true
+  outer_gt_contour_grabcut_iters: 4
+  outer_head_priority_enable: false
   outer_head_priority_weight: 1.2
   outer_head_priority_face_pad: 0.55
   outer_head_priority_up_scale: 2.8
@@ -168,21 +171,26 @@ stage2:
   outer_trigger_ring_width_px: 2
   outer_trigger_use_edge_gate: false
   outer_contour_inside_only: true
+  outer_detached_solid_enable: true
+  outer_detached_solid_dilate_px: 1
+  outer_detached_solid_close_px: 2
+  outer_detached_solid_mix_start: 1.0
+  outer_detached_solid_mix_end: 1.0
   outer_head_support_sample_dilate_px: 0
   outer_exclude_face: false
   outer_face_expand_px: 0
   outer_face_exclude_lower_ratio: 0.65
-  outer_silhouette_weight: 0.12
+  outer_silhouette_weight: 0.18
   outer_silhouette_band_px: 2
   outer_silhouette_band_weight: 2.0
   detail_hf_weight: 0.0
   detail_hf_exclude_face: true
   outer_inside_support_th: 0.03
-  outer_outside_support_th: 0.10
-  outer_outside_opacity_cap: 0.03
-  outer_outside_offset_decay: 0.97
-  outer_outside_opacity_weight: 0.08
-  outer_outside_offset_weight: 0.01
+  outer_outside_support_th: 0.04
+  outer_outside_opacity_cap: 0.12
+  outer_outside_offset_decay: 0.92
+  outer_outside_opacity_weight: 0.10
+  outer_outside_offset_weight: 0.02
   separate_fg_bg_training: true
   fg_region_weight: 1.6
   bg_region_weight: 0.8
@@ -196,8 +204,8 @@ stage2:
   inner_count_auto: true
   inner_count_kV: 1.2
   inner_count_kF: 0.35
-  inner_count_min: 55000
-  inner_count_max: 220000
+  inner_count_min: 90000
+  inner_count_max: 280000
 
   tau_vis: 0.15
   frame_weight_k: 1.5
@@ -205,7 +213,7 @@ stage2:
   robust_loss_type: charbonnier
   alpha_prior_weight: 0.05
   inner_opacity_prior_target: 0.50
-  outer_opacity_prior_target: 0.15
+  outer_opacity_prior_target: 0.30
   cov_min: 0.0005
   cov_max: 0.25
   cov_penalty_weight: 0.05
@@ -216,13 +224,13 @@ stage2:
 
   phase0_ratio: 0.08
   phase2_ratio: 0.15
-  phase_ratio_inner_only: 0.10
-  phase_ratio_outer_only: 0.40
-  phase_ratio_occlusion_simplify: 0.30
-  phase_ratio_joint_finetune: 0.20
+  phase_ratio_inner_only: 0.12
+  phase_ratio_outer_only: 0.38
+  phase_ratio_occlusion_simplify: 0.25
+  phase_ratio_joint_finetune: 0.25
 
   shell_enable: true
-  shell_init_ratio: 0.20
+  shell_init_ratio: 0.18
   outer_init_from_inner: false
   outer_dormant_slot_ratio: 0.22
   outer_dormant_face_ratio: 1.0
@@ -230,7 +238,7 @@ stage2:
   shell_max_ratio: 0.0
   shell_spawn_top_percent: 20.0
   shell_spawn_every: 80
-  shell_prune_every: 1000
+  shell_prune_every: 2000
   shell_offset_max_n: 0.12
   shell_offset_max_t: 0.02
   outer_offset_unbounded: false
@@ -241,7 +249,7 @@ stage2:
   outer_offset_reg_relax_support: true
   outer_offset_min_active_weight: 0.10
   outer_offset_min_target_scale: 0.25
-  outer_offset_min_support_th: 0.03
+  outer_offset_min_support_th: 0.05
   shell_offset_reg_weight: 0.001
   shell_offset_reg_phase0_scale: 0.20
   shell_offset_freeze_phase0: false
@@ -256,26 +264,48 @@ stage2:
   outer_viewplane_init_enable: true
   outer_center_init_rule: segment_midpoint
   outer_center_phase1_normal_tune_enable: true
-  outer_center_phase1_normal_tune_cap: 0.04
+  outer_center_phase1_normal_tune_cap: 0.10
   outer_center_freeze_after_phase1: true
   outer_contact_alpha_edge_th: 0.05
+  outer_detached_support_boost: 2.0
+  outer_detached_vis_boost: 1.8
+  outer_overlap_prune_offset_th: 0.006
+  outer_overlap_prune_detached_th: 0.03
+  outer_detached_support_th: 0.05
+  outer_detached_opacity_floor: 0.16
+  outer_detached_log_scale_floor: -5.4
+  outer_gap_search_px: 24
+  outer_gap_step_px: 1.0
+  outer_gap_probe_world: 0.01
+  outer_gap_target_support_th: 0.05
+  outer_gap_target_weight: 0.25
+  outer_gap_scale_weight: 0.12
+  outer_gap_tangent_scale_ratio: 0.50
+  outer_gap_tangent_scale_weight: 0.10
+  outer_phase_residual_weight: 0.18
   outer_offset_grad_scale: 3.0
   outer_offset_edge_grad_scale: 2.0
   outer_offset_grad_scale_max: 8.0
-  outer_support_weight: 1.0
-  outer_spawn_support_th: 0.001
-  outer_spawn_inside_only: false
-  outer_phase_inner_vis_scale: 0.0
-  outer_low_support_patience: 12
+  outer_support_weight: 1.1
+  outer_spawn_support_th: 0.05
+  outer_spawn_inside_only: true
+  outer_phase_inner_vis_scale: 0.00
+  outer_phase_inner_full_mask: true
+  outer_low_support_patience: 6
   outer_pruned_opacity_logit_max: -12.0
-  outer_quality_log_every: 600
+  outer_quality_log_every: 300
   outer_progress_log_every: 20
   outer_zero_stop_enable: false
   outer_zero_stop_patience: 120
   outer_zero_stop_warmup_iters: 200
   outer_zero_stop_after_phase_inner: true
-  outer_boundary_enforce: off
-  outer_boundary_check_every: 120
+  outer_boundary_enforce: hard
+  outer_boundary_tol_px: 1
+  outer_boundary_check_every: 60
+  outer_boundary_alpha_cap: 0.03
+  outer_boundary_scale_decay: 0.80
+  outer_boundary_offset_decay: 0.85
+  outer_boundary_patience: 4
   bind_face_offset_straight_through: true
   outer_edge_trigger_enable: true
   outer_edge_trigger_weight: 0.45
