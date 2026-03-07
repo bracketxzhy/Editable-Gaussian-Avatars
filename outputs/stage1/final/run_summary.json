@@ -1,8 +1,8 @@
 {
   "frames_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\data\\frames\\input",
   "assets_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\assets",
-  "pymaf_repo_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\PyMAF-X",
-  "pymaf_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\pymaf\\selected_frames",
+  "smplerx_repo_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\SMPLer-X",
+  "smplerx_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smplerx\\selected_frames",
   "final_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final",
   "sequence_frame_count": 76,
   "sequence_first_frame_name": "000000.jpg",
@@ -10,21 +10,13 @@
   "sequence_first_frame_idx": 0,
   "sequence_last_frame_idx": 75,
   "model_type": "smplx",
-  "pymaf_checkpoint": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\assets\\checkpoints\\PyMAF-X_model_checkpoint_v1.1.pt",
+  "smplerx_checkpoint": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\SMPLer-X\\pretrained_models\\smpler_x_h32_correct.pth.tar",
   "pred_source_counts": {
-    "exact": 70,
-    "interpolated": 6
+    "exact": 76
   },
-  "pred_non_exact_local_indices": [
-    13,
-    14,
-    37,
-    38,
-    39,
-    40
-  ],
+  "pred_non_exact_local_indices": [],
   "missing_requirements": {
-    "pymaf": [],
+    "smplerx": [],
     "python": []
   },
   "stage2_compat_assets": {

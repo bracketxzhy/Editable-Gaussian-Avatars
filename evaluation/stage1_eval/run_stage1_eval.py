@@ -12,8 +12,9 @@ THIS_DIR = Path(__file__).resolve().parent
 if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
+from avatar_gs.alignment import estimate_mask_similarity_transform, mask_iou
 from avatar_gs.gaussian.init_from_smpl import load_obj_mesh
-from person_contour import extract_person_contours, load_person_mask_from_npz
+from person_contour import extract_person_contours, load_person_mask_from_npz, estimate_person_mask_modnet_eval
 
 
 def _resolve_pick_index(mode: str, n: int, index: int = -1, frame_name: str | None = None, names: list[str] | None = None) -> int:
@@ -69,60 +70,6 @@ def _rasterize_mesh_mask(uv: np.ndarray, valid_v: np.ndarray, faces: np.ndarray,
     return mask
 
 
-def _mask_bbox(mask_u8: np.ndarray) -> np.ndarray | None:
-    ys, xs = np.where(mask_u8 > 0)
-    if ys.size <= 0 or xs.size <= 0:
-        return None
-    return np.asarray([xs.min(), ys.min(), xs.max(), ys.max()], dtype=np.float32)
-
-
-def _iou(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
-    a = mask_a > 0
-    b = mask_b > 0
-    inter = np.logical_and(a, b).sum()
-    union = np.logical_or(a, b).sum()
-    return float(inter / max(union, 1))
-
-
-def _align_uv_by_bbox(
-    uv: np.ndarray,
-    smpl_mask: np.ndarray,
-    person_mask: np.ndarray,
-    scale_min: float = 0.4,
-    scale_max: float = 2.5,
-) -> tuple[np.ndarray, dict]:
-    b_s = _mask_bbox(smpl_mask)
-    b_p = _mask_bbox(person_mask)
-    if b_s is None or b_p is None:
-        return uv, {"applied": False, "reason": "empty_bbox"}
-
-    ws = float(max(1.0, b_s[2] - b_s[0] + 1.0))
-    hs = float(max(1.0, b_s[3] - b_s[1] + 1.0))
-    wp = float(max(1.0, b_p[2] - b_p[0] + 1.0))
-    hp = float(max(1.0, b_p[3] - b_p[1] + 1.0))
-
-    csx = float(0.5 * (b_s[0] + b_s[2]))
-    csy = float(0.5 * (b_s[1] + b_s[3]))
-    cpx = float(0.5 * (b_p[0] + b_p[2]))
-    cpy = float(0.5 * (b_p[1] + b_p[3]))
-
-    s = float(0.5 * (wp / ws + hp / hs))
-    s = float(np.clip(s, scale_min, scale_max))
-
-    uv2 = uv.copy()
-    uv2[:, 0] = (uv2[:, 0] - csx) * s + cpx
-    uv2[:, 1] = (uv2[:, 1] - csy) * s + cpy
-
-    return uv2, {
-        "applied": True,
-        "scale": s,
-        "center_src": [csx, csy],
-        "center_tgt": [cpx, cpy],
-        "bbox_src": b_s.tolist(),
-        "bbox_tgt": b_p.tolist(),
-    }
-
-
 def _read_camera_K(cam_json_path: Path, w: int, h: int) -> np.ndarray:
     if cam_json_path.exists():
         try:
@@ -134,6 +81,50 @@ def _read_camera_K(cam_json_path: Path, w: int, h: int) -> np.ndarray:
             pass
     f = float(max(h, w))
     return np.asarray([[f, 0.0, 0.5 * w], [0.0, f, 0.5 * h], [0.0, 0.0, 1.0]], dtype=np.float32)
+
+
+def _read_frame_camera_K(
+    *,
+    stage1_dir: Path,
+    cam_json_path: Path,
+    frame_index: int,
+    frame_name: str,
+    w: int,
+    h: int,
+) -> np.ndarray:
+    params_npz = stage1_dir / "smpl_params_sequence.npz"
+    if params_npz.exists():
+        try:
+            z = np.load(str(params_npz), allow_pickle=True)
+            if "camera_focal_xy" in z.files and "camera_princpt_xy" in z.files:
+                foc = np.asarray(z["camera_focal_xy"], dtype=np.float32)
+                pp = np.asarray(z["camera_princpt_xy"], dtype=np.float32)
+                names = [str(x) for x in z["frame_names"].tolist()] if "frame_names" in z.files else []
+                row = int(frame_index)
+                if len(names) == int(foc.shape[0]) and frame_name in names:
+                    row = int(names.index(frame_name))
+                if 0 <= row < int(foc.shape[0]) and 0 <= row < int(pp.shape[0]):
+                    fx, fy = float(foc[row, 0]), float(foc[row, 1])
+                    cx, cy = float(pp[row, 0]), float(pp[row, 1])
+                    return np.asarray([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float32)
+        except Exception:
+            pass
+
+    meta_path = stage1_dir / "smplerx" / "selected_frames" / "meta" / f"{int(frame_index) + 1:05d}_0.json"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            focal = np.asarray(meta.get("focal", []), dtype=np.float32).reshape(-1)
+            princpt = np.asarray(meta.get("princpt", []), dtype=np.float32).reshape(-1)
+            if focal.size >= 2 and princpt.size >= 2:
+                return np.asarray(
+                    [[float(focal[0]), 0.0, float(princpt[0])], [0.0, float(focal[1]), float(princpt[1])], [0.0, 0.0, 1.0]],
+                    dtype=np.float32,
+                )
+        except Exception:
+            pass
+
+    return _read_camera_K(cam_json_path, w=w, h=h)
 
 
 def _largest_component_by_overlap(mask_u8: np.ndarray, ref_mask_u8: np.ndarray | None, min_area: int = 128) -> np.ndarray:
@@ -234,7 +225,7 @@ def _is_person_mask_plausible(person_mask: np.ndarray, smpl_mask: np.ndarray) ->
     area_pm = float(pm.sum())
     area_sm = float(max(1, sm.sum()))
     ratio = area_pm / area_sm
-    iou = _iou(pm, sm)
+    iou = mask_iou(pm, sm)
     border_ratio = _mask_border_touch_ratio(pm)
 
     # Too large/small vs SMPL, too little overlap, or too much border touching -> unreliable.
@@ -246,48 +237,6 @@ def _is_person_mask_plausible(person_mask: np.ndarray, smpl_mask: np.ndarray) ->
         return False
     return True
 
-def _grabcut_person_mask(img_bgr: np.ndarray, smpl_mask_hint: np.ndarray | None = None) -> np.ndarray:
-    h, w = img_bgr.shape[:2]
-    bg_model = np.zeros((1, 65), dtype=np.float64)
-    fg_model = np.zeros((1, 65), dtype=np.float64)
-
-    if smpl_mask_hint is None or int((smpl_mask_hint > 0).sum()) <= 0:
-        rect = (int(0.08 * w), int(0.04 * h), int(0.84 * w), int(0.92 * h))
-        gc_mask = np.full((h, w), cv2.GC_BGD, dtype=np.uint8)
-        cv2.grabCut(img_bgr, gc_mask, rect, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_RECT)
-    else:
-        hint = (smpl_mask_hint > 0).astype(np.uint8)
-        if hint.shape[0] != h or hint.shape[1] != w:
-            hint = cv2.resize(hint, (w, h), interpolation=cv2.INTER_NEAREST)
-
-        gc_mask = np.full((h, w), cv2.GC_PR_BGD, dtype=np.uint8)
-
-        # Strong foreground prior from SMPL silhouette center region.
-        sure_fg = cv2.erode(hint, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)), iterations=1)
-        pr_fg = cv2.dilate(hint, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31)), iterations=1)
-
-        gc_mask[pr_fg > 0] = cv2.GC_PR_FGD
-        gc_mask[sure_fg > 0] = cv2.GC_FGD
-
-        # Image borders are very likely background.
-        bd = max(8, int(0.02 * min(h, w)))
-        gc_mask[:bd, :] = cv2.GC_BGD
-        gc_mask[-bd:, :] = cv2.GC_BGD
-        gc_mask[:, :bd] = cv2.GC_BGD
-        gc_mask[:, -bd:] = cv2.GC_BGD
-
-        cv2.grabCut(img_bgr, gc_mask, None, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_MASK)
-
-    fg = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k, iterations=1)
-    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k, iterations=2)
-
-    # Keep the component that overlaps SMPL the most, not the largest green area.
-    fg = _largest_component_by_overlap(fg, smpl_mask_hint, min_area=256)
-    return fg
-
-
 def _resolve_person_mask(
     *,
     gt_mask_mode: str,
@@ -296,6 +245,7 @@ def _resolve_person_mask(
     image_hw: tuple[int, int],
     img_bgr: np.ndarray,
     smpl_mask_raw: np.ndarray,
+    modnet_ckpt_path: str | None = None,
 ) -> tuple[np.ndarray, str]:
     mode = str(gt_mask_mode).strip().lower()
 
@@ -310,10 +260,14 @@ def _resolve_person_mask(
     if mode == "chromakey":
         return _estimate_person_mask_chromakey(img_bgr), "chromakey"
 
-    if mode == "grabcut":
-        return _grabcut_person_mask(img_bgr, smpl_mask_hint=smpl_mask_raw), "grabcut"
+    if mode == "modnet":
+        return estimate_person_mask_modnet_eval(
+            img_bgr,
+            hint_mask_u8=smpl_mask_raw,
+            modnet_ckpt_path=modnet_ckpt_path,
+        ), "modnet"
 
-    # auto: npz first, then chromakey, then grabcut.
+    # auto: npz first, then chromakey, then modnet.
     person_mask = None
     if pm_npz.exists():
         person_mask = load_person_mask_from_npz(npz_path=pm_npz, frame_name=frame_name, image_hw=image_hw)
@@ -325,7 +279,11 @@ def _resolve_person_mask(
     if int((ck_mask > 0).sum()) > 0:
         return ck_mask, "chromakey"
 
-    return _grabcut_person_mask(img_bgr, smpl_mask_hint=smpl_mask_raw), "grabcut"
+    return estimate_person_mask_modnet_eval(
+        img_bgr,
+        hint_mask_u8=smpl_mask_raw,
+        modnet_ckpt_path=modnet_ckpt_path,
+    ), "modnet"
 
 
 def _evaluate_one_frame(
@@ -340,6 +298,8 @@ def _evaluate_one_frame(
     pm_npz: Path,
     use_auto_align: bool,
     gt_mask_mode: str,
+    modnet_ckpt_path: str | None,
+    stage1_dir: Path,
 ) -> dict:
     img_path = frames_dir / frame_name
     img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
@@ -347,7 +307,7 @@ def _evaluate_one_frame(
         raise FileNotFoundError(f"Cannot read GT image: {img_path}")
     h, w = img.shape[:2]
 
-    K = _read_camera_K(cam_json_path, w=w, h=h)
+    K = _read_frame_camera_K(stage1_dir=stage1_dir, cam_json_path=cam_json_path, frame_index=int(idx), frame_name=frame_name, w=w, h=h)
     uv, valid_v = _project_vertices_to_image(verts_cam=verts_cam, K=K)
     smpl_mask_raw = _rasterize_mesh_mask(uv=uv, valid_v=valid_v, faces=faces, image_hw=(h, w))
 
@@ -358,17 +318,27 @@ def _evaluate_one_frame(
         image_hw=(h, w),
         img_bgr=img,
         smpl_mask_raw=smpl_mask_raw,
+        modnet_ckpt_path=modnet_ckpt_path,
     )
 
     smpl_mask = smpl_mask_raw
     align_report = {"applied": False, "reason": "disabled_or_missing_person_mask"}
-    iou_before = _iou(smpl_mask_raw, person_mask)
+    iou_before = mask_iou(smpl_mask_raw, person_mask)
     iou_after = iou_before
     if use_auto_align and person_mask is not None and int(person_mask.sum()) > 0:
-        uv_aligned, align_report = _align_uv_by_bbox(uv=uv, smpl_mask=smpl_mask_raw, person_mask=person_mask)
+        uv_aligned, align_report = estimate_mask_similarity_transform(
+            uv=uv,
+            valid_v=valid_v,
+            faces=faces,
+            image_hw=(h, w),
+            smpl_mask=smpl_mask_raw,
+            person_mask=person_mask,
+            scale_min=0.4,
+            scale_max=2.5,
+        )
         smpl_mask_aligned = _rasterize_mesh_mask(uv=uv_aligned, valid_v=valid_v, faces=faces, image_hw=(h, w))
-        iou_after = _iou(smpl_mask_aligned, person_mask)
-        if iou_after >= iou_before:
+        iou_after = mask_iou(smpl_mask_aligned, person_mask)
+        if bool(align_report.get("accepted", False)):
             smpl_mask = smpl_mask_aligned
             align_report["accepted"] = True
         else:
@@ -408,12 +378,13 @@ def main() -> None:
     parser.add_argument("--frame_index", type=int, default=-1)
     parser.add_argument("--frame_name", type=str, default="")
     parser.add_argument("--person_masks_npz", type=str, default="")
+    parser.add_argument("--modnet_ckpt", type=str, default="")
     parser.add_argument(
         "--gt_mask_mode",
         type=str,
         default="auto",
-        choices=["auto", "npz", "chromakey", "grabcut"],
-        help="GT person mask source: auto(npz->chromakey->grabcut), npz, chromakey, or grabcut.",
+        choices=["auto", "npz", "chromakey", "modnet"],
+        help="GT person mask source: auto(npz->chromakey->modnet), npz, chromakey, or modnet.",
     )
     parser.add_argument("--auto_align", action="store_true")
     parser.add_argument("--no_auto_align", action="store_true")
@@ -470,6 +441,7 @@ def main() -> None:
     pm_npz = (stage1_dir / "person_masks.npz") if str(args.person_masks_npz).strip() == "" else Path(args.person_masks_npz)
     if not pm_npz.is_absolute():
         pm_npz = (project_root / pm_npz).resolve()
+    modnet_ckpt_path = str(args.modnet_ckpt).strip() or None
 
     use_auto_align = (not bool(args.no_auto_align))
     if bool(args.auto_align):
@@ -489,6 +461,8 @@ def main() -> None:
             pm_npz=pm_npz,
             use_auto_align=use_auto_align,
             gt_mask_mode=str(args.gt_mask_mode),
+            modnet_ckpt_path=modnet_ckpt_path,
+            stage1_dir=stage1_dir,
         )
         reports.append(report_i)
         print(

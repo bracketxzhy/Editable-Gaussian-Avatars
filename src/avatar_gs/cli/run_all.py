@@ -15,7 +15,7 @@ def main():
     run([
         py,
         "-m",
-        "avatar_gs.cli.stage1_fit_pymaf",
+        "avatar_gs.cli.stage1_fit_smplerx",
         "--project_root",
         ".",
         "--frames_dir",
@@ -24,7 +24,7 @@ def main():
         "assets",
         "--out_dir",
         "outputs/stage1",
-        "--pymaf_frame_indices",
+        "--smplerx_frame_indices",
         "-1",
         "--single_person",
     ])

@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from avatar_gs.alignment import estimate_mask_similarity_transform
 from avatar_gs.utils.cfg import load_yaml, apply_overrides, parse_args_base, save_yaml
 from avatar_gs.utils.io import ensure_dir, read_json
 from avatar_gs.utils.log import setup_logger
@@ -427,12 +428,6 @@ def _maybe_pre_stage2_rigid_align(
         n = float(used)
         return float(iou_acc / n), float(outside_acc / n), float(score_acc / n)
 
-    def _mask_bbox(mask_bool: np.ndarray) -> tuple[float, float, float, float] | None:
-        ys, xs = np.where(mask_bool > 0)
-        if ys.size == 0 or xs.size == 0:
-            return None
-        return float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())
-
     init_params = {
         "rx_deg": float(cfg.get("rx_deg", 0.0)),
         "ry_deg": float(cfg.get("ry_deg", 0.0)),
@@ -442,13 +437,16 @@ def _maybe_pre_stage2_rigid_align(
         "tz": float(cfg.get("tz", 0.0)),
     }
 
-    # Stage1-style bbox alignment prior (2D contour center/scale) to improve rigid-search init.
+    # Shared silhouette alignment prior to improve rigid-search init.
     bbox_init_applied = False
+    bbox_init_report: dict | None = None
     if bool(cfg.get("init_from_bbox", True)) and len(sample_ids) > 0:
         fj0 = int(sample_ids[0])
         mesh_i0 = int(bind_mesh_indices[fj0])
         verts_raw0 = _load_mesh_np_raw(mesh_i0)
         verts_eval0 = apply_rigid_transform_np(verts_raw0, {"enabled": True, **init_params}) + bind_mesh_offset_np
+        u0, v0, valid0 = _project_points_numpy(verts_eval0, K_eval, R_eval, t_eval)
+        uv0 = np.stack([u0, v0], axis=1).astype(np.float32)
         pred0 = _rasterize_mesh_mask(
             verts=verts_eval0,
             faces=bind_faces_np,
@@ -460,25 +458,24 @@ def _maybe_pre_stage2_rigid_align(
         ) > 0
         gt0 = gt_masks_eval.get(fj0, None)
         if gt0 is not None:
-            b_s = _mask_bbox(pred0)
-            b_p = _mask_bbox(gt0)
-            if b_s is not None and b_p is not None:
-                ws = max(1.0, b_s[2] - b_s[0] + 1.0)
-                hs = max(1.0, b_s[3] - b_s[1] + 1.0)
-                wp = max(1.0, b_p[2] - b_p[0] + 1.0)
-                hp = max(1.0, b_p[3] - b_p[1] + 1.0)
-                csx = 0.5 * (b_s[0] + b_s[2])
-                csy = 0.5 * (b_s[1] + b_s[3])
-                cpx = 0.5 * (b_p[0] + b_p[2])
-                cpy = 0.5 * (b_p[1] + b_p[3])
-                s = float(np.clip(0.5 * ((wp / ws) + (hp / hs)), 0.5, 2.0))
-
+            _, bbox_init_report = estimate_mask_similarity_transform(
+                uv=uv0,
+                valid_v=valid0,
+                faces=bind_faces_np,
+                image_hw=(Hs, Ws),
+                smpl_mask=(pred0.astype(np.uint8) * 255),
+                person_mask=(gt0.astype(np.uint8) * 255),
+                scale_min=0.5,
+                scale_max=2.0,
+            )
+            if bool(bbox_init_report.get("accepted", False)):
                 verts_cam0 = (verts_eval0 @ R_eval.T) + t_eval.reshape(1, 3)
                 z_ref = float(np.median(np.clip(verts_cam0[:, 2], 1e-3, None)))
                 fx = max(abs(float(K_eval[0, 0])), 1e-6)
                 fy = max(abs(float(K_eval[1, 1])), 1e-6)
-                dx_px = float(cpx - csx)
-                dy_px = float(cpy - csy)
+                dx_px = float(bbox_init_report.get("tx_px", 0.0))
+                dy_px = float(bbox_init_report.get("ty_px", 0.0))
+                s = float(bbox_init_report.get("scale", 1.0))
 
                 init_params["tx"] += (dx_px / fx) * z_ref
                 init_params["ty"] += (dy_px / fy) * z_ref
@@ -555,6 +552,7 @@ def _maybe_pre_stage2_rigid_align(
         "outside_before": float(outside_before),
         "outside_after": float(outside_after),
         "bbox_init_applied": bool(bbox_init_applied),
+        "bbox_init_report": (None if bbox_init_report is None else bbox_init_report),
         "require_quality": bool(require_quality),
         "use_best_if_quality_fail": bool(use_best_if_quality_fail),
         "quality_ok": bool(quality_ok),
@@ -1049,13 +1047,14 @@ def main():
         person_mask_erode_px=int(cfg["stage2"].get("person_mask_erode_px", 0)),
         person_mask_fuse_mode=str(cfg["stage2"].get("person_mask_fuse_mode", "intersect")),
         person_mask_eval_clean=bool(cfg["stage2"].get("person_mask_eval_clean", False)),
-        person_mask_eval_refine_grabcut=bool(cfg["stage2"].get("person_mask_eval_refine_grabcut", False)),
+        person_mask_eval_refine_modnet=bool(cfg["stage2"].get("person_mask_eval_refine_modnet", False)),
         person_mask_contour_width_px=int(cfg["stage2"].get("person_mask_contour_width_px", 2)),
         person_mask_contour_leak_weight=float(cfg["stage2"].get("person_mask_contour_leak_weight", 0.0)),
         outer_use_gt_contour=bool(cfg["stage2"].get("outer_use_gt_contour", True)),
         outer_gt_contour_fuse_mode=str(cfg["stage2"].get("outer_gt_contour_fuse_mode", "union")),
-        outer_gt_contour_grabcut_scale=float(cfg["stage2"].get("outer_gt_contour_grabcut_scale", 1.0)),
-        outer_gt_contour_grabcut_iters=int(cfg["stage2"].get("outer_gt_contour_grabcut_iters", 5)),
+        outer_gt_contour_modnet_ref_size=int(cfg["stage2"].get("outer_gt_contour_modnet_ref_size", 512)),
+        outer_gt_contour_modnet_threshold=float(cfg["stage2"].get("outer_gt_contour_modnet_threshold", 0.5)),
+        modnet_ckpt_path=(None if str(cfg["stage2"].get("modnet_ckpt_path", "")).strip() == "" else str(cfg["stage2"].get("modnet_ckpt_path")).strip()),
         outer_head_priority_enable=bool(cfg["stage2"].get("outer_head_priority_enable", False)),
         outer_head_priority_weight=float(cfg["stage2"].get("outer_head_priority_weight", 1.5)),
         outer_head_priority_face_pad=float(cfg["stage2"].get("outer_head_priority_face_pad", 0.45)),

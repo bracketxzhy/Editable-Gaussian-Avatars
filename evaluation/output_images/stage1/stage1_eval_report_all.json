@@ -1,0 +1,2515 @@
+{
+  "n_frames": 76,
+  "frame_reports": [
+    {
+      "frame_name": "000000.jpg",
+      "frame_index": 0,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000000_gt_stage1_contour.png",
+      "iou_before": 0.7276412328230351,
+      "iou_after": 0.8129372190634954,
+      "align": {
+        "applied": true,
+        "scale": 0.952566033728723,
+        "center_src": [
+          516.5,
+          567.0
+        ],
+        "center_tgt": [
+          507.0,
+          577.0
+        ],
+        "bbox_src": [
+          221.0,
+          138.0,
+          812.0,
+          996.0
+        ],
+        "bbox_tgt": [
+          232.0,
+          159.0,
+          782.0,
+          995.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000001.jpg",
+      "frame_index": 1,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000001_gt_stage1_contour.png",
+      "iou_before": 0.7133348879043273,
+      "iou_after": 0.8370516399425136,
+      "align": {
+        "applied": true,
+        "scale": 0.9497635312664214,
+        "center_src": [
+          542.0,
+          568.0
+        ],
+        "center_tgt": [
+          535.0,
+          576.0
+        ],
+        "bbox_src": [
+          240.0,
+          136.0,
+          844.0,
+          1000.0
+        ],
+        "bbox_tgt": [
+          255.0,
+          156.0,
+          815.0,
+          996.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000002.jpg",
+      "frame_index": 2,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000002_gt_stage1_contour.png",
+      "iou_before": 0.7181660044807537,
+      "iou_after": 0.7557555081940979,
+      "align": {
+        "applied": true,
+        "scale": 0.9504612535172807,
+        "center_src": [
+          584.0,
+          567.5
+        ],
+        "center_tgt": [
+          573.0,
+          575.5
+        ],
+        "bbox_src": [
+          290.0,
+          139.0,
+          878.0,
+          996.0
+        ],
+        "bbox_tgt": [
+          302.0,
+          156.0,
+          844.0,
+          995.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000003.jpg",
+      "frame_index": 3,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000003_gt_stage1_contour.png",
+      "iou_before": 0.7477867590454196,
+      "iou_after": 0.6612416165090284,
+      "align": {
+        "applied": true,
+        "scale": 0.9490320506816304,
+        "center_src": [
+          598.5,
+          577.0
+        ],
+        "center_tgt": [
+          578.0,
+          591.0
+        ],
+        "bbox_src": [
+          333.0,
+          136.0,
+          864.0,
+          1018.0
+        ],
+        "bbox_tgt": [
+          336.0,
+          156.0,
+          820.0,
+          1026.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000004.jpg",
+      "frame_index": 4,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000004_gt_stage1_contour.png",
+      "iou_before": 0.7505309612467246,
+      "iou_after": 0.6238343380675045,
+      "align": {
+        "applied": true,
+        "scale": 0.9388249932205013,
+        "center_src": [
+          573.0,
+          581.5
+        ],
+        "center_tgt": [
+          548.5,
+          591.5
+        ],
+        "bbox_src": [
+          365.0,
+          131.0,
+          781.0,
+          1032.0
+        ],
+        "bbox_tgt": [
+          360.0,
+          154.0,
+          737.0,
+          1029.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000005.jpg",
+      "frame_index": 5,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000005_gt_stage1_contour.png",
+      "iou_before": 0.7890016854152785,
+      "iou_after": 0.6947739109386346,
+      "align": {
+        "applied": true,
+        "scale": 0.9509575790063596,
+        "center_src": [
+          588.0,
+          583.5
+        ],
+        "center_tgt": [
+          566.0,
+          593.0
+        ],
+        "bbox_src": [
+          452.0,
+          133.0,
+          724.0,
+          1034.0
+        ],
+        "bbox_tgt": [
+          439.0,
+          157.0,
+          693.0,
+          1029.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000006.jpg",
+      "frame_index": 6,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000006_gt_stage1_contour.png",
+      "iou_before": 0.8517374601650151,
+      "iou_after": 0.8728083016167334,
+      "align": {
+        "applied": true,
+        "scale": 1.0180995937730035,
+        "center_src": [
+          597.5,
+          575.0
+        ],
+        "center_tgt": [
+          600.0,
+          592.0
+        ],
+        "bbox_src": [
+          512.0,
+          149.0,
+          683.0,
+          1001.0
+        ],
+        "bbox_tgt": [
+          513.0,
+          158.0,
+          687.0,
+          1026.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000007.jpg",
+      "frame_index": 7,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000007_gt_stage1_contour.png",
+      "iou_before": 0.8712786737207864,
+      "iou_after": 0.8062199987847609,
+      "align": {
+        "applied": true,
+        "scale": 0.933385306369412,
+        "center_src": [
+          642.5,
+          581.5
+        ],
+        "center_tgt": [
+          636.0,
+          593.0
+        ],
+        "bbox_src": [
+          546.0,
+          139.0,
+          739.0,
+          1024.0
+        ],
+        "bbox_tgt": [
+          551.0,
+          157.0,
+          721.0,
+          1029.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000008.jpg",
+      "frame_index": 8,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000008_gt_stage1_contour.png",
+      "iou_before": 0.8004043463202068,
+      "iou_after": 0.8250751720988739,
+      "align": {
+        "applied": true,
+        "scale": 0.9481516644815167,
+        "center_src": [
+          652.5,
+          584.0
+        ],
+        "center_tgt": [
+          658.5,
+          592.0
+        ],
+        "bbox_src": [
+          507.0,
+          130.0,
+          798.0,
+          1038.0
+        ],
+        "bbox_tgt": [
+          523.0,
+          154.0,
+          794.0,
+          1030.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000009.jpg",
+      "frame_index": 9,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000009_gt_stage1_contour.png",
+      "iou_before": 0.7706207917650791,
+      "iou_after": 0.8087079835958759,
+      "align": {
+        "applied": true,
+        "scale": 0.9385921305066545,
+        "center_src": [
+          657.0,
+          590.0
+        ],
+        "center_tgt": [
+          664.0,
+          592.5
+        ],
+        "bbox_src": [
+          426.0,
+          143.0,
+          888.0,
+          1037.0
+        ],
+        "bbox_tgt": [
+          456.0,
+          156.0,
+          872.0,
+          1029.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000010.jpg",
+      "frame_index": 10,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000010_gt_stage1_contour.png",
+      "iou_before": 0.707996331193196,
+      "iou_after": 0.7723905431605753,
+      "align": {
+        "applied": true,
+        "scale": 0.918147753550371,
+        "center_src": [
+          636.0,
+          590.5
+        ],
+        "center_tgt": [
+          644.0,
+          589.0
+        ],
+        "bbox_src": [
+          363.0,
+          138.0,
+          909.0,
+          1043.0
+        ],
+        "bbox_tgt": [
+          404.0,
+          156.0,
+          884.0,
+          1022.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000011.jpg",
+      "frame_index": 11,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000011_gt_stage1_contour.png",
+      "iou_before": 0.7412519570191755,
+      "iou_after": 0.7685841870239033,
+      "align": {
+        "applied": true,
+        "scale": 0.9293432232330683,
+        "center_src": [
+          631.0,
+          581.5
+        ],
+        "center_tgt": [
+          639.5,
+          581.0
+        ],
+        "bbox_src": [
+          341.0,
+          141.0,
+          921.0,
+          1022.0
+        ],
+        "bbox_tgt": [
+          381.0,
+          155.0,
+          898.0,
+          1007.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000012.jpg",
+      "frame_index": 12,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000012_gt_stage1_contour.png",
+      "iou_before": 0.8130806102682295,
+      "iou_after": 0.8727771529318783,
+      "align": {
+        "applied": true,
+        "scale": 0.9595984001501606,
+        "center_src": [
+          675.0,
+          576.0
+        ],
+        "center_tgt": [
+          673.5,
+          579.5
+        ],
+        "bbox_src": [
+          384.0,
+          147.0,
+          966.0,
+          1005.0
+        ],
+        "bbox_tgt": [
+          403.0,
+          155.0,
+          944.0,
+          1004.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000013.jpg",
+      "frame_index": 13,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000013_gt_stage1_contour.png",
+      "iou_before": 0.8119515102767764,
+      "iou_after": 0.7444102368163883,
+      "align": {
+        "applied": true,
+        "scale": 0.9397873095225474,
+        "center_src": [
+          703.0,
+          578.5
+        ],
+        "center_tgt": [
+          689.0,
+          575.5
+        ],
+        "bbox_src": [
+          419.0,
+          148.0,
+          987.0,
+          1009.0
+        ],
+        "bbox_tgt": [
+          432.0,
+          156.0,
+          946.0,
+          995.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000014.jpg",
+      "frame_index": 14,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000014_gt_stage1_contour.png",
+      "iou_before": 0.7667474400062534,
+      "iou_after": 0.683578408661625,
+      "align": {
+        "applied": true,
+        "scale": 0.9485181704700058,
+        "center_src": [
+          668.5,
+          578.0
+        ],
+        "center_tgt": [
+          648.5,
+          578.0
+        ],
+        "bbox_src": [
+          420.0,
+          149.0,
+          917.0,
+          1007.0
+        ],
+        "bbox_tgt": [
+          421.0,
+          157.0,
+          876.0,
+          999.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000015.jpg",
+      "frame_index": 15,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000015_gt_stage1_contour.png",
+      "iou_before": 0.7736932397762047,
+      "iou_after": 0.7347333583813642,
+      "align": {
+        "applied": true,
+        "scale": 0.9440046028054423,
+        "center_src": [
+          634.0,
+          577.0
+        ],
+        "center_tgt": [
+          613.0,
+          578.0
+        ],
+        "bbox_src": [
+          421.0,
+          144.0,
+          847.0,
+          1010.0
+        ],
+        "bbox_tgt": [
+          418.0,
+          157.0,
+          808.0,
+          999.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000016.jpg",
+      "frame_index": 16,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000016_gt_stage1_contour.png",
+      "iou_before": 0.8242549108150824,
+      "iou_after": 0.7441273918546646,
+      "align": {
+        "applied": true,
+        "scale": 0.9659014527655327,
+        "center_src": [
+          635.0,
+          577.0
+        ],
+        "center_tgt": [
+          620.0,
+          579.0
+        ],
+        "bbox_src": [
+          495.0,
+          146.0,
+          775.0,
+          1008.0
+        ],
+        "bbox_tgt": [
+          486.0,
+          159.0,
+          754.0,
+          999.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000017.jpg",
+      "frame_index": 17,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000017_gt_stage1_contour.png",
+      "iou_before": 0.8905962938601465,
+      "iou_after": 0.8378145467080317,
+      "align": {
+        "applied": true,
+        "scale": 0.9579233246065422,
+        "center_src": [
+          620.0,
+          566.5
+        ],
+        "center_tgt": [
+          625.5,
+          573.5
+        ],
+        "bbox_src": [
+          541.0,
+          149.0,
+          699.0,
+          984.0
+        ],
+        "bbox_tgt": [
+          553.0,
+          157.0,
+          698.0,
+          990.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000018.jpg",
+      "frame_index": 18,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000018_gt_stage1_contour.png",
+      "iou_before": 0.8621954901186689,
+      "iou_after": 0.821411431447601,
+      "align": {
+        "applied": true,
+        "scale": 0.9686904574301964,
+        "center_src": [
+          610.5,
+          565.0
+        ],
+        "center_tgt": [
+          619.5,
+          578.0
+        ],
+        "bbox_src": [
+          528.0,
+          145.0,
+          693.0,
+          985.0
+        ],
+        "bbox_tgt": [
+          542.0,
+          159.0,
+          697.0,
+          997.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000019.jpg",
+      "frame_index": 19,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000019_gt_stage1_contour.png",
+      "iou_before": 0.7508305941398933,
+      "iou_after": 0.7652123607964132,
+      "align": {
+        "applied": true,
+        "scale": 0.9230154454022989,
+        "center_src": [
+          596.5,
+          569.5
+        ],
+        "center_tgt": [
+          614.5,
+          578.5
+        ],
+        "bbox_src": [
+          469.0,
+          135.0,
+          724.0,
+          1004.0
+        ],
+        "bbox_tgt": [
+          502.0,
+          160.0,
+          727.0,
+          997.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000020.jpg",
+      "frame_index": 20,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000020_gt_stage1_contour.png",
+      "iou_before": 0.6989408514832244,
+      "iou_after": 0.6343639851871682,
+      "align": {
+        "applied": true,
+        "scale": 0.8969308937873695,
+        "center_src": [
+          577.0,
+          574.0
+        ],
+        "center_tgt": [
+          598.5,
+          577.0
+        ],
+        "bbox_src": [
+          378.0,
+          135.0,
+          776.0,
+          1013.0
+        ],
+        "bbox_tgt": [
+          432.0,
+          157.0,
+          765.0,
+          997.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000021.jpg",
+      "frame_index": 21,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000021_gt_stage1_contour.png",
+      "iou_before": 0.692910874245767,
+      "iou_after": 0.6787084908256217,
+      "align": {
+        "applied": true,
+        "scale": 0.9082458972289481,
+        "center_src": [
+          528.5,
+          575.0
+        ],
+        "center_tgt": [
+          544.5,
+          576.5
+        ],
+        "bbox_src": [
+          277.0,
+          133.0,
+          780.0,
+          1017.0
+        ],
+        "bbox_tgt": [
+          327.0,
+          156.0,
+          762.0,
+          997.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000022.jpg",
+      "frame_index": 22,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000022_gt_stage1_contour.png",
+      "iou_before": 0.6991311659192825,
+      "iou_after": 0.823030459787603,
+      "align": {
+        "applied": true,
+        "scale": 0.9406179451994157,
+        "center_src": [
+          514.0,
+          563.0
+        ],
+        "center_tgt": [
+          519.0,
+          575.5
+        ],
+        "bbox_src": [
+          239.0,
+          133.0,
+          789.0,
+          993.0
+        ],
+        "bbox_tgt": [
+          270.0,
+          156.0,
+          768.0,
+          995.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000023.jpg",
+      "frame_index": 23,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000023_gt_stage1_contour.png",
+      "iou_before": 0.7687604496771531,
+      "iou_after": 0.8656277228328162,
+      "align": {
+        "applied": true,
+        "scale": 0.9651321398124467,
+        "center_src": [
+          532.5,
+          568.5
+        ],
+        "center_tgt": [
+          534.5,
+          575.5
+        ],
+        "bbox_src": [
+          257.0,
+          144.0,
+          808.0,
+          993.0
+        ],
+        "bbox_tgt": [
+          275.0,
+          156.0,
+          794.0,
+          995.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000024.jpg",
+      "frame_index": 24,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000024_gt_stage1_contour.png",
+      "iou_before": 0.7325325434138653,
+      "iou_after": 0.8699405037146645,
+      "align": {
+        "applied": true,
+        "scale": 0.9512412891986063,
+        "center_src": [
+          546.5,
+          571.0
+        ],
+        "center_tgt": [
+          549.0,
+          577.0
+        ],
+        "bbox_src": [
+          267.0,
+          141.0,
+          826.0,
+          1001.0
+        ],
+        "bbox_tgt": [
+          289.0,
+          159.0,
+          809.0,
+          995.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000025.jpg",
+      "frame_index": 25,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000025_gt_stage1_contour.png",
+      "iou_before": 0.7475676268259929,
+      "iou_after": 0.8793103448275862,
+      "align": {
+        "applied": true,
+        "scale": 0.9533855514196532,
+        "center_src": [
+          555.5,
+          569.5
+        ],
+        "center_tgt": [
+          557.0,
+          576.0
+        ],
+        "bbox_src": [
+          278.0,
+          139.0,
+          833.0,
+          1000.0
+        ],
+        "bbox_tgt": [
+          298.0,
+          157.0,
+          816.0,
+          995.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000026.jpg",
+      "frame_index": 26,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000026_gt_stage1_contour.png",
+      "iou_before": 0.7684152831065751,
+      "iou_after": 0.8924114098825998,
+      "align": {
+        "applied": true,
+        "scale": 0.9629942811835757,
+        "center_src": [
+          580.5,
+          566.5
+        ],
+        "center_tgt": [
+          580.5,
+          576.0
+        ],
+        "bbox_src": [
+          304.0,
+          139.0,
+          857.0,
+          994.0
+        ],
+        "bbox_tgt": [
+          319.0,
+          157.0,
+          842.0,
+          995.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000027.jpg",
+      "frame_index": 27,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000027_gt_stage1_contour.png",
+      "iou_before": 0.7711840561110692,
+      "iou_after": 0.8293179077869913,
+      "align": {
+        "applied": true,
+        "scale": 0.9574009294572272,
+        "center_src": [
+          584.5,
+          572.0
+        ],
+        "center_tgt": [
+          577.0,
+          584.5
+        ],
+        "bbox_src": [
+          311.0,
+          139.0,
+          858.0,
+          1005.0
+        ],
+        "bbox_tgt": [
+          324.0,
+          156.0,
+          830.0,
+          1013.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000028.jpg",
+      "frame_index": 28,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000028_gt_stage1_contour.png",
+      "iou_before": 0.7575445019740706,
+      "iou_after": 0.7053730157070253,
+      "align": {
+        "applied": true,
+        "scale": 0.9507205046505751,
+        "center_src": [
+          557.5,
+          577.0
+        ],
+        "center_tgt": [
+          540.0,
+          586.5
+        ],
+        "bbox_src": [
+          331.0,
+          133.0,
+          784.0,
+          1021.0
+        ],
+        "bbox_tgt": [
+          330.0,
+          154.0,
+          750.0,
+          1019.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000029.jpg",
+      "frame_index": 29,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000029_gt_stage1_contour.png",
+      "iou_before": 0.7514337268505568,
+      "iou_after": 0.6408239436619718,
+      "align": {
+        "applied": true,
+        "scale": 0.9300793039234573,
+        "center_src": [
+          550.5,
+          576.0
+        ],
+        "center_tgt": [
+          526.0,
+          587.0
+        ],
+        "bbox_src": [
+          377.0,
+          129.0,
+          724.0,
+          1023.0
+        ],
+        "bbox_tgt": [
+          371.0,
+          155.0,
+          681.0,
+          1019.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000030.jpg",
+      "frame_index": 30,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000030_gt_stage1_contour.png",
+      "iou_before": 0.8036408449539312,
+      "iou_after": 0.6985064608155731,
+      "align": {
+        "applied": true,
+        "scale": 0.928000366813392,
+        "center_src": [
+          581.5,
+          578.5
+        ],
+        "center_tgt": [
+          563.0,
+          587.5
+        ],
+        "bbox_src": [
+          446.0,
+          138.0,
+          717.0,
+          1019.0
+        ],
+        "bbox_tgt": [
+          444.0,
+          157.0,
+          682.0,
+          1018.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000031.jpg",
+      "frame_index": 31,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000031_gt_stage1_contour.png",
+      "iou_before": 0.8467023554603854,
+      "iou_after": 0.870765018486779,
+      "align": {
+        "applied": true,
+        "scale": 1.00592138063279,
+        "center_src": [
+          600.0,
+          575.0
+        ],
+        "center_tgt": [
+          598.5,
+          585.5
+        ],
+        "bbox_src": [
+          526.0,
+          138.0,
+          674.0,
+          1012.0
+        ],
+        "bbox_tgt": [
+          522.0,
+          158.0,
+          675.0,
+          1013.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000032.jpg",
+      "frame_index": 32,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000032_gt_stage1_contour.png",
+      "iou_before": 0.8776018520432419,
+      "iou_after": 0.8096595407759303,
+      "align": {
+        "applied": true,
+        "scale": 0.9407464842085327,
+        "center_src": [
+          629.5,
+          576.5
+        ],
+        "center_tgt": [
+          624.0,
+          587.0
+        ],
+        "bbox_src": [
+          532.0,
+          146.0,
+          727.0,
+          1007.0
+        ],
+        "bbox_tgt": [
+          538.0,
+          157.0,
+          710.0,
+          1017.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000033.jpg",
+      "frame_index": 33,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000033_gt_stage1_contour.png",
+      "iou_before": 0.8444847560708433,
+      "iou_after": 0.8490859876154103,
+      "align": {
+        "applied": true,
+        "scale": 0.9466537461361072,
+        "center_src": [
+          641.0,
+          579.5
+        ],
+        "center_tgt": [
+          645.0,
+          586.0
+        ],
+        "bbox_src": [
+          527.0,
+          135.0,
+          755.0,
+          1024.0
+        ],
+        "bbox_tgt": [
+          540.0,
+          154.0,
+          750.0,
+          1018.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000034.jpg",
+      "frame_index": 34,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000034_gt_stage1_contour.png",
+      "iou_before": 0.7584893988378858,
+      "iou_after": 0.8135481669266771,
+      "align": {
+        "applied": true,
+        "scale": 0.9347724230254351,
+        "center_src": [
+          659.0,
+          583.5
+        ],
+        "center_tgt": [
+          669.0,
+          586.0
+        ],
+        "bbox_src": [
+          452.0,
+          134.0,
+          866.0,
+          1033.0
+        ],
+        "bbox_tgt": [
+          481.0,
+          154.0,
+          857.0,
+          1018.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000035.jpg",
+      "frame_index": 35,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000035_gt_stage1_contour.png",
+      "iou_before": 0.7490832536411858,
+      "iou_after": 0.8095131961203252,
+      "align": {
+        "applied": true,
+        "scale": 0.9248395552743379,
+        "center_src": [
+          657.0,
+          587.0
+        ],
+        "center_tgt": [
+          664.5,
+          587.0
+        ],
+        "bbox_src": [
+          417.0,
+          139.0,
+          897.0,
+          1035.0
+        ],
+        "bbox_tgt": [
+          451.0,
+          157.0,
+          878.0,
+          1017.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000036.jpg",
+      "frame_index": 36,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000036_gt_stage1_contour.png",
+      "iou_before": 0.7359248339456134,
+      "iou_after": 0.7429951690821256,
+      "align": {
+        "applied": true,
+        "scale": 0.9263753904516623,
+        "center_src": [
+          645.5,
+          581.5
+        ],
+        "center_tgt": [
+          653.5,
+          579.0
+        ],
+        "bbox_src": [
+          383.0,
+          145.0,
+          908.0,
+          1018.0
+        ],
+        "bbox_tgt": [
+          421.0,
+          157.0,
+          886.0,
+          1001.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000037.jpg",
+      "frame_index": 37,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000037_gt_stage1_contour.png",
+      "iou_before": 0.807528831713468,
+      "iou_after": 0.8317541091287968,
+      "align": {
+        "applied": true,
+        "scale": 0.9496408995595207,
+        "center_src": [
+          666.5,
+          578.0
+        ],
+        "center_tgt": [
+          669.0,
+          579.0
+        ],
+        "bbox_src": [
+          396.0,
+          150.0,
+          937.0,
+          1006.0
+        ],
+        "bbox_tgt": [
+          422.0,
+          157.0,
+          916.0,
+          1001.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000038.jpg",
+      "frame_index": 38,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000038_gt_stage1_contour.png",
+      "iou_before": 0.7900485183457819,
+      "iou_after": 0.8512487012737138,
+      "align": {
+        "applied": true,
+        "scale": 0.9336228783603514,
+        "center_src": [
+          702.0,
+          579.0
+        ],
+        "center_tgt": [
+          698.5,
+          576.0
+        ],
+        "bbox_src": [
+          423.0,
+          143.0,
+          981.0,
+          1015.0
+        ],
+        "bbox_tgt": [
+          447.0,
+          155.0,
+          950.0,
+          997.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000039.jpg",
+      "frame_index": 39,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000039_gt_stage1_contour.png",
+      "iou_before": 0.7700568320490917,
+      "iou_after": 0.7006266582258672,
+      "align": {
+        "applied": true,
+        "scale": 0.9404513115671429,
+        "center_src": [
+          715.0,
+          580.0
+        ],
+        "center_tgt": [
+          696.5,
+          577.0
+        ],
+        "bbox_src": [
+          463.0,
+          147.0,
+          967.0,
+          1013.0
+        ],
+        "bbox_tgt": [
+          467.0,
+          157.0,
+          926.0,
+          997.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000040.jpg",
+      "frame_index": 40,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000040_gt_stage1_contour.png",
+      "iou_before": 0.7493940897172419,
+      "iou_after": 0.7031501917796117,
+      "align": {
+        "applied": true,
+        "scale": 0.935278614259963,
+        "center_src": [
+          674.5,
+          580.0
+        ],
+        "center_tgt": [
+          657.0,
+          579.0
+        ],
+        "bbox_src": [
+          454.0,
+          150.0,
+          895.0,
+          1010.0
+        ],
+        "bbox_tgt": [
+          461.0,
+          157.0,
+          853.0,
+          1001.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000041.jpg",
+      "frame_index": 41,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000041_gt_stage1_contour.png",
+      "iou_before": 0.7710631316550257,
+      "iou_after": 0.693730107430105,
+      "align": {
+        "applied": true,
+        "scale": 0.9299996901818632,
+        "center_src": [
+          649.0,
+          581.5
+        ],
+        "center_tgt": [
+          629.0,
+          580.5
+        ],
+        "bbox_src": [
+          464.0,
+          147.0,
+          834.0,
+          1016.0
+        ],
+        "bbox_tgt": [
+          464.0,
+          160.0,
+          794.0,
+          1001.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000042.jpg",
+      "frame_index": 42,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000042_gt_stage1_contour.png",
+      "iou_before": 0.8402023101633518,
+      "iou_after": 0.8304678459249463,
+      "align": {
+        "applied": true,
+        "scale": 0.9392003930479642,
+        "center_src": [
+          633.0,
+          573.0
+        ],
+        "center_tgt": [
+          626.0,
+          580.0
+        ],
+        "bbox_src": [
+          510.0,
+          145.0,
+          756.0,
+          1001.0
+        ],
+        "bbox_tgt": [
+          516.0,
+          159.0,
+          736.0,
+          1001.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000043.jpg",
+      "frame_index": 43,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000043_gt_stage1_contour.png",
+      "iou_before": 0.8886527444095361,
+      "iou_after": 0.8078996923868674,
+      "align": {
+        "applied": true,
+        "scale": 0.9425510794937546,
+        "center_src": [
+          621.0,
+          567.0
+        ],
+        "center_tgt": [
+          628.0,
+          574.5
+        ],
+        "bbox_src": [
+          543.0,
+          144.0,
+          699.0,
+          990.0
+        ],
+        "bbox_tgt": [
+          558.0,
+          157.0,
+          698.0,
+          992.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000044.jpg",
+      "frame_index": 44,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000044_gt_stage1_contour.png",
+      "iou_before": 0.8599697752858206,
+      "iou_after": 0.8732338824165672,
+      "align": {
+        "applied": true,
+        "scale": 0.9785298876207966,
+        "center_src": [
+          634.5,
+          563.0
+        ],
+        "center_tgt": [
+          632.5,
+          577.5
+        ],
+        "bbox_src": [
+          554.0,
+          140.0,
+          715.0,
+          986.0
+        ],
+        "bbox_tgt": [
+          555.0,
+          157.0,
+          710.0,
+          998.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000045.jpg",
+      "frame_index": 45,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000045_gt_stage1_contour.png",
+      "iou_before": 0.7089826311090146,
+      "iou_after": 0.7363362556832351,
+      "align": {
+        "applied": true,
+        "scale": 0.889810360259566,
+        "center_src": [
+          598.5,
+          572.5
+        ],
+        "center_tgt": [
+          614.0,
+          579.5
+        ],
+        "bbox_src": [
+          435.0,
+          137.0,
+          762.0,
+          1008.0
+        ],
+        "bbox_tgt": [
+          481.0,
+          159.0,
+          747.0,
+          1000.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000046.jpg",
+      "frame_index": 46,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000046_gt_stage1_contour.png",
+      "iou_before": 0.6745456251340339,
+      "iou_after": 0.729476207840977,
+      "align": {
+        "applied": true,
+        "scale": 0.8893932064925293,
+        "center_src": [
+          590.5,
+          574.5
+        ],
+        "center_tgt": [
+          606.0,
+          578.5
+        ],
+        "bbox_src": [
+          381.0,
+          132.0,
+          800.0,
+          1017.0
+        ],
+        "bbox_tgt": [
+          433.0,
+          157.0,
+          779.0,
+          1000.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000047.jpg",
+      "frame_index": 47,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000047_gt_stage1_contour.png",
+      "iou_before": 0.6953449519933954,
+      "iou_after": 0.7760151393067558,
+      "align": {
+        "applied": true,
+        "scale": 0.9204814990512334,
+        "center_src": [
+          565.5,
+          572.5
+        ],
+        "center_tgt": [
+          575.0,
+          578.0
+        ],
+        "bbox_src": [
+          318.0,
+          131.0,
+          813.0,
+          1014.0
+        ],
+        "bbox_tgt": [
+          356.0,
+          156.0,
+          794.0,
+          1000.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000048.jpg",
+      "frame_index": 48,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000048_gt_stage1_contour.png",
+      "iou_before": 0.7343976194305936,
+      "iou_after": 0.8946401365804363,
+      "align": {
+        "applied": true,
+        "scale": 0.9550292840963441,
+        "center_src": [
+          526.5,
+          563.0
+        ],
+        "center_tgt": [
+          525.5,
+          577.0
+        ],
+        "bbox_src": [
+          269.0,
+          134.0,
+          784.0,
+          992.0
+        ],
+        "bbox_tgt": [
+          287.0,
+          155.0,
+          764.0,
+          999.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000049.jpg",
+      "frame_index": 49,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000049_gt_stage1_contour.png",
+      "iou_before": 0.7464757170795306,
+      "iou_after": 0.8937757993962171,
+      "align": {
+        "applied": true,
+        "scale": 0.9558305647840531,
+        "center_src": [
+          531.0,
+          566.5
+        ],
+        "center_tgt": [
+          528.0,
+          576.0
+        ],
+        "bbox_src": [
+          269.0,
+          137.0,
+          793.0,
+          996.0
+        ],
+        "bbox_tgt": [
+          284.0,
+          155.0,
+          772.0,
+          997.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000050.jpg",
+      "frame_index": 50,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000050_gt_stage1_contour.png",
+      "iou_before": 0.7287227280938268,
+      "iou_after": 0.8782251475607614,
+      "align": {
+        "applied": true,
+        "scale": 0.9522729888109907,
+        "center_src": [
+          547.0,
+          568.5
+        ],
+        "center_tgt": [
+          546.0,
+          577.0
+        ],
+        "bbox_src": [
+          286.0,
+          137.0,
+          808.0,
+          1000.0
+        ],
+        "bbox_tgt": [
+          303.0,
+          157.0,
+          789.0,
+          997.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000051.jpg",
+      "frame_index": 51,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000051_gt_stage1_contour.png",
+      "iou_before": 0.747856641856601,
+      "iou_after": 0.8789167326664155,
+      "align": {
+        "applied": true,
+        "scale": 0.9517537460014591,
+        "center_src": [
+          563.0,
+          569.0
+        ],
+        "center_tgt": [
+          560.0,
+          576.5
+        ],
+        "bbox_src": [
+          306.0,
+          137.0,
+          820.0,
+          1001.0
+        ],
+        "bbox_tgt": [
+          321.0,
+          156.0,
+          799.0,
+          997.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000052.jpg",
+      "frame_index": 52,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000052_gt_stage1_contour.png",
+      "iou_before": 0.7407639153381577,
+      "iou_after": 0.8280929316148099,
+      "align": {
+        "applied": true,
+        "scale": 0.9563901706944191,
+        "center_src": [
+          596.5,
+          567.0
+        ],
+        "center_tgt": [
+          590.0,
+          577.0
+        ],
+        "bbox_src": [
+          348.0,
+          138.0,
+          845.0,
+          996.0
+        ],
+        "bbox_tgt": [
+          358.0,
+          157.0,
+          822.0,
+          997.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000053.jpg",
+      "frame_index": 53,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000053_gt_stage1_contour.png",
+      "iou_before": 0.7862973166003469,
+      "iou_after": 0.7674090844347154,
+      "align": {
+        "applied": true,
+        "scale": 0.9616897914281224,
+        "center_src": [
+          614.5,
+          580.5
+        ],
+        "center_tgt": [
+          599.0,
+          592.0
+        ],
+        "bbox_src": [
+          413.0,
+          140.0,
+          816.0,
+          1021.0
+        ],
+        "bbox_tgt": [
+          410.0,
+          158.0,
+          788.0,
+          1026.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000054.jpg",
+      "frame_index": 54,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000054_gt_stage1_contour.png",
+      "iou_before": 0.8060717527349162,
+      "iou_after": 0.8044359009723467,
+      "align": {
+        "applied": true,
+        "scale": 0.922817234738625,
+        "center_src": [
+          603.0,
+          583.0
+        ],
+        "center_tgt": [
+          587.5,
+          590.0
+        ],
+        "bbox_src": [
+          486.0,
+          125.0,
+          720.0,
+          1041.0
+        ],
+        "bbox_tgt": [
+          483.0,
+          154.0,
+          692.0,
+          1026.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000055.jpg",
+      "frame_index": 55,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000055_gt_stage1_contour.png",
+      "iou_before": 0.8798754951895869,
+      "iou_after": 0.8412843740238477,
+      "align": {
+        "applied": true,
+        "scale": 1.0289389949528198,
+        "center_src": [
+          601.0,
+          580.5
+        ],
+        "center_tgt": [
+          604.0,
+          591.0
+        ],
+        "bbox_src": [
+          528.0,
+          147.0,
+          674.0,
+          1014.0
+        ],
+        "bbox_tgt": [
+          527.0,
+          156.0,
+          681.0,
+          1026.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000056.jpg",
+      "frame_index": 56,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000056_gt_stage1_contour.png",
+      "iou_before": 0.8397190930338174,
+      "iou_after": 0.8432854537163703,
+      "align": {
+        "applied": true,
+        "scale": 0.9721532733478127,
+        "center_src": [
+          606.5,
+          581.0
+        ],
+        "center_tgt": [
+          603.0,
+          591.5
+        ],
+        "bbox_src": [
+          530.0,
+          142.0,
+          683.0,
+          1020.0
+        ],
+        "bbox_tgt": [
+          530.0,
+          157.0,
+          676.0,
+          1026.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000057.jpg",
+      "frame_index": 57,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000057_gt_stage1_contour.png",
+      "iou_before": 0.8326864430274467,
+      "iou_after": 0.8470493996850509,
+      "align": {
+        "applied": true,
+        "scale": 0.9586759150503159,
+        "center_src": [
+          631.5,
+          572.0
+        ],
+        "center_tgt": [
+          627.0,
+          584.0
+        ],
+        "bbox_src": [
+          523.0,
+          139.0,
+          740.0,
+          1005.0
+        ],
+        "bbox_tgt": [
+          526.0,
+          157.0,
+          728.0,
+          1011.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000058.jpg",
+      "frame_index": 58,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000058_gt_stage1_contour.png",
+      "iou_before": 0.7556663581026116,
+      "iou_after": 0.7532865077019829,
+      "align": {
+        "applied": true,
+        "scale": 0.9224978406711075,
+        "center_src": [
+          662.0,
+          585.5
+        ],
+        "center_tgt": [
+          669.0,
+          585.5
+        ],
+        "bbox_src": [
+          473.0,
+          140.0,
+          851.0,
+          1031.0
+        ],
+        "bbox_tgt": [
+          503.0,
+          155.0,
+          835.0,
+          1016.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000059.jpg",
+      "frame_index": 59,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000059_gt_stage1_contour.png",
+      "iou_before": 0.8091692977830134,
+      "iou_after": 0.8038861501925084,
+      "align": {
+        "applied": true,
+        "scale": 0.9474688049858296,
+        "center_src": [
+          691.5,
+          587.0
+        ],
+        "center_tgt": [
+          700.5,
+          584.5
+        ],
+        "bbox_src": [
+          443.0,
+          139.0,
+          940.0,
+          1035.0
+        ],
+        "bbox_tgt": [
+          469.0,
+          153.0,
+          932.0,
+          1016.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000060.jpg",
+      "frame_index": 60,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000060_gt_stage1_contour.png",
+      "iou_before": 0.7815633135304719,
+      "iou_after": 0.8585462998608191,
+      "align": {
+        "applied": true,
+        "scale": 0.9388791012014788,
+        "center_src": [
+          693.0,
+          589.5
+        ],
+        "center_tgt": [
+          693.5,
+          586.0
+        ],
+        "bbox_src": [
+          423.0,
+          142.0,
+          963.0,
+          1037.0
+        ],
+        "bbox_tgt": [
+          446.0,
+          156.0,
+          941.0,
+          1016.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000061.jpg",
+      "frame_index": 61,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000061_gt_stage1_contour.png",
+      "iou_before": 0.7547363540010599,
+      "iou_after": 0.8757557277196787,
+      "align": {
+        "applied": true,
+        "scale": 0.9394146588449639,
+        "center_src": [
+          659.0,
+          582.0
+        ],
+        "center_tgt": [
+          655.0,
+          585.5
+        ],
+        "bbox_src": [
+          386.0,
+          142.0,
+          932.0,
+          1022.0
+        ],
+        "bbox_tgt": [
+          408.0,
+          157.0,
+          902.0,
+          1014.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000062.jpg",
+      "frame_index": 62,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000062_gt_stage1_contour.png",
+      "iou_before": 0.7571713463568801,
+      "iou_after": 0.8178366244340448,
+      "align": {
+        "applied": true,
+        "scale": 0.9367994185740318,
+        "center_src": [
+          635.0,
+          583.0
+        ],
+        "center_tgt": [
+          622.5,
+          581.5
+        ],
+        "bbox_src": [
+          363.0,
+          148.0,
+          907.0,
+          1018.0
+        ],
+        "bbox_tgt": [
+          379.0,
+          156.0,
+          866.0,
+          1007.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000063.jpg",
+      "frame_index": 63,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000063_gt_stage1_contour.png",
+      "iou_before": 0.7771398972676652,
+      "iou_after": 0.7632593108565457,
+      "align": {
+        "applied": true,
+        "scale": 0.9418535586277522,
+        "center_src": [
+          655.5,
+          579.5
+        ],
+        "center_tgt": [
+          641.0,
+          580.5
+        ],
+        "bbox_src": [
+          431.0,
+          146.0,
+          880.0,
+          1013.0
+        ],
+        "bbox_tgt": [
+          438.0,
+          156.0,
+          844.0,
+          1005.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000064.jpg",
+      "frame_index": 64,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000064_gt_stage1_contour.png",
+      "iou_before": 0.7860019909640861,
+      "iou_after": 0.7992012350651094,
+      "align": {
+        "applied": true,
+        "scale": 0.9181818181818182,
+        "center_src": [
+          680.0,
+          570.5
+        ],
+        "center_tgt": [
+          668.5,
+          571.5
+        ],
+        "bbox_src": [
+          521.0,
+          136.0,
+          839.0,
+          1005.0
+        ],
+        "bbox_tgt": [
+          529.0,
+          155.0,
+          808.0,
+          988.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000065.jpg",
+      "frame_index": 65,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000065_gt_stage1_contour.png",
+      "iou_before": 0.8655371676360128,
+      "iou_after": 0.8235562069238691,
+      "align": {
+        "applied": true,
+        "scale": 0.9222703097298988,
+        "center_src": [
+          634.0,
+          572.5
+        ],
+        "center_tgt": [
+          634.0,
+          576.5
+        ],
+        "bbox_src": [
+          523.0,
+          143.0,
+          745.0,
+          1002.0
+        ],
+        "bbox_tgt": [
+          538.0,
+          156.0,
+          730.0,
+          997.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000066.jpg",
+      "frame_index": 66,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000066_gt_stage1_contour.png",
+      "iou_before": 0.892389310211856,
+      "iou_after": 0.8385925917168159,
+      "align": {
+        "applied": true,
+        "scale": 0.9584904536974557,
+        "center_src": [
+          614.0,
+          570.5
+        ],
+        "center_tgt": [
+          619.0,
+          577.0
+        ],
+        "bbox_src": [
+          526.0,
+          144.0,
+          702.0,
+          997.0
+        ],
+        "bbox_tgt": [
+          537.0,
+          157.0,
+          701.0,
+          997.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000067.jpg",
+      "frame_index": 67,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000067_gt_stage1_contour.png",
+      "iou_before": 0.8337713211484139,
+      "iou_after": 0.8161877444589309,
+      "align": {
+        "applied": true,
+        "scale": 0.933392209165405,
+        "center_src": [
+          575.5,
+          571.5
+        ],
+        "center_tgt": [
+          589.5,
+          577.0
+        ],
+        "bbox_src": [
+          479.0,
+          143.0,
+          672.0,
+          1000.0
+        ],
+        "bbox_tgt": [
+          504.0,
+          157.0,
+          675.0,
+          997.0
+        ],
+        "accepted": false
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000068.jpg",
+      "frame_index": 68,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000068_gt_stage1_contour.png",
+      "iou_before": 0.7412066673326827,
+      "iou_after": 0.7542291623861379,
+      "align": {
+        "applied": true,
+        "scale": 0.9026375205254515,
+        "center_src": [
+          552.5,
+          570.5
+        ],
+        "center_tgt": [
+          566.0,
+          577.0
+        ],
+        "bbox_src": [
+          385.0,
+          136.0,
+          720.0,
+          1005.0
+        ],
+        "bbox_tgt": [
+          426.0,
+          156.0,
+          706.0,
+          998.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000069.jpg",
+      "frame_index": 69,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000069_gt_stage1_contour.png",
+      "iou_before": 0.6902437828027664,
+      "iou_after": 0.7459534149230161,
+      "align": {
+        "applied": true,
+        "scale": 0.9162397578799735,
+        "center_src": [
+          542.0,
+          566.5
+        ],
+        "center_tgt": [
+          557.5,
+          577.5
+        ],
+        "bbox_src": [
+          310.0,
+          130.0,
+          774.0,
+          1003.0
+        ],
+        "bbox_tgt": [
+          357.0,
+          155.0,
+          758.0,
+          1000.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000070.jpg",
+      "frame_index": 70,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000070_gt_stage1_contour.png",
+      "iou_before": 0.7228697000683971,
+      "iou_after": 0.8379517244538085,
+      "align": {
+        "applied": true,
+        "scale": 0.9464884174860972,
+        "center_src": [
+          559.5,
+          568.5
+        ],
+        "center_tgt": [
+          565.5,
+          579.0
+        ],
+        "bbox_src": [
+          308.0,
+          138.0,
+          811.0,
+          999.0
+        ],
+        "bbox_tgt": [
+          336.0,
+          157.0,
+          795.0,
+          1001.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000071.jpg",
+      "frame_index": 71,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000071_gt_stage1_contour.png",
+      "iou_before": 0.7502374942322829,
+      "iou_after": 0.8840436227446105,
+      "align": {
+        "applied": true,
+        "scale": 0.9515438233694926,
+        "center_src": [
+          582.0,
+          567.5
+        ],
+        "center_tgt": [
+          584.5,
+          578.5
+        ],
+        "bbox_src": [
+          324.0,
+          134.0,
+          840.0,
+          1001.0
+        ],
+        "bbox_tgt": [
+          345.0,
+          156.0,
+          824.0,
+          1001.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000072.jpg",
+      "frame_index": 72,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000072_gt_stage1_contour.png",
+      "iou_before": 0.7682487836412507,
+      "iou_after": 0.8883953486594139,
+      "align": {
+        "applied": true,
+        "scale": 0.950719231027761,
+        "center_src": [
+          570.0,
+          570.5
+        ],
+        "center_tgt": [
+          568.5,
+          578.0
+        ],
+        "bbox_src": [
+          314.0,
+          136.0,
+          826.0,
+          1005.0
+        ],
+        "bbox_tgt": [
+          331.0,
+          155.0,
+          806.0,
+          1001.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000073.jpg",
+      "frame_index": 73,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000073_gt_stage1_contour.png",
+      "iou_before": 0.7849364345868775,
+      "iou_after": 0.8871981728044244,
+      "align": {
+        "applied": true,
+        "scale": 0.9703075164277755,
+        "center_src": [
+          538.0,
+          566.5
+        ],
+        "center_tgt": [
+          533.0,
+          578.5
+        ],
+        "bbox_src": [
+          293.0,
+          143.0,
+          783.0,
+          990.0
+        ],
+        "bbox_tgt": [
+          302.0,
+          156.0,
+          764.0,
+          1001.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000074.jpg",
+      "frame_index": 74,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000074_gt_stage1_contour.png",
+      "iou_before": 0.7107986708519943,
+      "iou_after": 0.8658325750682438,
+      "align": {
+        "applied": true,
+        "scale": 0.9447374124106047,
+        "center_src": [
+          543.5,
+          569.5
+        ],
+        "center_tgt": [
+          539.0,
+          578.5
+        ],
+        "bbox_src": [
+          290.0,
+          134.0,
+          797.0,
+          1005.0
+        ],
+        "bbox_tgt": [
+          306.0,
+          156.0,
+          772.0,
+          1001.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    },
+    {
+      "frame_name": "000075.jpg",
+      "frame_index": 75,
+      "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000075_gt_stage1_contour.png",
+      "iou_before": 0.7429438952801862,
+      "iou_after": 0.8798372860541868,
+      "align": {
+        "applied": true,
+        "scale": 0.9482220372242374,
+        "center_src": [
+          558.5,
+          572.0
+        ],
+        "center_tgt": [
+          557.0,
+          579.0
+        ],
+        "bbox_src": [
+          308.0,
+          137.0,
+          809.0,
+          1007.0
+        ],
+        "bbox_tgt": [
+          325.0,
+          157.0,
+          789.0,
+          1001.0
+        ],
+        "accepted": true
+      },
+      "gt_mask_source": "modnet"
+    }
+  ],
+  "stage1_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1",
+  "frames_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\data\\frames\\input"
+}

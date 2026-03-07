@@ -30,7 +30,7 @@ stage2:
   fg_log_scale_max: -5.9
   outer_log_scale_min: -7.6
   outer_log_scale_max: -5.3
-  outer_prune_support_th: 0.001
+  outer_prune_support_th: 0.03
   outer_prune_dual_enable: true
   outer_prune_dual_max_vis: 0.06
   outer_prune_dual_min_support: 0.001
@@ -147,13 +147,14 @@ stage2:
   person_mask_erode_px: 0
   person_mask_fuse_mode: intersect
   person_mask_eval_clean: false
-  person_mask_eval_refine_grabcut: false
+  person_mask_eval_refine_modnet: false
   person_mask_contour_width_px: 2
   person_mask_contour_leak_weight: 0.0
   outer_use_gt_contour: true
   outer_gt_contour_fuse_mode: gt_only
-  outer_gt_contour_grabcut_scale: 0.7
-  outer_gt_contour_grabcut_iters: 4
+  outer_gt_contour_modnet_ref_size: 640
+  outer_gt_contour_modnet_threshold: 0.5
+  modnet_ckpt_path: third_party/MODNet/pretrained/modnet_photographic_portrait_matting.ckpt
   outer_head_priority_enable: false
   outer_head_priority_weight: 1.2
   outer_head_priority_face_pad: 0.55
@@ -172,12 +173,6 @@ stage2:
   outer_detached_solid_close_px: 2
   outer_detached_solid_mix_start: 1.0
   outer_detached_solid_mix_end: 1.0
-  outer_detail_supervision_enable: true
-  outer_detail_edge_th: 0.14
-  outer_detail_top_ratio: 0.04
-  outer_detail_weight: 0.18
-  outer_detail_dilate_px: 1
-  outer_detail_interior_erode_px: 1
   outer_head_support_sample_dilate_px: 0
   outer_exclude_face: false
   outer_face_expand_px: 0
@@ -245,7 +240,7 @@ stage2:
   outer_offset_reg_relax_support: true
   outer_offset_min_active_weight: 0.1
   outer_offset_min_target_scale: 0.25
-  outer_offset_min_support_th: 0.03
+  outer_offset_min_support_th: 0.05
   shell_offset_reg_weight: 0.001
   shell_offset_reg_phase0_scale: 0.2
   shell_offset_freeze_phase0: false
@@ -283,11 +278,11 @@ stage2:
   outer_offset_edge_grad_scale: 2.0
   outer_offset_grad_scale_max: 8.0
   outer_support_weight: 1.1
-  outer_spawn_support_th: 0.001
+  outer_spawn_support_th: 0.05
   outer_spawn_inside_only: true
   outer_phase_inner_vis_scale: 0.0
   outer_phase_inner_full_mask: true
-  outer_low_support_patience: 10
+  outer_low_support_patience: 6
   outer_pruned_opacity_logit_max: -12.0
   outer_quality_log_every: 300
   outer_progress_log_every: 20

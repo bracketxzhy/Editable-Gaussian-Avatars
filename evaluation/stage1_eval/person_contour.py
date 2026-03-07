@@ -5,6 +5,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from avatar_gs.segmentation import estimate_person_mask_modnet
 
 
 def _infer_frame_name_from_image_name(image_path: Path) -> str | None:
@@ -59,16 +60,21 @@ def load_person_mask_from_npz(npz_path: Path, frame_name: str, image_hw: tuple[i
     return _clean_mask((m > 0).astype(np.uint8) * 255)
 
 
-def estimate_person_mask_grabcut(image_bgr: np.ndarray) -> np.ndarray:
-    h, w = image_bgr.shape[:2]
-    rect = (int(0.08 * w), int(0.04 * h), int(0.84 * w), int(0.92 * h))
-
-    gc_mask = np.full((h, w), cv2.GC_BGD, dtype=np.uint8)
-    bg_model = np.zeros((1, 65), dtype=np.float64)
-    fg_model = np.zeros((1, 65), dtype=np.float64)
-
-    cv2.grabCut(image_bgr, gc_mask, rect, bg_model, fg_model, 5, mode=cv2.GC_INIT_WITH_RECT)
-    fg = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+def estimate_person_mask_modnet_eval(
+    image_bgr: np.ndarray,
+    *,
+    hint_mask_u8: np.ndarray | None = None,
+    modnet_ref_size: int = 512,
+    modnet_threshold: float = 0.5,
+    modnet_ckpt_path: str | None = None,
+) -> np.ndarray:
+    fg = estimate_person_mask_modnet(
+        image_bgr,
+        hint_mask_u8=hint_mask_u8,
+        ref_size=int(modnet_ref_size),
+        threshold=float(modnet_threshold),
+        ckpt_path=modnet_ckpt_path,
+    )
     return _clean_mask(fg)
 
 

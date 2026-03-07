@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from avatar_gs.segmentation import estimate_person_mask_modnet
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
 from avatar_gs.gaussian.init_from_smpl import load_obj_vertices, load_obj_mesh
 from avatar_gs.gaussian.binding import (
@@ -315,53 +316,20 @@ def _mask_border_touch_ratio_np(mask_u8: np.ndarray) -> float:
     return inter / area
 
 
-def _grabcut_person_mask_eval_style_np(
+def _modnet_person_mask_eval_style_np(
     img_bgr: np.ndarray,
     hint_mask_u8: np.ndarray | None = None,
-    grabcut_iters: int = 5,
+    modnet_ref_size: int = 512,
+    modnet_threshold: float = 0.5,
+    modnet_ckpt_path: str | None = None,
 ) -> np.ndarray:
-    h, w = img_bgr.shape[:2]
-    bg_model = np.zeros((1, 65), dtype=np.float64)
-    fg_model = np.zeros((1, 65), dtype=np.float64)
-    if hint_mask_u8 is None or int((hint_mask_u8 > 0).sum()) <= 0:
-        rect = (int(0.08 * w), int(0.04 * h), int(0.84 * w), int(0.92 * h))
-        gc_mask = np.full((h, w), cv2.GC_BGD, dtype=np.uint8)
-        cv2.grabCut(
-            img_bgr,
-            gc_mask,
-            rect,
-            bg_model,
-            fg_model,
-            int(max(1, grabcut_iters)),
-            mode=cv2.GC_INIT_WITH_RECT,
-        )
-    else:
-        hint = (hint_mask_u8 > 0).astype(np.uint8)
-        if hint.shape[0] != h or hint.shape[1] != w:
-            hint = cv2.resize(hint, (w, h), interpolation=cv2.INTER_NEAREST)
-        gc_mask = np.full((h, w), cv2.GC_PR_BGD, dtype=np.uint8)
-        sure_fg = cv2.erode(hint, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)), iterations=1)
-        pr_fg = cv2.dilate(hint, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31)), iterations=1)
-        gc_mask[pr_fg > 0] = cv2.GC_PR_FGD
-        gc_mask[sure_fg > 0] = cv2.GC_FGD
-        bd = max(8, int(0.02 * min(h, w)))
-        gc_mask[:bd, :] = cv2.GC_BGD
-        gc_mask[-bd:, :] = cv2.GC_BGD
-        gc_mask[:, :bd] = cv2.GC_BGD
-        gc_mask[:, -bd:] = cv2.GC_BGD
-        cv2.grabCut(
-            img_bgr,
-            gc_mask,
-            None,
-            bg_model,
-            fg_model,
-            int(max(1, grabcut_iters)),
-            mode=cv2.GC_INIT_WITH_MASK,
-        )
-    fg = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k, iterations=1)
-    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k, iterations=2)
+    fg = estimate_person_mask_modnet(
+        img_bgr,
+        hint_mask_u8=hint_mask_u8,
+        ref_size=int(max(32, modnet_ref_size)),
+        threshold=float(np.clip(float(modnet_threshold), 0.0, 1.0)),
+        ckpt_path=modnet_ckpt_path,
+    )
     return _largest_component_by_overlap_np(fg, hint_mask_u8, min_area=256)
 
 
@@ -423,11 +391,12 @@ def _estimate_gt_person_contour_mask_np(
     bg_percentile: float = 97.0,
     min_delta: float = 6.0,
     hint_mask_u8: np.ndarray | None = None,
-    grabcut_scale: float = 1.0,
-    grabcut_iters: int = 5,
+    modnet_ref_size: int = 512,
+    modnet_threshold: float = 0.5,
+    modnet_ckpt_path: str | None = None,
 ) -> np.ndarray:
     """
-    Estimate foreground contour from a single GT frame using GrabCut only.
+    Estimate foreground contour from a single GT frame using MODNet.
     Returns uint8 mask in {0,1} with shape (H,W).
     """
     if rgb_chw.ndim != 3 or rgb_chw.shape[0] != 3:
@@ -438,56 +407,14 @@ def _estimate_gt_person_contour_mask_np(
     if h <= 2 or w <= 2:
         return np.zeros((h, w), dtype=np.uint8)
 
-    scale = float(np.clip(float(grabcut_scale), 0.25, 1.0))
-    if scale < 0.999:
-        hs = max(64, int(round(float(h) * scale)))
-        ws = max(64, int(round(float(w) * scale)))
-        bgr_proc = cv2.resize(bgr_u8, (ws, hs), interpolation=cv2.INTER_AREA)
-        hint_proc = None
-        if hint_mask_u8 is not None and int((hint_mask_u8 > 0).sum()) > 0:
-            hint_proc = cv2.resize(
-                (hint_mask_u8 > 0).astype(np.uint8) * 255,
-                (ws, hs),
-                interpolation=cv2.INTER_NEAREST,
-            )
-        fg_proc = _grabcut_person_mask_eval_style_np(
-            bgr_proc,
-            hint_mask_u8=hint_proc,
-            grabcut_iters=int(max(1, grabcut_iters)),
-        )
-        fg_proc = _clean_person_mask_eval_style_np(fg_proc, ref_mask_u8=hint_proc)
-        fg = cv2.resize((fg_proc > 0).astype(np.uint8) * 255, (w, h), interpolation=cv2.INTER_NEAREST)
-        fg = _clean_person_mask_eval_style_np(fg, ref_mask_u8=hint_mask_u8)
-    else:
-        fg = _grabcut_person_mask_eval_style_np(
-            bgr_u8,
-            hint_mask_u8=hint_mask_u8,
-            grabcut_iters=int(max(1, grabcut_iters)),
-        )
-        fg = _clean_person_mask_eval_style_np(fg, ref_mask_u8=hint_mask_u8)
-
-    area_ratio = float((fg > 0).mean())
-    border_ratio = float(_mask_border_touch_ratio_np(fg))
-    bad_fg = (area_ratio < 0.02) or (area_ratio > 0.60) or (border_ratio > 0.08)
-    if bad_fg:
-        center_hint = np.zeros((h, w), dtype=np.uint8)
-        cx, cy = int(round(0.5 * w)), int(round(0.56 * h))
-        ax, ay = max(8, int(round(0.42 * w))), max(8, int(round(0.46 * h)))
-        cv2.ellipse(center_hint, (cx, cy), (ax, ay), 0.0, 0.0, 360.0, 255, thickness=-1)
-        fg_refined = _grabcut_person_mask_eval_style_np(
-            bgr_u8,
-            hint_mask_u8=center_hint,
-            grabcut_iters=int(max(1, grabcut_iters)),
-        )
-        fg_refined = _clean_person_mask_eval_style_np(fg_refined, ref_mask_u8=center_hint)
-        area_ref = float((fg_refined > 0).mean())
-        border_ref = float(_mask_border_touch_ratio_np(fg_refined))
-
-        def _score(area: float, border: float) -> float:
-            return float(-2.0 * abs(area - 0.18) - 2.0 * border)
-
-        if _score(area_ref, border_ref) >= _score(area_ratio, border_ratio):
-            fg = fg_refined
+    fg = _modnet_person_mask_eval_style_np(
+        bgr_u8,
+        hint_mask_u8=hint_mask_u8,
+        modnet_ref_size=int(max(32, modnet_ref_size)),
+        modnet_threshold=float(np.clip(float(modnet_threshold), 0.0, 1.0)),
+        modnet_ckpt_path=modnet_ckpt_path,
+    )
+    fg = _clean_person_mask_eval_style_np(fg, ref_mask_u8=hint_mask_u8)
 
     return (fg > 0).astype(np.uint8)
 
@@ -680,13 +607,14 @@ def train_gaussians_3d_learnable_camera(
     person_mask_erode_px: int = 0,
     person_mask_fuse_mode: str = "intersect",
     person_mask_eval_clean: bool = False,
-    person_mask_eval_refine_grabcut: bool = False,
+    person_mask_eval_refine_modnet: bool = False,
     person_mask_contour_width_px: int = 2,
     person_mask_contour_leak_weight: float = 0.0,
     outer_use_gt_contour: bool = True,
     outer_gt_contour_fuse_mode: str = "union",
-    outer_gt_contour_grabcut_scale: float = 1.0,
-    outer_gt_contour_grabcut_iters: int = 5,
+    outer_gt_contour_modnet_ref_size: int = 512,
+    outer_gt_contour_modnet_threshold: float = 0.5,
+    modnet_ckpt_path: str | None = None,
     outer_head_priority_enable: bool = False,
     outer_head_priority_weight: float = 1.5,
     outer_head_priority_face_pad: float = 0.45,
@@ -1213,13 +1141,19 @@ def train_gaussians_3d_learnable_camera(
                 m = cv2.erode(m, k_e, iterations=1)
             if bool(person_mask_eval_clean):
                 m_u8 = _clean_person_mask_eval_style_np((m > 0).astype(np.uint8) * 255, ref_mask_u8=None)
-                if bool(person_mask_eval_refine_grabcut):
+                if bool(person_mask_eval_refine_modnet):
                     area_ratio = float((m_u8 > 0).mean())
                     border_ratio = float(_mask_border_touch_ratio_np(m_u8))
                     if area_ratio < 0.03 or area_ratio > 0.75 or border_ratio > 0.08:
                         rgb_np = gts[i].detach().cpu().permute(1, 2, 0).numpy().clip(0.0, 1.0)
                         bgr_u8 = (rgb_np[:, :, ::-1] * 255.0).astype(np.uint8)
-                        m_u8 = _grabcut_person_mask_eval_style_np(bgr_u8, hint_mask_u8=m_u8)
+                        m_u8 = _modnet_person_mask_eval_style_np(
+                            bgr_u8,
+                            hint_mask_u8=m_u8,
+                            modnet_ref_size=int(max(32, outer_gt_contour_modnet_ref_size)),
+                            modnet_threshold=float(np.clip(float(outer_gt_contour_modnet_threshold), 0.0, 1.0)),
+                            modnet_ckpt_path=modnet_ckpt_path,
+                        )
                 m = (m_u8 > 0).astype(np.uint8)
             person_masks_frames[i] = torch.from_numpy(m.astype(np.float32)).to(device=device).unsqueeze(0)
 
@@ -1233,14 +1167,15 @@ def train_gaussians_3d_learnable_camera(
             "H": int(H),
             "W": int(W),
             "outer_gt_contour_fuse_mode": str(outer_contour_fuse),
-            "outer_gt_contour_grabcut_scale": float(outer_gt_contour_grabcut_scale),
-            "outer_gt_contour_grabcut_iters": int(outer_gt_contour_grabcut_iters),
+            "outer_gt_contour_modnet_ref_size": int(outer_gt_contour_modnet_ref_size),
+            "outer_gt_contour_modnet_threshold": float(outer_gt_contour_modnet_threshold),
             "use_person_mask": bool(use_person_mask),
             "person_masks_npz": None if person_masks_npz is None else str(Path(person_masks_npz)),
             "person_mask_dilate_px": int(person_mask_dilate_px),
             "person_mask_erode_px": int(person_mask_erode_px),
             "person_mask_eval_clean": bool(person_mask_eval_clean),
-            "person_mask_eval_refine_grabcut": bool(person_mask_eval_refine_grabcut),
+            "person_mask_eval_refine_modnet": bool(person_mask_eval_refine_modnet),
+            "modnet_ckpt_path": None if modnet_ckpt_path is None else str(modnet_ckpt_path),
         }
         cache_key = hashlib.sha1(
             json.dumps(cache_sig, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -1284,8 +1219,9 @@ def train_gaussians_3d_learnable_camera(
             for i in outer_gt_iter:
                 gt_mask_np = _estimate_gt_person_contour_mask_np(
                     gts[i],
-                    grabcut_scale=float(outer_gt_contour_grabcut_scale),
-                    grabcut_iters=int(outer_gt_contour_grabcut_iters),
+                    modnet_ref_size=int(max(32, outer_gt_contour_modnet_ref_size)),
+                    modnet_threshold=float(np.clip(float(outer_gt_contour_modnet_threshold), 0.0, 1.0)),
+                    modnet_ckpt_path=modnet_ckpt_path,
                 )
                 pm_np = None
                 if person_masks_frames is not None and person_masks_frames[i] is not None:
@@ -2272,8 +2208,9 @@ def train_gaussians_3d_learnable_camera(
                     gt_mask_np = _estimate_gt_person_contour_mask_np(
                         gt,
                         hint_mask_u8=smpl_hint_u8,
-                        grabcut_scale=float(outer_gt_contour_grabcut_scale),
-                        grabcut_iters=int(outer_gt_contour_grabcut_iters),
+                        modnet_ref_size=int(max(32, outer_gt_contour_modnet_ref_size)),
+                        modnet_threshold=float(np.clip(float(outer_gt_contour_modnet_threshold), 0.0, 1.0)),
+                        modnet_ckpt_path=modnet_ckpt_path,
                     )
                     pm_np = None
                     if person_mask_curr is not None:
@@ -3945,13 +3882,14 @@ def train_gaussians_3d_learnable_camera(
             "person_mask_erode_px": person_mask_erode_px,
             "person_mask_fuse_mode": person_mask_fuse_mode,
             "person_mask_eval_clean": person_mask_eval_clean,
-            "person_mask_eval_refine_grabcut": person_mask_eval_refine_grabcut,
+            "person_mask_eval_refine_modnet": person_mask_eval_refine_modnet,
             "person_mask_contour_width_px": person_mask_contour_width_px,
             "person_mask_contour_leak_weight": person_mask_contour_leak_weight,
             "outer_use_gt_contour": outer_use_gt_contour,
             "outer_gt_contour_fuse_mode": outer_gt_contour_fuse_mode,
-            "outer_gt_contour_grabcut_scale": outer_gt_contour_grabcut_scale,
-            "outer_gt_contour_grabcut_iters": outer_gt_contour_grabcut_iters,
+            "outer_gt_contour_modnet_ref_size": outer_gt_contour_modnet_ref_size,
+            "outer_gt_contour_modnet_threshold": outer_gt_contour_modnet_threshold,
+            "modnet_ckpt_path": modnet_ckpt_path,
             "outer_head_priority_enable": outer_head_priority_enable,
             "outer_head_priority_weight": outer_head_priority_weight,
             "outer_head_priority_face_pad": outer_head_priority_face_pad,

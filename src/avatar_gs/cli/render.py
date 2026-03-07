@@ -828,13 +828,6 @@ def _rasterize_mesh_mask(
     return mask
 
 
-def _mask_bbox(mask_u8: np.ndarray) -> np.ndarray | None:
-    ys, xs = np.where(mask_u8 > 0)
-    if ys.size <= 0 or xs.size <= 0:
-        return None
-    return np.asarray([xs.min(), ys.min(), xs.max(), ys.max()], dtype=np.float32)
-
-
 def _load_person_mask_map(npz_path: Path) -> dict[str, np.ndarray]:
     out: dict[str, np.ndarray] = {}
     if not npz_path.exists():
@@ -849,61 +842,6 @@ def _load_person_mask_map(npz_path: Path) -> dict[str, np.ndarray]:
     for i, n in enumerate(names):
         out[n] = ((masks[i] > 0).astype(np.uint8) * 255)
     return out
-
-
-def _align_premultiplied_fg_to_person_bbox(
-    fg_rgb_chw: torch.Tensor,
-    fg_alpha_chw: torch.Tensor,
-    person_mask_u8: np.ndarray | None,
-    alpha_threshold: float = 0.05,
-    scale_min: float = 0.4,
-    scale_max: float = 2.5,
-) -> tuple[torch.Tensor, torch.Tensor, dict]:
-    if person_mask_u8 is None:
-        return fg_rgb_chw, fg_alpha_chw, {"applied": False, "reason": "missing_person_mask"}
-
-    fg_alpha_np = fg_alpha_chw.detach().cpu().numpy()[0]
-    fg_mask_u8 = ((fg_alpha_np > float(alpha_threshold)).astype(np.uint8) * 255)
-    b_s = _mask_bbox(fg_mask_u8)
-    b_p = _mask_bbox((person_mask_u8 > 0).astype(np.uint8) * 255)
-    if b_s is None or b_p is None:
-        return fg_rgb_chw, fg_alpha_chw, {"applied": False, "reason": "empty_bbox"}
-
-    ws = float(max(1.0, b_s[2] - b_s[0] + 1.0))
-    hs = float(max(1.0, b_s[3] - b_s[1] + 1.0))
-    wp = float(max(1.0, b_p[2] - b_p[0] + 1.0))
-    hp = float(max(1.0, b_p[3] - b_p[1] + 1.0))
-
-    csx = float(0.5 * (b_s[0] + b_s[2]))
-    csy = float(0.5 * (b_s[1] + b_s[3]))
-    cpx = float(0.5 * (b_p[0] + b_p[2]))
-    cpy = float(0.5 * (b_p[1] + b_p[3]))
-
-    s = float(0.5 * (wp / ws + hp / hs))
-    s = float(np.clip(s, scale_min, scale_max))
-
-    tx = cpx - s * csx
-    ty = cpy - s * csy
-    M = np.asarray([[s, 0.0, tx], [0.0, s, ty]], dtype=np.float32)
-
-    fg_rgb_np = fg_rgb_chw.detach().cpu().numpy().transpose(1, 2, 0).astype(np.float32)
-    fg_alpha_np = fg_alpha_chw.detach().cpu().numpy()[0].astype(np.float32)
-    H, W = fg_alpha_np.shape[:2]
-
-    rgb_w = cv2.warpAffine(fg_rgb_np, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
-    a_w = cv2.warpAffine(fg_alpha_np, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
-
-    rgb_t = torch.from_numpy(np.asarray(rgb_w, dtype=np.float32)).permute(2, 0, 1).to(device=fg_rgb_chw.device, dtype=fg_rgb_chw.dtype)
-    a_t = torch.from_numpy(np.asarray(a_w, dtype=np.float32)).unsqueeze(0).to(device=fg_alpha_chw.device, dtype=fg_alpha_chw.dtype).clamp(0.0, 1.0)
-
-    return rgb_t, a_t, {
-        "applied": True,
-        "scale": s,
-        "center_src": [csx, csy],
-        "center_tgt": [cpx, cpy],
-        "bbox_src": b_s.tolist(),
-        "bbox_tgt": b_p.tolist(),
-    }
 
 
 def _scale_intrinsics(K: torch.Tensor, scale: float) -> torch.Tensor:

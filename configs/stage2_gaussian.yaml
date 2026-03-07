@@ -150,14 +150,15 @@ stage2:
   person_mask_erode_px: 0
   person_mask_fuse_mode: intersect
   person_mask_eval_clean: false
-  person_mask_eval_refine_grabcut: false
+  person_mask_eval_refine_modnet: false
   person_mask_contour_width_px: 2
   person_mask_contour_leak_weight: 0.0
   # Outer layer supervision from per-frame GT contour (not SMPL silhouette).
   outer_use_gt_contour: true
   outer_gt_contour_fuse_mode: gt_only
-  outer_gt_contour_grabcut_scale: 0.7
-  outer_gt_contour_grabcut_iters: 4
+  outer_gt_contour_modnet_ref_size: 640
+  outer_gt_contour_modnet_threshold: 0.5
+  modnet_ckpt_path: third_party/MODNet/pretrained/modnet_photographic_portrait_matting.ckpt
   outer_head_priority_enable: false
   outer_head_priority_weight: 1.2
   outer_head_priority_face_pad: 0.55
@@ -295,7 +296,7 @@ stage2:
   outer_pruned_opacity_logit_max: -12.0
   outer_quality_log_every: 300
   outer_progress_log_every: 20
-  outer_zero_stop_enable: false
+  outer_zero_stop_enable: true
   outer_zero_stop_patience: 120
   outer_zero_stop_warmup_iters: 200
   outer_zero_stop_after_phase_inner: true
