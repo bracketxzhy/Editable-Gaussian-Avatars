@@ -6,7 +6,6 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from avatar_gs.alignment import estimate_mask_similarity_transform
 from avatar_gs.utils.cfg import load_yaml, apply_overrides, parse_args_base, save_yaml
 from avatar_gs.utils.io import ensure_dir, read_json
 from avatar_gs.utils.log import setup_logger
@@ -37,6 +36,54 @@ def _resolve_project_path(project_root: Path, path_like: str | Path | None) -> P
     if not p.is_absolute():
         p = project_root / p
     return p
+
+
+def _filter_frames_by_stage1_eval(
+    *,
+    project_root: Path,
+    stage2_cfg: dict,
+    frames: list[str],
+    logger,
+) -> list[str]:
+    if not bool(stage2_cfg.get("stage1_eval_filter_enable", False)):
+        return frames
+    report_path = _resolve_project_path(
+        project_root,
+        stage2_cfg.get("stage1_eval_report_json", "evaluation/output_images/stage1/stage1_eval_report_all.json"),
+    )
+    if report_path is None or (not report_path.exists()):
+        raise FileNotFoundError(f"stage1_eval_filter_enable=true but report json is missing: {report_path}")
+    with report_path.open("r", encoding="utf-8") as f:
+        report = json.load(f)
+    frame_reports = report.get("frame_reports", None)
+    if not isinstance(frame_reports, list) or len(frame_reports) <= 0:
+        raise RuntimeError(f"Bad stage1 eval report format: {report_path}")
+    metric_name = str(stage2_cfg.get("stage1_eval_metric", "iou_after")).strip()
+    min_metric = float(stage2_cfg.get("stage1_eval_min", 0.8))
+    score_map: dict[str, float] = {}
+    for item in frame_reports:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("frame_name", "")).strip()
+        if name == "":
+            continue
+        try:
+            score_map[name] = float(item.get(metric_name, item.get("iou_after", -1.0)))
+        except Exception:
+            continue
+    kept = [f for f in frames if float(score_map.get(f, -1.0)) >= float(min_metric)]
+    if len(kept) <= 0:
+        raise RuntimeError(
+            f"stage1 eval frame filter removed all frames: metric={metric_name}, min={min_metric:.4f}, report={report_path}"
+        )
+    dropped = len(frames) - len(kept)
+    logger.info(
+        f"Stage1 eval frame filter: kept {len(kept)}/{len(frames)} frames "
+        f"with {metric_name}>={min_metric:.2f} from {report_path}"
+    )
+    if dropped > 0:
+        logger.info(f"Stage1 eval frame filter: dropped {dropped} low-quality frame(s)")
+    return kept
 
 
 def _project_points_numpy(
@@ -437,50 +484,8 @@ def _maybe_pre_stage2_rigid_align(
         "tz": float(cfg.get("tz", 0.0)),
     }
 
-    # Shared silhouette alignment prior to improve rigid-search init.
     bbox_init_applied = False
     bbox_init_report: dict | None = None
-    if bool(cfg.get("init_from_bbox", True)) and len(sample_ids) > 0:
-        fj0 = int(sample_ids[0])
-        mesh_i0 = int(bind_mesh_indices[fj0])
-        verts_raw0 = _load_mesh_np_raw(mesh_i0)
-        verts_eval0 = apply_rigid_transform_np(verts_raw0, {"enabled": True, **init_params}) + bind_mesh_offset_np
-        u0, v0, valid0 = _project_points_numpy(verts_eval0, K_eval, R_eval, t_eval)
-        uv0 = np.stack([u0, v0], axis=1).astype(np.float32)
-        pred0 = _rasterize_mesh_mask(
-            verts=verts_eval0,
-            faces=bind_faces_np,
-            K=K_eval,
-            R=R_eval,
-            t=t_eval,
-            H=Hs,
-            W=Ws,
-        ) > 0
-        gt0 = gt_masks_eval.get(fj0, None)
-        if gt0 is not None:
-            _, bbox_init_report = estimate_mask_similarity_transform(
-                uv=uv0,
-                valid_v=valid0,
-                faces=bind_faces_np,
-                image_hw=(Hs, Ws),
-                smpl_mask=(pred0.astype(np.uint8) * 255),
-                person_mask=(gt0.astype(np.uint8) * 255),
-                scale_min=0.5,
-                scale_max=2.0,
-            )
-            if bool(bbox_init_report.get("accepted", False)):
-                verts_cam0 = (verts_eval0 @ R_eval.T) + t_eval.reshape(1, 3)
-                z_ref = float(np.median(np.clip(verts_cam0[:, 2], 1e-3, None)))
-                fx = max(abs(float(K_eval[0, 0])), 1e-6)
-                fy = max(abs(float(K_eval[1, 1])), 1e-6)
-                dx_px = float(bbox_init_report.get("tx_px", 0.0))
-                dy_px = float(bbox_init_report.get("ty_px", 0.0))
-                s = float(bbox_init_report.get("scale", 1.0))
-
-                init_params["tx"] += (dx_px / fx) * z_ref
-                init_params["ty"] += (dy_px / fy) * z_ref
-                init_params["tz"] += (1.0 / max(s, 1e-6) - 1.0) * z_ref
-                bbox_init_applied = True
 
     max_trans_cfg = tuple(cfg.get("max_trans", (0.35, 0.35, 0.45)))
     if len(max_trans_cfg) != 3:
@@ -755,6 +760,13 @@ def main():
             frames = frames[:n_frames]
     else:
         raise ValueError(f"Unsupported frame_select: {frame_select}. Use first|last|last_k|uniform_k|indices|stage1_sequence")
+
+    frames = _filter_frames_by_stage1_eval(
+        project_root=project_root,
+        stage2_cfg=stage2_cfg,
+        frames=frames,
+        logger=logger,
+    )
 
     logger.info(f"Mesh: {mesh_obj}")
     logger.info(f"Frames: {len(frames)} used for training")
@@ -1167,7 +1179,6 @@ def main():
         outer_dormant_slot_ratio=float(cfg["stage2"].get("outer_dormant_slot_ratio", cfg["stage2"].get("shell_init_ratio", 0.15))),
         outer_trigger_face_activate_enable=bool(cfg["stage2"].get("outer_trigger_face_activate_enable", True)),
         outer_trigger_face_sample_dilate_px=int(cfg["stage2"].get("outer_trigger_face_sample_dilate_px", 0)),
-        outer_spawn_from_trigger_ring_only=bool(cfg["stage2"].get("outer_spawn_from_trigger_ring_only", True)),
         outer_viewplane_init_enable=bool(cfg["stage2"].get("outer_viewplane_init_enable", True)),
         outer_center_init_rule=str(cfg["stage2"].get("outer_center_init_rule", "segment_midpoint")),
         outer_center_phase1_normal_tune_enable=bool(cfg["stage2"].get("outer_center_phase1_normal_tune_enable", True)),
@@ -1189,7 +1200,19 @@ def main():
         outer_gap_scale_weight=float(cfg["stage2"].get("outer_gap_scale_weight", 0.10)),
         outer_gap_tangent_scale_ratio=float(cfg["stage2"].get("outer_gap_tangent_scale_ratio", 0.45)),
         outer_gap_tangent_scale_weight=float(cfg["stage2"].get("outer_gap_tangent_scale_weight", 0.08)),
+        outer_gap_hard_target_enable=bool(cfg["stage2"].get("outer_gap_hard_target_enable", False)),
+        outer_gap_hard_target_blend=float(cfg["stage2"].get("outer_gap_hard_target_blend", 1.0)),
+        outer_gap_refine_steps=int(cfg["stage2"].get("outer_gap_refine_steps", 4)),
+        outer_geom_fraction=float(cfg["stage2"].get("outer_geom_fraction", 0.65)),
         outer_phase_residual_weight=float(cfg["stage2"].get("outer_phase_residual_weight", 0.15)),
+        outer_trigger_face_topk=int(cfg["stage2"].get("outer_trigger_face_topk", 0)),
+        outer_trigger_face_ema_decay=float(cfg["stage2"].get("outer_trigger_face_ema_decay", 0.85)),
+        outer_trigger_face_ema_weight=float(cfg["stage2"].get("outer_trigger_face_ema_weight", 0.60)),
+        outer_trigger_face_topk_min_support=float(cfg["stage2"].get("outer_trigger_face_topk_min_support", 0.02)),
+        outer_airspace_penalty_weight=float(cfg["stage2"].get("outer_airspace_penalty_weight", 0.04)),
+        outer_airspace_main_support_scale=float(cfg["stage2"].get("outer_airspace_main_support_scale", 1.5)),
+        outer_airspace_sharp_allow_dot=float(cfg["stage2"].get("outer_airspace_sharp_allow_dot", 0.15)),
+        outer_airspace_neighbor_rings=int(cfg["stage2"].get("outer_airspace_neighbor_rings", 1)),
         outer_edge_trigger_enable=bool(cfg["stage2"].get("outer_edge_trigger_enable", True)),
         outer_edge_trigger_weight=float(cfg["stage2"].get("outer_edge_trigger_weight", 0.35)),
         outer_edge_prune_protect_quantile=float(cfg["stage2"].get("outer_edge_prune_protect_quantile", 0.90)),

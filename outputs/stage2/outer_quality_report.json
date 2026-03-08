@@ -10,19 +10,19 @@
   },
   "head_detached_coverage_baseline": 0.0,
   "final": {
-    "iter": 3600,
-    "active_outer_count": 9297,
-    "hard_pruned_outer_count": 11611,
-    "outer_active_outside_contour_ratio": 0.05539421318704959,
-    "outer_active_outside_person_ratio": 0.03259115843820587,
-    "outer_active_outside_alpha_gt_0.05_ratio": 0.012584704743465635,
+    "iter": 2200,
+    "active_outer_count": 768,
+    "hard_pruned_outer_count": 20140,
+    "outer_active_outside_contour_ratio": 0.9075520833333334,
+    "outer_active_outside_person_ratio": 0.9153645833333334,
+    "outer_active_outside_alpha_gt_0.05_ratio": 0.9075520833333334,
     "hand_leakage_ratio": 0.0,
     "head_detached_coverage": 0.0,
-    "outer_active_on_nontrigger_person_ratio": 0.05302785844896203,
-    "outer_projection_outside_anyframe_ratio": 0.03259115843820587,
+    "outer_active_on_nontrigger_person_ratio": 0.00390625,
+    "outer_projection_outside_anyframe_ratio": 0.9153645833333334,
     "outer_arm_nontrigger_activation_ratio": 0.0,
     "outer_head_ring_coverage": 0.0,
-    "outer_boundary_hard_clamp_count": 156225
+    "outer_boundary_hard_clamp_count": 0
   },
   "pass": false
 }

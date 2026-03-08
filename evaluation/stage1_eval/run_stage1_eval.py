@@ -322,10 +322,10 @@ def _evaluate_one_frame(
     )
 
     smpl_mask = smpl_mask_raw
-    align_report = {"applied": False, "reason": "disabled_or_missing_person_mask"}
     iou_before = mask_iou(smpl_mask_raw, person_mask)
     iou_after = iou_before
-    if use_auto_align and person_mask is not None and int(person_mask.sum()) > 0:
+    align_report = {"applied": False, "accepted": False, "reason": "native_projection"}
+    if bool(use_auto_align):
         uv_aligned, align_report = estimate_mask_similarity_transform(
             uv=uv,
             valid_v=valid_v,
@@ -333,16 +333,10 @@ def _evaluate_one_frame(
             image_hw=(h, w),
             smpl_mask=smpl_mask_raw,
             person_mask=person_mask,
-            scale_min=0.4,
-            scale_max=2.5,
         )
-        smpl_mask_aligned = _rasterize_mesh_mask(uv=uv_aligned, valid_v=valid_v, faces=faces, image_hw=(h, w))
-        iou_after = mask_iou(smpl_mask_aligned, person_mask)
         if bool(align_report.get("accepted", False)):
-            smpl_mask = smpl_mask_aligned
-            align_report["accepted"] = True
-        else:
-            align_report["accepted"] = False
+            smpl_mask = _rasterize_mesh_mask(uv=uv_aligned, valid_v=valid_v, faces=faces, image_hw=(h, w))
+            iou_after = mask_iou(smpl_mask, person_mask)
 
     out = img.copy()
     smpl_cnt = extract_person_contours((smpl_mask > 0).astype(np.uint8) * 255)
@@ -443,8 +437,10 @@ def main() -> None:
         pm_npz = (project_root / pm_npz).resolve()
     modnet_ckpt_path = str(args.modnet_ckpt).strip() or None
 
-    use_auto_align = (not bool(args.no_auto_align))
-    if bool(args.auto_align):
+    use_auto_align = True
+    if bool(args.no_auto_align):
+        use_auto_align = False
+    elif bool(args.auto_align):
         use_auto_align = True
 
     reports: list[dict] = []

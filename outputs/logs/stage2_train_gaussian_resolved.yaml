@@ -10,7 +10,7 @@ stage2:
   enable_tf32: true
   cudnn_benchmark: true
   n_frames: 76
-  n_gaussians: 70000
+  n_gaussians: 55000
   sample_on_surface: true
   n_gaussians_bg: 0
   bg_extent:
@@ -34,7 +34,7 @@ stage2:
   outer_prune_dual_enable: true
   outer_prune_dual_max_vis: 0.06
   outer_prune_dual_min_support: 0.001
-  iters: 3600
+  iters: 2200
   lr_gauss: 0.003
   lr_cam: 0.0
   camera_mode: fixed
@@ -67,6 +67,10 @@ stage2:
   - 1.0
   - 1.0
   frame_select: stage1_sequence
+  stage1_eval_filter_enable: true
+  stage1_eval_report_json: evaluation/output_images/stage1/stage1_eval_report_all.json
+  stage1_eval_metric: iou_after
+  stage1_eval_min: 0.8
   temporal_ref_anchor: sample
   temporal_ref_window: 0
   temporal_ref_decay: 0.86
@@ -152,7 +156,7 @@ stage2:
   person_mask_contour_leak_weight: 0.0
   outer_use_gt_contour: true
   outer_gt_contour_fuse_mode: gt_only
-  outer_gt_contour_modnet_ref_size: 640
+  outer_gt_contour_modnet_ref_size: 512
   outer_gt_contour_modnet_threshold: 0.5
   modnet_ckpt_path: third_party/MODNet/pretrained/modnet_photographic_portrait_matting.ckpt
   outer_head_priority_enable: false
@@ -228,11 +232,11 @@ stage2:
   outer_face_anchor_rule: centroid
   shell_max_ratio: 0.0
   shell_spawn_top_percent: 20.0
-  shell_spawn_every: 80
-  shell_prune_every: 2000
+  shell_spawn_every: 100
+  shell_prune_every: 1600
   shell_offset_max_n: 0.12
   shell_offset_max_t: 0.02
-  outer_offset_unbounded: false
+  outer_offset_unbounded: true
   outer_offset_auto_range_enable: true
   outer_offset_auto_range_min_scale: 0.5
   outer_offset_auto_range_edge_mix: 0.75
@@ -251,7 +255,6 @@ stage2:
   inner_bind_mode_default: vertex
   outer_trigger_face_activate_enable: true
   outer_trigger_face_sample_dilate_px: 0
-  outer_spawn_from_trigger_ring_only: false
   outer_viewplane_init_enable: true
   outer_center_init_rule: segment_midpoint
   outer_center_phase1_normal_tune_enable: true
@@ -273,7 +276,19 @@ stage2:
   outer_gap_scale_weight: 0.12
   outer_gap_tangent_scale_ratio: 0.5
   outer_gap_tangent_scale_weight: 0.1
+  outer_gap_hard_target_enable: true
+  outer_gap_hard_target_blend: 1.0
+  outer_gap_refine_steps: 5
+  outer_geom_fraction: 0.65
   outer_phase_residual_weight: 0.18
+  outer_trigger_face_topk: 128
+  outer_trigger_face_ema_decay: 0.88
+  outer_trigger_face_ema_weight: 0.65
+  outer_trigger_face_topk_min_support: 0.03
+  outer_airspace_penalty_weight: 0.05
+  outer_airspace_main_support_scale: 1.6
+  outer_airspace_sharp_allow_dot: 0.1
+  outer_airspace_neighbor_rings: 1
   outer_offset_grad_scale: 3.0
   outer_offset_edge_grad_scale: 2.0
   outer_offset_grad_scale_max: 8.0
@@ -286,11 +301,11 @@ stage2:
   outer_pruned_opacity_logit_max: -12.0
   outer_quality_log_every: 300
   outer_progress_log_every: 20
-  outer_zero_stop_enable: false
+  outer_zero_stop_enable: true
   outer_zero_stop_patience: 120
   outer_zero_stop_warmup_iters: 200
   outer_zero_stop_after_phase_inner: true
-  outer_boundary_enforce: hard
+  outer_boundary_enforce: none
   outer_boundary_tol_px: 1
   outer_boundary_check_every: 60
   outer_boundary_alpha_cap: 0.03

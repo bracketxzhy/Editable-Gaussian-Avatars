@@ -4,6 +4,79 @@ import torch
 import torch.nn.functional as F
 
 
+def _sample_mask_bilinear(
+    mask: torch.Tensor,
+    u: torch.Tensor,
+    v: torch.Tensor,
+    image_h: int,
+    image_w: int,
+) -> torch.Tensor:
+    if mask.ndim != 3:
+        raise ValueError(f"mask must be (1,H,W), got {mask.shape}")
+    if int(image_h) <= 1 or int(image_w) <= 1:
+        return torch.zeros_like(u, dtype=torch.float32)
+    uu = ((u / float(max(image_w - 1, 1))) * 2.0 - 1.0).clamp(-2.0, 2.0)
+    vv = ((v / float(max(image_h - 1, 1))) * 2.0 - 1.0).clamp(-2.0, 2.0)
+    grid = torch.stack([uu, vv], dim=-1).view(1, -1, 1, 2)
+    samp = F.grid_sample(
+        mask.unsqueeze(0),
+        grid,
+        mode="bilinear",
+        padding_mode="zeros",
+        align_corners=True,
+    )
+    return samp.view(-1)
+
+
+def _refine_first_exit_world(
+    *,
+    mask: torch.Tensor,
+    centroids: torch.Tensor,
+    face_n_t: torch.Tensor,
+    lo_world: torch.Tensor,
+    hi_world: torch.Tensor,
+    valid_mask: torch.Tensor,
+    K: torch.Tensor,
+    R: torch.Tensor,
+    t: torch.Tensor,
+    image_h: int,
+    image_w: int,
+    refine_steps: int,
+) -> torch.Tensor:
+    if int(refine_steps) <= 0 or not bool(valid_mask.any()):
+        return hi_world
+    lo = lo_world.clone()
+    hi = hi_world.clone()
+    vidx = torch.nonzero(valid_mask, as_tuple=False).view(-1)
+    for _ in range(int(refine_steps)):
+        mid = 0.5 * (lo + hi)
+        pts = centroids.index_select(0, vidx) + mid.index_select(0, vidx).unsqueeze(1) * face_n_t.index_select(0, vidx)
+        Xc = pts @ R.T + t.view(1, 3)
+        z = Xc[:, 2]
+        valid = z > 1e-6
+        u = K[0, 0] * (Xc[:, 0] / z.clamp_min(1e-6)) + K[0, 2]
+        v = K[1, 1] * (Xc[:, 1] / z.clamp_min(1e-6)) + K[1, 2]
+        inside = valid & (u >= 0.0) & (u <= float(image_w - 1)) & (v >= 0.0) & (v <= float(image_h - 1))
+        sample_mid = torch.zeros((int(vidx.numel()),), dtype=torch.float32, device=mask.device)
+        if bool(inside.any()):
+            sample_mid[inside] = _sample_mask_bilinear(
+                mask,
+                u[inside],
+                v[inside],
+                image_h=image_h,
+                image_w=image_w,
+            )
+        keep_inside = valid.clone()
+        keep_inside[inside] = sample_mid[inside] > 0.5
+        lo_vals = lo.index_select(0, vidx)
+        hi_vals = hi.index_select(0, vidx)
+        lo_vals = torch.where(keep_inside, mid.index_select(0, vidx), lo_vals)
+        hi_vals = torch.where(keep_inside, hi_vals, mid.index_select(0, vidx))
+        lo.index_copy_(0, vidx, lo_vals)
+        hi.index_copy_(0, vidx, hi_vals)
+    return hi
+
+
 def build_outer_trigger_mask(
     *,
     outer_base_mask: torch.Tensor | None,
@@ -170,6 +243,8 @@ def estimate_face_gap_targets(
     max_search_px: int = 24,
     step_px: float = 1.0,
     normal_probe_world: float = 0.01,
+    smpl_rim_px: int = 6,
+    refine_steps: int = 4,
 ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
     if (
         outer_mask is None
@@ -186,6 +261,8 @@ def estimate_face_gap_targets(
     steps_n = max(int(max_search_px), 1)
     step_px = float(max(step_px, 0.5))
     probe_world = float(max(normal_probe_world, 1e-4))
+    rim_px = float(max(int(smpl_rim_px), 1))
+    refine_steps = max(int(refine_steps), 0)
 
     tri = verts_t.index_select(0, faces_t.reshape(-1)).reshape(-1, 3, 3)
     centroids = tri.mean(dim=1)
@@ -229,62 +306,93 @@ def estimate_face_gap_targets(
     outer_center[inside_idx] = outer_mask[0, vi0[inside_idx], ui0[inside_idx]]
     ray_valid = inside0 & (smpl_center > 0.5) & (outer_center > 0.5)
 
-    steps = torch.arange(
-        1,
-        steps_n + 1,
+    lin = torch.linspace(
+        1.0 / float(steps_n),
+        1.0,
+        steps_n,
         device=verts_t.device,
         dtype=torch.float32,
-    ).view(1, -1) * step_px
+    ).view(1, -1)
 
-    def _sample_ray(mask: torch.Tensor, sign: float) -> torch.Tensor:
-        uu = u0.unsqueeze(1) + sign * dir_u.unsqueeze(1) * steps
-        vv = v0.unsqueeze(1) + sign * dir_v.unsqueeze(1) * steps
-        ui = uu.round().to(dtype=torch.long)
-        vi = vv.round().to(dtype=torch.long)
+    smpl_max_world = rim_px / pix_per_world.clamp_min(1e-6)
+    outer_max_world = float(max_search_px) / pix_per_world.clamp_min(1e-6)
+    smpl_world_steps = lin * smpl_max_world.unsqueeze(1)
+    outer_world_steps = lin * outer_max_world.unsqueeze(1)
+
+    def _sample_along_normal(mask: torch.Tensor, world_steps: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        pts = centroids.unsqueeze(1) + world_steps.unsqueeze(2) * face_n_t.unsqueeze(1)
+        u_s, v_s, valid_s = _project(pts.reshape(-1, 3))
+        u_s = u_s.reshape(-1, world_steps.shape[1])
+        v_s = v_s.reshape(-1, world_steps.shape[1])
+        valid_s = valid_s.reshape(-1, world_steps.shape[1])
         inside = (
             ray_valid.unsqueeze(1)
-            & (ui >= 0)
-            & (ui < int(image_w))
-            & (vi >= 0)
-            & (vi < int(image_h))
+            & valid_s
+            & (u_s >= 0.0)
+            & (u_s <= float(image_w - 1))
+            & (v_s >= 0.0)
+            & (v_s <= float(image_h - 1))
         )
-        out = torch.zeros_like(uu, dtype=torch.float32)
+        out = torch.zeros_like(world_steps, dtype=torch.float32)
         if bool(inside.any()):
-            out[inside] = mask[0, vi[inside], ui[inside]]
-        return out
+            out[inside] = _sample_mask_bilinear(
+                mask,
+                u_s[inside],
+                v_s[inside],
+                image_h=image_h,
+                image_w=image_w,
+            )
+        return out, inside
 
-    def _first_exit(samples: torch.Tensor) -> torch.Tensor:
-        inside = samples > 0.5
-        exit_mask = ~inside
+    def _first_exit_world(
+        samples: torch.Tensor,
+        inside: torch.Tensor,
+        world_steps: torch.Tensor,
+        mask_ref: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        prev_inside = inside[:, :-1] & (samples[:, :-1] > 0.5)
+        next_out = inside[:, 1:] & (samples[:, 1:] <= 0.5)
+        exit_mask = prev_inside & next_out
         any_exit = exit_mask.any(dim=1)
-        idx = torch.full(
-            (samples.shape[0],),
-            float(steps_n + 1) * step_px,
-            dtype=torch.float32,
-            device=samples.device,
-        )
+        first_idx = exit_mask.float().argmax(dim=1) + 1
+        exit_world = torch.zeros((samples.shape[0],), dtype=torch.float32, device=samples.device)
+        lo_world = torch.zeros_like(exit_world)
         if bool(any_exit.any()):
-            idx[any_exit] = (exit_mask[any_exit].float().argmax(dim=1).float() + 1.0) * step_px
-        return idx
+            gather_idx = first_idx[any_exit].view(-1, 1)
+            exit_world[any_exit] = world_steps[any_exit].gather(1, gather_idx).squeeze(1)
+            lo_idx = (first_idx[any_exit] - 1).clamp(min=0).view(-1, 1)
+            lo_world[any_exit] = world_steps[any_exit].gather(1, lo_idx).squeeze(1)
+            exit_world = _refine_first_exit_world(
+                mask=mask_ref,
+                centroids=centroids,
+                face_n_t=face_n_t,
+                lo_world=lo_world,
+                hi_world=exit_world,
+                valid_mask=any_exit,
+                K=K,
+                R=R,
+                t=t,
+                image_h=image_h,
+                image_w=image_w,
+                refine_steps=refine_steps,
+            )
+        return exit_world, any_exit
 
-    smpl_pos = _sample_ray(smpl_mask, sign=1.0)
-    smpl_neg = _sample_ray(smpl_mask, sign=-1.0)
-    outer_pos = _sample_ray(outer_mask, sign=1.0)
-    outer_neg = _sample_ray(outer_mask, sign=-1.0)
+    smpl_pos, smpl_inside = _sample_along_normal(smpl_mask, smpl_world_steps)
+    outer_pos, outer_inside = _sample_along_normal(outer_mask, outer_world_steps)
+    smpl_exit_world, smpl_hit = _first_exit_world(smpl_pos, smpl_inside, smpl_world_steps, smpl_mask)
+    outer_exit_world, outer_hit = _first_exit_world(outer_pos, outer_inside, outer_world_steps, outer_mask)
 
-    smpl_exit_pos = _first_exit(smpl_pos)
-    smpl_exit_neg = _first_exit(smpl_neg)
-    outer_exit_pos = _first_exit(outer_pos)
-    outer_exit_neg = _first_exit(outer_neg)
+    gap_world = (outer_exit_world - smpl_exit_world).clamp_min(0.0)
+    gap_px = gap_world * pix_per_world
+    rim_valid = smpl_hit & (smpl_exit_world > 0.0)
+    gap_support = (
+        ray_valid
+        & rim_valid
+        & outer_hit
+        & (gap_px > 0.5)
+    ).float()
 
-    gap_pos_px = (outer_exit_pos - smpl_exit_pos).clamp_min(0.0)
-    gap_neg_px = (outer_exit_neg - smpl_exit_neg).clamp_min(0.0)
-    choose_pos = gap_pos_px >= gap_neg_px
-    gap_px = torch.where(choose_pos, gap_pos_px, gap_neg_px)
-    gap_support = (gap_px > 0.0).float() * ray_valid.float()
-    gap_world = gap_px / pix_per_world.clamp_min(1e-6)
-    gap_half_world = 0.5 * gap_world
-    gap_half_world = gap_half_world * gap_support
-    gap_world = gap_world * gap_support
-    gap_support = gap_support.clamp(0.0, 1.0)
-    return gap_half_world, gap_world.clamp_min(0.0), gap_support
+    target_world = outer_exit_world * gap_support
+    target_half_world = 0.5 * target_world
+    return target_half_world.clamp_min(0.0), target_world.clamp_min(0.0), gap_support.clamp(0.0, 1.0)

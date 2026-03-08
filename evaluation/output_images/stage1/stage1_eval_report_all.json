@@ -5,11 +5,14 @@
       "frame_name": "000000.jpg",
       "frame_index": 0,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000000_gt_stage1_contour.png",
-      "iou_before": 0.7276412328230351,
-      "iou_after": 0.8129372190634954,
+      "iou_before": 0.7251463169875875,
+      "iou_after": 0.811317949327941,
       "align": {
         "applied": true,
-        "scale": 0.952566033728723,
+        "accepted": true,
+        "scale": 0.9509991259118151,
+        "tx_px": 15.808951466547512,
+        "ty_px": 37.78349560800086,
         "center_src": [
           516.5,
           567.0
@@ -19,9 +22,9 @@
           577.0
         ],
         "bbox_src": [
-          221.0,
+          220.0,
           138.0,
-          812.0,
+          813.0,
           996.0
         ],
         "bbox_tgt": [
@@ -30,7 +33,15 @@
           782.0,
           995.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7251463169875875,
+        "iou_after": 0.811317949327941,
+        "outside_before": 0.18466548029230245,
+        "outside_after": 0.08715109032965011,
+        "area_ratio_before": 1.0641615562521658,
+        "area_ratio_after": 0.9633984189277397,
+        "score_before": 0.45761032203233587,
+        "score_after": 0.6921999141400229
       },
       "gt_mask_source": "modnet"
     },
@@ -38,13 +49,16 @@
       "frame_name": "000001.jpg",
       "frame_index": 1,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000001_gt_stage1_contour.png",
-      "iou_before": 0.7133348879043273,
-      "iou_after": 0.8370516399425136,
+      "iou_before": 0.71755337287127,
+      "iou_after": 0.8424960053061593,
       "align": {
         "applied": true,
-        "scale": 0.9497635312664214,
+        "accepted": true,
+        "scale": 0.9516577394427264,
+        "tx_px": 19.67733409176367,
+        "ty_px": 35.45840399653139,
         "center_src": [
-          542.0,
+          541.5,
           568.0
         ],
         "center_tgt": [
@@ -53,9 +67,9 @@
         ],
         "bbox_src": [
           240.0,
-          136.0,
-          844.0,
-          1000.0
+          137.0,
+          843.0,
+          999.0
         ],
         "bbox_tgt": [
           255.0,
@@ -63,7 +77,15 @@
           815.0,
           996.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.71755337287127,
+        "iou_after": 0.8424960053061593,
+        "outside_before": 0.19213194721509172,
+        "outside_after": 0.0717340574835779,
+        "area_ratio_before": 1.0709701865557328,
+        "area_ratio_after": 0.9708073332365887,
+        "score_before": 0.43849796723222023,
+        "score_after": 0.7444873210327927
       },
       "gt_mask_source": "modnet"
     },
@@ -71,14 +93,17 @@
       "frame_name": "000002.jpg",
       "frame_index": 2,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000002_gt_stage1_contour.png",
-      "iou_before": 0.7181660044807537,
-      "iou_after": 0.7557555081940979,
+      "iou_before": 0.7181417603806228,
+      "iou_after": 0.7479462555320934,
       "align": {
         "applied": true,
-        "scale": 0.9504612535172807,
+        "accepted": true,
+        "scale": 0.9508236971329004,
+        "tx_px": 17.243549025819675,
+        "ty_px": 36.85837557421189,
         "center_src": [
-          584.0,
-          567.5
+          584.5,
+          566.5
         ],
         "center_tgt": [
           573.0,
@@ -87,8 +112,8 @@
         "bbox_src": [
           290.0,
           139.0,
-          878.0,
-          996.0
+          879.0,
+          994.0
         ],
         "bbox_tgt": [
           302.0,
@@ -96,7 +121,15 @@
           844.0,
           995.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7181417603806228,
+        "iou_after": 0.7479462555320934,
+        "outside_before": 0.1875931773178694,
+        "outside_after": 0.12557278368644426,
+        "area_ratio_before": 1.059693269924087,
+        "area_ratio_after": 0.9582843856081535,
+        "score_before": 0.4476208767541838,
+        "score_after": 0.5767543729797198
       },
       "gt_mask_source": "modnet"
     },
@@ -104,32 +137,43 @@
       "frame_name": "000003.jpg",
       "frame_index": 3,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000003_gt_stage1_contour.png",
-      "iou_before": 0.7477867590454196,
-      "iou_after": 0.6612416165090284,
+      "iou_before": 0.748485411122343,
+      "iou_after": 0.6814672623202569,
       "align": {
         "applied": true,
-        "scale": 0.9490320506816304,
+        "accepted": true,
+        "scale": 0.9469476929348518,
+        "tx_px": 12.698753471426016,
+        "ty_px": 44.13770733012302,
         "center_src": [
-          598.5,
-          577.0
+          597.5,
+          577.5
         ],
         "center_tgt": [
-          578.0,
+          578.5,
           591.0
         ],
         "bbox_src": [
-          333.0,
-          136.0,
+          331.0,
+          137.0,
           864.0,
           1018.0
         ],
         "bbox_tgt": [
-          336.0,
+          337.0,
           156.0,
           820.0,
           1026.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.748485411122343,
+        "iou_after": 0.6814672623202569,
+        "outside_before": 0.16354274735830931,
+        "outside_after": 0.16378727012651073,
+        "area_ratio_before": 1.0482285843174532,
+        "area_ratio_after": 0.9404775330680372,
+        "score_before": 0.5126104505938598,
+        "score_after": 0.4579735489721889
       },
       "gt_mask_source": "modnet"
     },
@@ -137,32 +181,43 @@
       "frame_name": "000004.jpg",
       "frame_index": 4,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000004_gt_stage1_contour.png",
-      "iou_before": 0.7505309612467246,
-      "iou_after": 0.6238343380675045,
+      "iou_before": 0.7552313994685562,
+      "iou_after": 0.6341394535097568,
       "align": {
         "applied": true,
-        "scale": 0.9388249932205013,
+        "accepted": true,
+        "scale": 0.9354761904761906,
+        "tx_px": 13.439880952380918,
+        "ty_px": 47.52059523809521,
         "center_src": [
-          573.0,
+          572.5,
           581.5
         ],
         "center_tgt": [
-          548.5,
+          549.0,
           591.5
         ],
         "bbox_src": [
-          365.0,
-          131.0,
-          781.0,
-          1032.0
+          363.0,
+          132.0,
+          782.0,
+          1031.0
         ],
         "bbox_tgt": [
-          360.0,
+          361.0,
           154.0,
           737.0,
           1029.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7552313994685562,
+        "iou_after": 0.6341394535097568,
+        "outside_before": 0.16927995128634496,
+        "outside_after": 0.19925374432480386,
+        "area_ratio_before": 1.074489662392044,
+        "area_ratio_after": 0.9403133996336037,
+        "score_before": 0.5047977960086678,
+        "score_after": 0.3627594346566157
       },
       "gt_mask_source": "modnet"
     },
@@ -170,22 +225,25 @@
       "frame_name": "000005.jpg",
       "frame_index": 5,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000005_gt_stage1_contour.png",
-      "iou_before": 0.7890016854152785,
-      "iou_after": 0.6947739109386346,
+      "iou_before": 0.7926597432795488,
+      "iou_after": 0.706033082611918,
       "align": {
         "applied": true,
-        "scale": 0.9509575790063596,
+        "accepted": true,
+        "scale": 0.9480980728483503,
+        "tx_px": 9.466431238018345,
+        "ty_px": 39.31072545656343,
         "center_src": [
-          588.0,
-          583.5
+          587.0,
+          584.0
         ],
         "center_tgt": [
           566.0,
           593.0
         ],
         "bbox_src": [
-          452.0,
-          133.0,
+          450.0,
+          134.0,
           724.0,
           1034.0
         ],
@@ -195,7 +253,15 @@
           693.0,
           1029.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7926597432795488,
+        "iou_after": 0.706033082611918,
+        "outside_before": 0.14403990363408095,
+        "outside_after": 0.1557158346297082,
+        "area_ratio_before": 1.0685835493754419,
+        "area_ratio_after": 0.9614478144999002,
+        "score_before": 0.5787380361118192,
+        "score_after": 0.4942746184418079
       },
       "gt_mask_source": "modnet"
     },
@@ -203,11 +269,14 @@
       "frame_name": "000006.jpg",
       "frame_index": 6,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000006_gt_stage1_contour.png",
-      "iou_before": 0.8517374601650151,
-      "iou_after": 0.8728083016167334,
+      "iou_before": 0.8509835066800122,
+      "iou_after": 0.8725081837065394,
       "align": {
         "applied": true,
-        "scale": 1.0180995937730035,
+        "accepted": true,
+        "scale": 1.0122522267588363,
+        "tx_px": -4.820705488404656,
+        "ty_px": 9.954969613669164,
         "center_src": [
           597.5,
           575.0
@@ -217,9 +286,9 @@
           592.0
         ],
         "bbox_src": [
-          512.0,
+          511.0,
           149.0,
-          683.0,
+          684.0,
           1001.0
         ],
         "bbox_tgt": [
@@ -228,7 +297,15 @@
           687.0,
           1026.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8509835066800122,
+        "iou_after": 0.8725081837065394,
+        "outside_before": 0.07056964281470567,
+        "outside_after": 0.06930233637270597,
+        "area_ratio_before": 0.9788431789897298,
+        "area_ratio_after": 1.0026169789594892,
+        "score_before": 0.7548682160397487,
+        "score_after": 0.7783742942322988
       },
       "gt_mask_source": "modnet"
     },
@@ -236,32 +313,43 @@
       "frame_name": "000007.jpg",
       "frame_index": 7,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000007_gt_stage1_contour.png",
-      "iou_before": 0.8712786737207864,
-      "iou_after": 0.8062199987847609,
+      "iou_before": 0.8716522556575044,
+      "iou_after": 0.8160940527271436,
       "align": {
         "applied": true,
-        "scale": 0.933385306369412,
+        "accepted": true,
+        "scale": 0.934853023126219,
+        "tx_px": 35.85693264140434,
+        "ty_px": 48.44811402897744,
         "center_src": [
           642.5,
-          581.5
+          582.5
         ],
         "center_tgt": [
-          636.0,
+          636.5,
           593.0
         ],
         "bbox_src": [
           546.0,
           139.0,
           739.0,
-          1024.0
+          1026.0
         ],
         "bbox_tgt": [
           551.0,
           157.0,
-          721.0,
+          722.0,
           1029.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8716522556575044,
+        "iou_after": 0.8160940527271436,
+        "outside_before": 0.06803333612530363,
+        "outside_after": 0.03548607531200173,
+        "area_ratio_before": 0.9988391914079249,
+        "area_ratio_after": 0.8723110548717359,
+        "score_before": 0.77418587030561,
+        "score_after": 0.7630802932508107
       },
       "gt_mask_source": "modnet"
     },
@@ -269,14 +357,17 @@
       "frame_name": "000008.jpg",
       "frame_index": 8,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000008_gt_stage1_contour.png",
-      "iou_before": 0.8004043463202068,
-      "iou_after": 0.8250751720988739,
+      "iou_before": 0.8025492076025041,
+      "iou_after": 0.8330392360390284,
       "align": {
         "applied": true,
-        "scale": 0.9481516644815167,
+        "accepted": true,
+        "scale": 0.9470933379440996,
+        "tx_px": 40.048050322502945,
+        "ty_px": 38.42394397167379,
         "center_src": [
-          652.5,
-          584.0
+          653.0,
+          584.5
         ],
         "center_tgt": [
           658.5,
@@ -284,8 +375,8 @@
         ],
         "bbox_src": [
           507.0,
-          130.0,
-          798.0,
+          131.0,
+          799.0,
           1038.0
         ],
         "bbox_tgt": [
@@ -294,7 +385,15 @@
           794.0,
           1030.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8025492076025041,
+        "iou_after": 0.8330392360390284,
+        "outside_before": 0.13379595812028244,
+        "outside_after": 0.06664857583129004,
+        "area_ratio_before": 1.0576192622159273,
+        "area_ratio_after": 0.9489749933321684,
+        "score_before": 0.6047794551327911,
+        "score_after": 0.7410226584000735
       },
       "gt_mask_source": "modnet"
     },
@@ -302,11 +401,14 @@
       "frame_name": "000009.jpg",
       "frame_index": 9,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000009_gt_stage1_contour.png",
-      "iou_before": 0.7706207917650791,
-      "iou_after": 0.8087079835958759,
+      "iou_before": 0.7700492957746479,
+      "iou_after": 0.8077825307023596,
       "align": {
         "applied": true,
-        "scale": 0.9385921305066545,
+        "accepted": true,
+        "scale": 0.9366552531987745,
+        "tx_px": 48.6174986484051,
+        "ty_px": 39.873400612723,
         "center_src": [
           657.0,
           590.0
@@ -316,9 +418,9 @@
           592.5
         ],
         "bbox_src": [
-          426.0,
+          425.0,
           143.0,
-          888.0,
+          889.0,
           1037.0
         ],
         "bbox_tgt": [
@@ -327,7 +429,15 @@
           872.0,
           1029.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7700492957746479,
+        "iou_after": 0.8077825307023596,
+        "outside_before": 0.14838785046728972,
+        "outside_after": 0.06643867778260137,
+        "area_ratio_before": 1.0443524445492773,
+        "area_ratio_after": 0.9180459872953386,
+        "score_before": 0.5545578664326724,
+        "score_after": 0.7148121551876614
       },
       "gt_mask_source": "modnet"
     },
@@ -335,24 +445,27 @@
       "frame_name": "000010.jpg",
       "frame_index": 10,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000010_gt_stage1_contour.png",
-      "iou_before": 0.707996331193196,
-      "iou_after": 0.7723905431605753,
+      "iou_before": 0.7102273456655412,
+      "iou_after": 0.7678675796780409,
       "align": {
         "applied": true,
-        "scale": 0.918147753550371,
+        "accepted": true,
+        "scale": 0.9178741380005646,
+        "tx_px": 60.69098530064116,
+        "ty_px": 47.454258579666885,
         "center_src": [
-          636.0,
-          590.5
+          635.5,
+          590.0
         ],
         "center_tgt": [
           644.0,
           589.0
         ],
         "bbox_src": [
-          363.0,
+          362.0,
           138.0,
           909.0,
-          1043.0
+          1042.0
         ],
         "bbox_tgt": [
           404.0,
@@ -360,7 +473,15 @@
           884.0,
           1022.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7102273456655412,
+        "iou_after": 0.7678675796780409,
+        "outside_before": 0.19002723040435687,
+        "outside_after": 0.07598398874697185,
+        "area_ratio_before": 1.0521727075278424,
+        "area_ratio_after": 0.8870207489332861,
+        "score_before": 0.43505466971518636,
+        "score_after": 0.6607700248269603
       },
       "gt_mask_source": "modnet"
     },
@@ -368,32 +489,43 @@
       "frame_name": "000011.jpg",
       "frame_index": 11,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000011_gt_stage1_contour.png",
-      "iou_before": 0.7412519570191755,
-      "iou_after": 0.7685841870239033,
+      "iou_before": 0.7488393686165274,
+      "iou_after": 0.780226778616343,
       "align": {
         "applied": true,
-        "scale": 0.9293432232330683,
+        "accepted": true,
+        "scale": 0.9333969949365447,
+        "tx_px": 50.026496195040295,
+        "ty_px": 38.69634594186755,
         "center_src": [
           631.0,
-          581.5
+          581.0
         ],
         "center_tgt": [
-          639.5,
+          639.0,
           581.0
         ],
         "bbox_src": [
-          341.0,
-          141.0,
-          921.0,
-          1022.0
+          342.0,
+          142.0,
+          920.0,
+          1020.0
         ],
         "bbox_tgt": [
-          381.0,
+          380.0,
           155.0,
           898.0,
           1007.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7488393686165274,
+        "iou_after": 0.780226778616343,
+        "outside_before": 0.15445159427776975,
+        "outside_after": 0.07235049913402206,
+        "area_ratio_before": 1.0259633971441042,
+        "area_ratio_after": 0.8955774147284404,
+        "score_before": 0.5289093293305599,
+        "score_after": 0.6783767013745509
       },
       "gt_mask_source": "modnet"
     },
@@ -401,11 +533,14 @@
       "frame_name": "000012.jpg",
       "frame_index": 12,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000012_gt_stage1_contour.png",
-      "iou_before": 0.8130806102682295,
-      "iou_after": 0.8727771529318783,
+      "iou_before": 0.8180741686166064,
+      "iou_after": 0.8743309816324049,
       "align": {
         "applied": true,
-        "scale": 0.9595984001501606,
+        "accepted": true,
+        "scale": 0.9607530357403764,
+        "tx_px": 24.991700875245897,
+        "ty_px": 26.10625141354319,
         "center_src": [
           675.0,
           576.0
@@ -416,9 +551,9 @@
         ],
         "bbox_src": [
           384.0,
-          147.0,
+          148.0,
           966.0,
-          1005.0
+          1004.0
         ],
         "bbox_tgt": [
           403.0,
@@ -426,7 +561,15 @@
           944.0,
           1004.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8180741686166064,
+        "iou_after": 0.8743309816324049,
+        "outside_before": 0.10241409088433681,
+        "outside_after": 0.03092453402541373,
+        "area_ratio_before": 1.005247681166221,
+        "area_ratio_after": 0.9281278838784353,
+        "score_before": 0.6753926391836236,
+        "score_after": 0.8297079760532337
       },
       "gt_mask_source": "modnet"
     },
@@ -434,13 +577,16 @@
       "frame_name": "000013.jpg",
       "frame_index": 13,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000013_gt_stage1_contour.png",
-      "iou_before": 0.8119515102767764,
-      "iou_after": 0.7444102368163883,
+      "iou_before": 0.8172098786778479,
+      "iou_after": 0.7558586686152506,
       "align": {
         "applied": true,
-        "scale": 0.9397873095225474,
+        "accepted": true,
+        "scale": 0.941717163445791,
+        "tx_px": 27.443692679331775,
+        "ty_px": 30.71662094660985,
         "center_src": [
-          703.0,
+          702.5,
           578.5
         ],
         "center_tgt": [
@@ -449,9 +595,9 @@
         ],
         "bbox_src": [
           419.0,
-          148.0,
-          987.0,
-          1009.0
+          149.0,
+          986.0,
+          1008.0
         ],
         "bbox_tgt": [
           432.0,
@@ -459,7 +605,15 @@
           946.0,
           995.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8172098786778479,
+        "iou_after": 0.7558586686152506,
+        "outside_before": 0.1086524332267266,
+        "outside_after": 0.09304591186056398,
+        "area_ratio_before": 1.018259359722189,
+        "area_ratio_after": 0.9034622370516175,
+        "score_before": 0.6615608379697704,
+        "score_after": 0.626385177085554
       },
       "gt_mask_source": "modnet"
     },
@@ -467,14 +621,17 @@
       "frame_name": "000014.jpg",
       "frame_index": 14,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000014_gt_stage1_contour.png",
-      "iou_before": 0.7667474400062534,
-      "iou_after": 0.683578408661625,
+      "iou_before": 0.7699038803844784,
+      "iou_after": 0.6859717594343325,
       "align": {
         "applied": true,
-        "scale": 0.9485181704700058,
+        "accepted": true,
+        "scale": 0.949090066559946,
+        "tx_px": 14.033290504676074,
+        "ty_px": 28.951396495071208,
         "center_src": [
           668.5,
-          578.0
+          578.5
         ],
         "center_tgt": [
           648.5,
@@ -482,7 +639,7 @@
         ],
         "bbox_src": [
           420.0,
-          149.0,
+          150.0,
           917.0,
           1007.0
         ],
@@ -492,7 +649,15 @@
           876.0,
           999.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7699038803844784,
+        "iou_after": 0.6859717594343325,
+        "outside_before": 0.13753718784147012,
+        "outside_after": 0.14985674872665536,
+        "area_ratio_before": 1.0176208950862782,
+        "area_ratio_after": 0.9178773761018132,
+        "score_before": 0.5760608173126558,
+        "score_after": 0.4803802436974203
       },
       "gt_mask_source": "modnet"
     },
@@ -500,32 +665,43 @@
       "frame_name": "000015.jpg",
       "frame_index": 15,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000015_gt_stage1_contour.png",
-      "iou_before": 0.7736932397762047,
-      "iou_after": 0.7347333583813642,
+      "iou_before": 0.7725298043906015,
+      "iou_after": 0.7280496969890788,
       "align": {
         "applied": true,
-        "scale": 0.9440046028054423,
+        "accepted": true,
+        "scale": 0.9401445328864684,
+        "tx_px": 16.44836614997905,
+        "ty_px": 34.126387725178006,
         "center_src": [
           634.0,
-          577.0
+          578.5
         ],
         "center_tgt": [
-          613.0,
+          612.5,
           578.0
         ],
         "bbox_src": [
-          421.0,
-          144.0,
-          847.0,
-          1010.0
+          420.0,
+          145.0,
+          848.0,
+          1012.0
         ],
         "bbox_tgt": [
           418.0,
           157.0,
-          808.0,
+          807.0,
           999.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7725298043906015,
+        "iou_after": 0.7280496969890788,
+        "outside_before": 0.14224027142343082,
+        "outside_after": 0.11716174816768139,
+        "area_ratio_before": 1.0329666439513951,
+        "area_ratio_after": 0.9128707088049702,
+        "score_before": 0.5681594771296077,
+        "score_after": 0.5663961653149078
       },
       "gt_mask_source": "modnet"
     },
@@ -533,22 +709,25 @@
       "frame_name": "000016.jpg",
       "frame_index": 16,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000016_gt_stage1_contour.png",
-      "iou_before": 0.8242549108150824,
-      "iou_after": 0.7441273918546646,
+      "iou_before": 0.8235675858696061,
+      "iou_after": 0.7545962703743717,
       "align": {
         "applied": true,
-        "scale": 0.9659014527655327,
+        "accepted": true,
+        "scale": 0.9630840431898863,
+        "tx_px": 9.404716617612053,
+        "ty_px": 22.818965057840728,
         "center_src": [
-          635.0,
-          577.0
+          634.0,
+          577.5
         ],
         "center_tgt": [
           620.0,
           579.0
         ],
         "bbox_src": [
-          495.0,
-          146.0,
+          493.0,
+          147.0,
           775.0,
           1008.0
         ],
@@ -558,7 +737,15 @@
           754.0,
           999.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8235675858696061,
+        "iou_after": 0.7545962703743717,
+        "outside_before": 0.10678948120039986,
+        "outside_after": 0.11648499114538075,
+        "area_ratio_before": 1.0227322518387147,
+        "area_ratio_after": 0.9484429607219237,
+        "score_before": 0.6713342123106223,
+        "score_after": 0.5952792507569846
       },
       "gt_mask_source": "modnet"
     },
@@ -566,11 +753,14 @@
       "frame_name": "000017.jpg",
       "frame_index": 17,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000017_gt_stage1_contour.png",
-      "iou_before": 0.8905962938601465,
-      "iou_after": 0.8378145467080317,
+      "iou_before": 0.8903971560547052,
+      "iou_after": 0.8376609959363592,
       "align": {
         "applied": true,
+        "accepted": true,
         "scale": 0.9579233246065422,
+        "tx_px": 31.58753874394381,
+        "ty_px": 30.83643661039389,
         "center_src": [
           620.0,
           566.5
@@ -591,7 +781,15 @@
           698.0,
           990.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8903971560547052,
+        "iou_after": 0.8376609959363592,
+        "outside_before": 0.05271969550973213,
+        "outside_after": 0.04154462467984501,
+        "area_ratio_before": 0.9889578444568856,
+        "area_ratio_after": 0.9068980714940859,
+        "score_before": 0.8152698898007645,
+        "score_after": 0.7778516754783319
       },
       "gt_mask_source": "modnet"
     },
@@ -599,32 +797,43 @@
       "frame_name": "000018.jpg",
       "frame_index": 18,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000018_gt_stage1_contour.png",
-      "iou_before": 0.8621954901186689,
-      "iou_after": 0.821411431447601,
+      "iou_before": 0.8598712867855204,
+      "iou_after": 0.8292100183607175,
       "align": {
         "applied": true,
-        "scale": 0.9686904574301964,
+        "accepted": true,
+        "scale": 0.9641002692124647,
+        "tx_px": 30.434735511184044,
+        "ty_px": 33.747448164169896,
         "center_src": [
-          610.5,
-          565.0
+          611.0,
+          564.0
         ],
         "center_tgt": [
           619.5,
-          578.0
+          577.5
         ],
         "bbox_src": [
           528.0,
-          145.0,
-          693.0,
+          143.0,
+          694.0,
           985.0
         ],
         "bbox_tgt": [
           542.0,
           159.0,
           697.0,
-          997.0
+          996.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8598712867855204,
+        "iou_after": 0.8292100183607175,
+        "outside_before": 0.06122989593188269,
+        "outside_after": 0.044342258755866636,
+        "area_ratio_before": 0.9703776240896016,
+        "area_ratio_after": 0.9024052879613196,
+        "score_before": 0.7730471113189176,
+        "score_after": 0.7654441805587503
       },
       "gt_mask_source": "modnet"
     },
@@ -632,13 +841,16 @@
       "frame_name": "000019.jpg",
       "frame_index": 19,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000019_gt_stage1_contour.png",
-      "iou_before": 0.7508305941398933,
-      "iou_after": 0.7652123607964132,
+      "iou_before": 0.7537748039580126,
+      "iou_after": 0.7636515735728228,
       "align": {
         "applied": true,
-        "scale": 0.9230154454022989,
+        "accepted": true,
+        "scale": 0.9247464503042596,
+        "tx_px": 63.35111561866131,
+        "ty_px": 51.85689655172416,
         "center_src": [
-          596.5,
+          596.0,
           569.5
         ],
         "center_tgt": [
@@ -648,7 +860,7 @@
         "bbox_src": [
           469.0,
           135.0,
-          724.0,
+          723.0,
           1004.0
         ],
         "bbox_tgt": [
@@ -657,7 +869,15 @@
           727.0,
           997.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7537748039580126,
+        "iou_after": 0.7636515735728228,
+        "outside_before": 0.16872291414516066,
+        "outside_after": 0.09461000022800338,
+        "area_ratio_before": 1.0705538140020898,
+        "area_ratio_after": 0.9165935214211076,
+        "score_before": 0.5039668311764093,
+        "score_after": 0.6325918141218625
       },
       "gt_mask_source": "modnet"
     },
@@ -665,32 +885,43 @@
       "frame_name": "000020.jpg",
       "frame_index": 20,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000020_gt_stage1_contour.png",
-      "iou_before": 0.6989408514832244,
-      "iou_after": 0.6343639851871682,
+      "iou_before": 0.7003095975232199,
+      "iou_after": 0.6314688074829273,
       "align": {
         "applied": true,
-        "scale": 0.8969308937873695,
+        "accepted": true,
+        "scale": 0.8951793849658314,
+        "tx_px": 82.03390518223239,
+        "ty_px": 63.614622722095646,
         "center_src": [
-          577.0,
-          574.0
+          577.5,
+          573.5
         ],
         "center_tgt": [
-          598.5,
+          599.0,
           577.0
         ],
         "bbox_src": [
           378.0,
           135.0,
-          776.0,
-          1013.0
+          777.0,
+          1012.0
         ],
         "bbox_tgt": [
-          432.0,
+          433.0,
           157.0,
           765.0,
           997.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7003095975232199,
+        "iou_after": 0.6314688074829273,
+        "outside_before": 0.2157643374132276,
+        "outside_after": 0.17701468490066097,
+        "area_ratio_before": 1.1061004300204238,
+        "area_ratio_after": 0.8878844546324144,
+        "score_before": 0.37631808450273385,
+        "score_after": 0.38801436105233156
       },
       "gt_mask_source": "modnet"
     },
@@ -698,32 +929,43 @@
       "frame_name": "000021.jpg",
       "frame_index": 21,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000021_gt_stage1_contour.png",
-      "iou_before": 0.692910874245767,
-      "iou_after": 0.6787084908256217,
+      "iou_before": 0.6936505299531515,
+      "iou_after": 0.6838501170281375,
       "align": {
         "applied": true,
-        "scale": 0.9082458972289481,
+        "accepted": true,
+        "scale": 0.9103154379909759,
+        "tx_px": 62.89829102176924,
+        "ty_px": 53.0686231551889,
         "center_src": [
           528.5,
           575.0
         ],
         "center_tgt": [
-          544.5,
+          544.0,
           576.5
         ],
         "bbox_src": [
           277.0,
-          133.0,
+          134.0,
           780.0,
-          1017.0
+          1016.0
         ],
         "bbox_tgt": [
-          327.0,
+          326.0,
           156.0,
           762.0,
           997.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.6936505299531515,
+        "iou_after": 0.6838501170281375,
+        "outside_before": 0.2102412008594861,
+        "outside_after": 0.1395382763776943,
+        "area_ratio_before": 1.0772227519825261,
+        "area_ratio_after": 0.8938767859034858,
+        "score_before": 0.38495427830531576,
+        "score_after": 0.4912285153543896
       },
       "gt_mask_source": "modnet"
     },
@@ -731,11 +973,14 @@
       "frame_name": "000022.jpg",
       "frame_index": 22,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000022_gt_stage1_contour.png",
-      "iou_before": 0.6991311659192825,
-      "iou_after": 0.823030459787603,
+      "iou_before": 0.7006599402242594,
+      "iou_after": 0.821096873242434,
       "align": {
         "applied": true,
-        "scale": 0.9406179451994157,
+        "accepted": true,
+        "scale": 0.9417536957885864,
+        "tx_px": 34.93860036466663,
+        "ty_px": 45.29266927102583,
         "center_src": [
           514.0,
           563.0
@@ -746,9 +991,9 @@
         ],
         "bbox_src": [
           239.0,
-          133.0,
+          134.0,
           789.0,
-          993.0
+          992.0
         ],
         "bbox_tgt": [
           270.0,
@@ -756,7 +1001,15 @@
           768.0,
           995.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7006599402242594,
+        "iou_after": 0.821096873242434,
+        "outside_before": 0.19931232091690546,
+        "outside_after": 0.06974641580918758,
+        "area_ratio_before": 1.0599397443996308,
+        "area_ratio_after": 0.9405623856034468,
+        "score_before": 0.4134536619172005,
+        "score_after": 0.7245617073241686
       },
       "gt_mask_source": "modnet"
     },
@@ -764,14 +1017,17 @@
       "frame_name": "000023.jpg",
       "frame_index": 23,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000023_gt_stage1_contour.png",
-      "iou_before": 0.7687604496771531,
-      "iou_after": 0.8656277228328162,
+      "iou_before": 0.7656640379649662,
+      "iou_after": 0.8655060147043089,
       "align": {
         "applied": true,
-        "scale": 0.9651321398124467,
+        "accepted": true,
+        "scale": 0.9645515080297689,
+        "tx_px": 20.87632197414814,
+        "ty_px": 27.634743439091267,
         "center_src": [
           532.5,
-          568.5
+          568.0
         ],
         "center_tgt": [
           534.5,
@@ -779,7 +1035,7 @@
         ],
         "bbox_src": [
           257.0,
-          144.0,
+          143.0,
           808.0,
           993.0
         ],
@@ -789,7 +1045,15 @@
           794.0,
           995.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7656640379649662,
+        "iou_after": 0.8655060147043089,
+        "outside_before": 0.15149921500993804,
+        "outside_after": 0.05934730424526343,
+        "area_ratio_before": 1.0452704505218229,
+        "area_ratio_after": 0.9732580981560376,
+        "score_before": 0.5482404970639062,
+        "score_after": 0.7843174778994447
       },
       "gt_mask_source": "modnet"
     },
@@ -797,14 +1061,17 @@
       "frame_name": "000024.jpg",
       "frame_index": 24,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000024_gt_stage1_contour.png",
-      "iou_before": 0.7325325434138653,
-      "iou_after": 0.8699405037146645,
+      "iou_before": 0.7288259553460781,
+      "iou_after": 0.8787070562968591,
       "align": {
         "applied": true,
-        "scale": 0.9512412891986063,
+        "accepted": true,
+        "scale": 0.9490219715797904,
+        "tx_px": 29.41047056006471,
+        "ty_px": 35.58296521372961,
         "center_src": [
-          546.5,
-          571.0
+          547.5,
+          570.5
         ],
         "center_tgt": [
           549.0,
@@ -812,8 +1079,8 @@
         ],
         "bbox_src": [
           267.0,
-          141.0,
-          826.0,
+          140.0,
+          828.0,
           1001.0
         ],
         "bbox_tgt": [
@@ -822,7 +1089,15 @@
           809.0,
           995.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7288259553460781,
+        "iou_after": 0.8787070562968591,
+        "outside_before": 0.18443666454487587,
+        "outside_after": 0.047461758278702304,
+        "area_ratio_before": 1.070007297494527,
+        "area_ratio_after": 0.9647287764534177,
+        "score_before": 0.460137542061055,
+        "score_after": 0.8132228336787477
       },
       "gt_mask_source": "modnet"
     },
@@ -830,23 +1105,26 @@
       "frame_name": "000025.jpg",
       "frame_index": 25,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000025_gt_stage1_contour.png",
-      "iou_before": 0.7475676268259929,
-      "iou_after": 0.8793103448275862,
+      "iou_before": 0.7424833038026442,
+      "iou_after": 0.8806480300042532,
       "align": {
         "applied": true,
-        "scale": 0.9533855514196532,
+        "accepted": true,
+        "scale": 0.9511487808220884,
+        "tx_px": 28.636852253329835,
+        "ty_px": 34.796343712231646,
         "center_src": [
           555.5,
-          569.5
+          569.0
         ],
         "center_tgt": [
           557.0,
           576.0
         ],
         "bbox_src": [
-          278.0,
-          139.0,
-          833.0,
+          277.0,
+          138.0,
+          834.0,
           1000.0
         ],
         "bbox_tgt": [
@@ -855,7 +1133,15 @@
           816.0,
           995.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7424833038026442,
+        "iou_after": 0.8806480300042532,
+        "outside_before": 0.1749310877533093,
+        "outside_after": 0.04746729566061093,
+        "area_ratio_before": 1.068036234228405,
+        "area_ratio_after": 0.966968618570042,
+        "score_before": 0.4872495454869567,
+        "score_after": 0.8152459256052301
       },
       "gt_mask_source": "modnet"
     },
@@ -863,13 +1149,16 @@
       "frame_name": "000026.jpg",
       "frame_index": 26,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000026_gt_stage1_contour.png",
-      "iou_before": 0.7684152831065751,
-      "iou_after": 0.8924114098825998,
+      "iou_before": 0.7702762861356112,
+      "iou_after": 0.8896543230782257,
       "align": {
         "applied": true,
-        "scale": 0.9629942811835757,
+        "accepted": true,
+        "scale": 0.964997183766638,
+        "tx_px": 19.83663623158327,
+        "ty_px": 29.32909539619959,
         "center_src": [
-          580.5,
+          581.0,
           566.5
         ],
         "center_tgt": [
@@ -877,10 +1166,10 @@
           576.0
         ],
         "bbox_src": [
-          304.0,
-          139.0,
+          305.0,
+          140.0,
           857.0,
-          994.0
+          993.0
         ],
         "bbox_tgt": [
           319.0,
@@ -888,7 +1177,15 @@
           842.0,
           995.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7702762861356112,
+        "iou_after": 0.8896543230782257,
+        "outside_before": 0.15376738499159406,
+        "outside_after": 0.051509929427211554,
+        "area_ratio_before": 1.0583782209928665,
+        "area_ratio_after": 0.9855874217498908,
+        "score_before": 0.5469453114357259,
+        "score_after": 0.8195394152214858
       },
       "gt_mask_source": "modnet"
     },
@@ -896,11 +1193,14 @@
       "frame_name": "000027.jpg",
       "frame_index": 27,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000027_gt_stage1_contour.png",
-      "iou_before": 0.7711840561110692,
-      "iou_after": 0.8293179077869913,
+      "iou_before": 0.7737582405483148,
+      "iou_after": 0.8297017245207609,
       "align": {
         "applied": true,
-        "scale": 0.9574009294572272,
+        "accepted": true,
+        "scale": 0.9585449981013459,
+        "tx_px": 16.730448609763357,
+        "ty_px": 36.21226108603014,
         "center_src": [
           584.5,
           572.0
@@ -911,9 +1211,9 @@
         ],
         "bbox_src": [
           311.0,
-          139.0,
+          140.0,
           858.0,
-          1005.0
+          1004.0
         ],
         "bbox_tgt": [
           324.0,
@@ -921,7 +1221,15 @@
           830.0,
           1013.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7737582405483148,
+        "iou_after": 0.8297017245207609,
+        "outside_before": 0.14304549958082463,
+        "outside_after": 0.07095025774477466,
+        "area_ratio_before": 1.0368315830231767,
+        "area_ratio_after": 0.9534804700155671,
+        "score_before": 0.5690840405499552,
+        "score_after": 0.7320580953659378
       },
       "gt_mask_source": "modnet"
     },
@@ -929,22 +1237,25 @@
       "frame_name": "000028.jpg",
       "frame_index": 28,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000028_gt_stage1_contour.png",
-      "iou_before": 0.7575445019740706,
-      "iou_after": 0.7053730157070253,
+      "iou_before": 0.757495645045599,
+      "iou_after": 0.7125610968726804,
       "align": {
         "applied": true,
-        "scale": 0.9507205046505751,
+        "accepted": true,
+        "scale": 0.9502499752499753,
+        "tx_px": 10.710763785763788,
+        "ty_px": 37.730639293139234,
         "center_src": [
-          557.5,
-          577.0
+          557.0,
+          577.5
         ],
         "center_tgt": [
           540.0,
           586.5
         ],
         "bbox_src": [
-          331.0,
-          133.0,
+          330.0,
+          134.0,
           784.0,
           1021.0
         ],
@@ -954,7 +1265,15 @@
           750.0,
           1019.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.757495645045599,
+        "iou_after": 0.7125610968726804,
+        "outside_before": 0.16534816677079178,
+        "outside_after": 0.153047125996704,
+        "area_ratio_before": 1.0677956565770226,
+        "area_ratio_after": 0.965664132199521,
+        "score_before": 0.5151722017841421,
+        "score_after": 0.5045740420651109
       },
       "gt_mask_source": "modnet"
     },
@@ -962,32 +1281,43 @@
       "frame_name": "000029.jpg",
       "frame_index": 29,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000029_gt_stage1_contour.png",
-      "iou_before": 0.7514337268505568,
-      "iou_after": 0.6408239436619718,
+      "iou_before": 0.7535659409663998,
+      "iou_after": 0.6397056746603396,
       "align": {
         "applied": true,
-        "scale": 0.9300793039234573,
+        "accepted": true,
+        "scale": 0.9284485828972235,
+        "tx_px": 14.853279406527065,
+        "ty_px": 52.213616251199255,
         "center_src": [
-          550.5,
+          550.0,
           576.0
         ],
         "center_tgt": [
-          526.0,
+          525.5,
           587.0
         ],
         "bbox_src": [
-          377.0,
-          129.0,
+          376.0,
+          130.0,
           724.0,
-          1023.0
+          1022.0
         ],
         "bbox_tgt": [
           371.0,
           155.0,
-          681.0,
+          680.0,
           1019.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7535659409663998,
+        "iou_after": 0.6397056746603396,
+        "outside_before": 0.17332440503679075,
+        "outside_after": 0.19254492298916143,
+        "area_ratio_before": 1.0826097825181236,
+        "area_ratio_after": 0.9348554287142739,
+        "score_before": 0.49523859659833563,
+        "score_after": 0.3771642457735426
       },
       "gt_mask_source": "modnet"
     },
@@ -995,32 +1325,43 @@
       "frame_name": "000030.jpg",
       "frame_index": 30,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000030_gt_stage1_contour.png",
-      "iou_before": 0.8036408449539312,
-      "iou_after": 0.6985064608155731,
+      "iou_before": 0.8039849798186991,
+      "iou_after": 0.6848262703354088,
       "align": {
         "applied": true,
-        "scale": 0.928000366813392,
+        "accepted": true,
+        "scale": 0.9225,
+        "tx_px": 25.605000000000018,
+        "ty_px": 53.83375000000001,
         "center_src": [
-          581.5,
+          582.0,
           578.5
         ],
         "center_tgt": [
-          563.0,
+          562.5,
           587.5
         ],
         "bbox_src": [
-          446.0,
-          138.0,
-          717.0,
-          1019.0
+          445.0,
+          139.0,
+          719.0,
+          1018.0
         ],
         "bbox_tgt": [
           444.0,
           157.0,
-          682.0,
+          681.0,
           1018.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8039849798186991,
+        "iou_after": 0.6848262703354088,
+        "outside_before": 0.1439529374466099,
+        "outside_after": 0.15436283222419708,
+        "area_ratio_before": 1.0860096788385394,
+        "area_ratio_after": 0.9255341532929092,
+        "score_before": 0.584005517712625,
+        "score_after": 0.47345781296445905
       },
       "gt_mask_source": "modnet"
     },
@@ -1028,13 +1369,16 @@
       "frame_name": "000031.jpg",
       "frame_index": 31,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000031_gt_stage1_contour.png",
-      "iou_before": 0.8467023554603854,
-      "iou_after": 0.870765018486779,
+      "iou_before": 0.8487913172175628,
+      "iou_after": 0.876504748982361,
       "align": {
         "applied": true,
-        "scale": 1.00592138063279,
+        "accepted": true,
+        "scale": 1.0024761904761905,
+        "tx_px": -3.4869523809524026,
+        "ty_px": 9.076190476190504,
         "center_src": [
-          600.0,
+          600.5,
           575.0
         ],
         "center_tgt": [
@@ -1044,7 +1388,7 @@
         "bbox_src": [
           526.0,
           138.0,
-          674.0,
+          675.0,
           1012.0
         ],
         "bbox_tgt": [
@@ -1053,7 +1397,15 @@
           675.0,
           1013.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8487913172175628,
+        "iou_after": 0.876504748982361,
+        "outside_before": 0.06880728547728583,
+        "outside_after": 0.05534692731548099,
+        "area_ratio_before": 0.9725038332150948,
+        "area_ratio_after": 0.9780877405771563,
+        "score_before": 0.7548016351518309,
+        "score_after": 0.8009099067295479
       },
       "gt_mask_source": "modnet"
     },
@@ -1061,24 +1413,27 @@
       "frame_name": "000032.jpg",
       "frame_index": 32,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000032_gt_stage1_contour.png",
-      "iou_before": 0.8776018520432419,
-      "iou_after": 0.8096595407759303,
+      "iou_before": 0.8776123705396669,
+      "iou_after": 0.8133773740710157,
       "align": {
         "applied": true,
-        "scale": 0.9407464842085327,
+        "accepted": true,
+        "scale": 0.9367741556879199,
+        "tx_px": 34.76905607229844,
+        "ty_px": 47.41808632375819,
         "center_src": [
-          629.5,
-          576.5
+          629.0,
+          576.0
         ],
         "center_tgt": [
           624.0,
           587.0
         ],
         "bbox_src": [
-          532.0,
-          146.0,
+          531.0,
+          144.0,
           727.0,
-          1007.0
+          1008.0
         ],
         "bbox_tgt": [
           538.0,
@@ -1086,7 +1441,15 @@
           710.0,
           1017.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8776123705396669,
+        "iou_after": 0.8133773740710157,
+        "outside_before": 0.05892872913538815,
+        "outside_after": 0.03348764655562824,
+        "area_ratio_before": 0.9867968103185324,
+        "area_ratio_after": 0.8659636585472134,
+        "score_before": 0.7921310061323352,
+        "score_after": 0.7628075975628061
       },
       "gt_mask_source": "modnet"
     },
@@ -1094,13 +1457,16 @@
       "frame_name": "000033.jpg",
       "frame_index": 33,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000033_gt_stage1_contour.png",
-      "iou_before": 0.8444847560708433,
-      "iou_after": 0.8490859876154103,
+      "iou_before": 0.8434180502006452,
+      "iou_after": 0.8534524429240723,
       "align": {
         "applied": true,
-        "scale": 0.9466537461361072,
+        "accepted": true,
+        "scale": 0.9446507083536884,
+        "tx_px": 39.006570591108925,
+        "ty_px": 38.574914509037626,
         "center_src": [
-          641.0,
+          641.5,
           579.5
         ],
         "center_tgt": [
@@ -1110,7 +1476,7 @@
         "bbox_src": [
           527.0,
           135.0,
-          755.0,
+          756.0,
           1024.0
         ],
         "bbox_tgt": [
@@ -1119,7 +1485,15 @@
           750.0,
           1018.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8434180502006452,
+        "iou_after": 0.8534524429240723,
+        "outside_before": 0.10367927157855616,
+        "outside_after": 0.04527634794363854,
+        "area_ratio_before": 1.042704074712755,
+        "area_ratio_after": 0.9316327914591851,
+        "score_before": 0.6893687502578852,
+        "score_after": 0.7895946848585277
       },
       "gt_mask_source": "modnet"
     },
@@ -1127,13 +1501,16 @@
       "frame_name": "000034.jpg",
       "frame_index": 34,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000034_gt_stage1_contour.png",
-      "iou_before": 0.7584893988378858,
-      "iou_after": 0.8135481669266771,
+      "iou_before": 0.7594473102431835,
+      "iou_after": 0.8204353577085749,
       "align": {
         "applied": true,
-        "scale": 0.9347724230254351,
+        "accepted": true,
+        "scale": 0.9336805555555556,
+        "tx_px": 53.23767361111106,
+        "ty_px": 41.1973958333333,
         "center_src": [
-          659.0,
+          659.5,
           583.5
         ],
         "center_tgt": [
@@ -1143,7 +1520,7 @@
         "bbox_src": [
           452.0,
           134.0,
-          866.0,
+          867.0,
           1033.0
         ],
         "bbox_tgt": [
@@ -1152,7 +1529,15 @@
           857.0,
           1018.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7594473102431835,
+        "iou_after": 0.8204353577085749,
+        "outside_before": 0.1700664384940608,
+        "outside_after": 0.0728218945503534,
+        "area_ratio_before": 1.08372170148889,
+        "area_ratio_after": 0.9458204604562671,
+        "score_before": 0.5057564341308695,
+        "score_after": 0.7199586184838485
       },
       "gt_mask_source": "modnet"
     },
@@ -1160,32 +1545,43 @@
       "frame_name": "000035.jpg",
       "frame_index": 35,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000035_gt_stage1_contour.png",
-      "iou_before": 0.7490832536411858,
-      "iou_after": 0.8095131961203252,
+      "iou_before": 0.7569175428887659,
+      "iou_after": 0.8173074700020808,
       "align": {
         "applied": true,
-        "scale": 0.9248395552743379,
+        "accepted": true,
+        "scale": 0.927121469665272,
+        "tx_px": 55.344755164748904,
+        "ty_px": 43.24325804131797,
         "center_src": [
-          657.0,
-          587.0
+          656.5,
+          586.5
         ],
         "center_tgt": [
-          664.5,
+          664.0,
           587.0
         ],
         "bbox_src": [
-          417.0,
+          418.0,
           139.0,
-          897.0,
-          1035.0
+          895.0,
+          1034.0
         ],
         "bbox_tgt": [
           451.0,
           157.0,
-          878.0,
+          877.0,
           1017.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7569175428887659,
+        "iou_after": 0.8173074700020808,
+        "outside_before": 0.16038734826046255,
+        "outside_after": 0.054398416463077554,
+        "area_ratio_before": 1.0538905691503986,
+        "area_ratio_after": 0.9069692215626971,
+        "score_before": 0.5222501122441948,
+        "score_after": 0.740148376639434
       },
       "gt_mask_source": "modnet"
     },
@@ -1193,32 +1589,43 @@
       "frame_name": "000036.jpg",
       "frame_index": 36,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000036_gt_stage1_contour.png",
-      "iou_before": 0.7359248339456134,
-      "iou_after": 0.7429951690821256,
+      "iou_before": 0.7417645035774255,
+      "iou_after": 0.746457438287337,
       "align": {
         "applied": true,
-        "scale": 0.9263753904516623,
+        "accepted": true,
+        "scale": 0.9263563865696279,
+        "tx_px": 55.53695246930522,
+        "ty_px": 41.286939403046176,
         "center_src": [
           645.5,
-          581.5
+          581.0
         ],
         "center_tgt": [
           653.5,
-          579.0
+          579.5
         ],
         "bbox_src": [
           383.0,
           145.0,
           908.0,
-          1018.0
+          1017.0
         ],
         "bbox_tgt": [
           421.0,
-          157.0,
+          158.0,
           886.0,
           1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7417645035774255,
+        "iou_after": 0.746457438287337,
+        "outside_before": 0.16159545115016996,
+        "outside_after": 0.09081959361779496,
+        "area_ratio_before": 1.0323235502399875,
+        "area_ratio_after": 0.8871744433078921,
+        "score_before": 0.5101396119505568,
+        "score_after": 0.6193379646356294
       },
       "gt_mask_source": "modnet"
     },
@@ -1226,13 +1633,16 @@
       "frame_name": "000037.jpg",
       "frame_index": 37,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000037_gt_stage1_contour.png",
-      "iou_before": 0.807528831713468,
-      "iou_after": 0.8317541091287968,
+      "iou_before": 0.814122422818075,
+      "iou_after": 0.8395819132015451,
       "align": {
         "applied": true,
-        "scale": 0.9496408995595207,
+        "accepted": true,
+        "scale": 0.9516381835673595,
+        "tx_px": 34.257331560571174,
+        "ty_px": 28.95312989806621,
         "center_src": [
-          666.5,
+          667.0,
           578.0
         ],
         "center_tgt": [
@@ -1240,10 +1650,10 @@
           579.0
         ],
         "bbox_src": [
-          396.0,
-          150.0,
+          397.0,
+          151.0,
           937.0,
-          1006.0
+          1005.0
         ],
         "bbox_tgt": [
           422.0,
@@ -1251,7 +1661,15 @@
           916.0,
           1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.814122422818075,
+        "iou_after": 0.8395819132015451,
+        "outside_before": 0.10571935945677428,
+        "outside_after": 0.04422352322403194,
+        "area_ratio_before": 1.0073127871332772,
+        "area_ratio_after": 0.9139329083301156,
+        "score_before": 0.6657269110394233,
+        "score_after": 0.7764374731823066
       },
       "gt_mask_source": "modnet"
     },
@@ -1259,11 +1677,14 @@
       "frame_name": "000038.jpg",
       "frame_index": 38,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000038_gt_stage1_contour.png",
-      "iou_before": 0.7900485183457819,
-      "iou_after": 0.8512487012737138,
+      "iou_before": 0.795492819957374,
+      "iou_after": 0.8538250945891906,
       "align": {
         "applied": true,
-        "scale": 0.9336228783603514,
+        "accepted": true,
+        "scale": 0.9363502196241551,
+        "tx_px": 41.18214582384314,
+        "ty_px": 33.853222837614226,
         "center_src": [
           702.0,
           579.0
@@ -1273,10 +1694,10 @@
           576.0
         ],
         "bbox_src": [
-          423.0,
-          143.0,
-          981.0,
-          1015.0
+          424.0,
+          144.0,
+          980.0,
+          1014.0
         ],
         "bbox_tgt": [
           447.0,
@@ -1284,7 +1705,15 @@
           950.0,
           997.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.795492819957374,
+        "iou_after": 0.8538250945891906,
+        "outside_before": 0.12815151793646418,
+        "outside_after": 0.03194643043978656,
+        "area_ratio_before": 1.0332352103314024,
+        "area_ratio_after": 0.907574462697433,
+        "score_before": 0.6097384070614433,
+        "score_after": 0.807000392003376
       },
       "gt_mask_source": "modnet"
     },
@@ -1292,32 +1721,43 @@
       "frame_name": "000039.jpg",
       "frame_index": 39,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000039_gt_stage1_contour.png",
-      "iou_before": 0.7700568320490917,
-      "iou_after": 0.7006266582258672,
+      "iou_before": 0.7811941642397895,
+      "iou_after": 0.6904047763896946,
       "align": {
         "applied": true,
-        "scale": 0.9404513115671429,
+        "accepted": true,
+        "scale": 0.9423895930773739,
+        "tx_px": 22.1914409496776,
+        "ty_px": 30.414036015123088,
         "center_src": [
           715.0,
           580.0
         ],
         "center_tgt": [
-          696.5,
+          696.0,
           577.0
         ],
         "bbox_src": [
-          463.0,
-          147.0,
-          967.0,
-          1013.0
+          464.0,
+          148.0,
+          966.0,
+          1012.0
         ],
         "bbox_tgt": [
           467.0,
           157.0,
-          926.0,
+          925.0,
           997.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7811941642397895,
+        "iou_after": 0.6904047763896946,
+        "outside_before": 0.13383302654977694,
+        "outside_after": 0.14358546858546858,
+        "area_ratio_before": 1.0257042056336452,
+        "area_ratio_after": 0.911687293498348,
+        "score_before": 0.589974072248058,
+        "score_after": 0.4930318855392459
       },
       "gt_mask_source": "modnet"
     },
@@ -1325,14 +1765,17 @@
       "frame_name": "000040.jpg",
       "frame_index": 40,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000040_gt_stage1_contour.png",
-      "iou_before": 0.7493940897172419,
-      "iou_after": 0.7031501917796117,
+      "iou_before": 0.7514490234610555,
+      "iou_after": 0.70678925869671,
       "align": {
         "applied": true,
-        "scale": 0.935278614259963,
+        "accepted": true,
+        "scale": 0.9358492055140482,
+        "tx_px": 25.769710880774483,
+        "ty_px": 35.73953619909503,
         "center_src": [
           674.5,
-          580.0
+          580.5
         ],
         "center_tgt": [
           657.0,
@@ -1340,7 +1783,7 @@
         ],
         "bbox_src": [
           454.0,
-          150.0,
+          151.0,
           895.0,
           1010.0
         ],
@@ -1350,7 +1793,15 @@
           853.0,
           1001.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7514490234610555,
+        "iou_after": 0.70678925869671,
+        "outside_before": 0.1552393788829783,
+        "outside_after": 0.12849908630549217,
+        "area_ratio_before": 1.03205972409706,
+        "area_ratio_after": 0.9053517927106312,
+        "score_before": 0.5293388653019457,
+        "score_after": 0.5295295638927209
       },
       "gt_mask_source": "modnet"
     },
@@ -1358,32 +1809,43 @@
       "frame_name": "000041.jpg",
       "frame_index": 41,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000041_gt_stage1_contour.png",
-      "iou_before": 0.7710631316550257,
-      "iou_after": 0.693730107430105,
+      "iou_before": 0.7754037148145784,
+      "iou_after": 0.7010411624262612,
       "align": {
         "applied": true,
-        "scale": 0.9299996901818632,
+        "accepted": true,
+        "scale": 0.931347399076742,
+        "tx_px": 25.055537999194485,
+        "ty_px": 37.9901400377978,
         "center_src": [
           649.0,
-          581.5
+          582.5
         ],
         "center_tgt": [
-          629.0,
+          629.5,
           580.5
         ],
         "bbox_src": [
           464.0,
-          147.0,
+          148.0,
           834.0,
-          1016.0
+          1017.0
         ],
         "bbox_tgt": [
           464.0,
           160.0,
-          794.0,
+          795.0,
           1001.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7754037148145784,
+        "iou_after": 0.7010411624262612,
+        "outside_before": 0.15225791819680567,
+        "outside_after": 0.14079861634840668,
+        "area_ratio_before": 1.0626616364327361,
+        "area_ratio_after": 0.9218212660246011,
+        "score_before": 0.5501729089050781,
+        "score_after": 0.5078358809968962
       },
       "gt_mask_source": "modnet"
     },
@@ -1391,13 +1853,16 @@
       "frame_name": "000042.jpg",
       "frame_index": 42,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000042_gt_stage1_contour.png",
-      "iou_before": 0.8402023101633518,
-      "iou_after": 0.8304678459249463,
+      "iou_before": 0.841544997314322,
+      "iou_after": 0.8372489990999659,
       "align": {
         "applied": true,
-        "scale": 0.9392003930479642,
+        "accepted": true,
+        "scale": 0.9410189638652513,
+        "tx_px": 30.805505355228547,
+        "ty_px": 40.79613370521099,
         "center_src": [
-          633.0,
+          632.5,
           573.0
         ],
         "center_tgt": [
@@ -1407,7 +1872,7 @@
         "bbox_src": [
           510.0,
           145.0,
-          756.0,
+          755.0,
           1001.0
         ],
         "bbox_tgt": [
@@ -1416,7 +1881,15 @@
           736.0,
           1001.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.841544997314322,
+        "iou_after": 0.8372489990999659,
+        "outside_before": 0.10958408679927667,
+        "outside_after": 0.05679222413873479,
+        "area_ratio_before": 1.0543087482296547,
+        "area_ratio_after": 0.9347859243926354,
+        "score_before": 0.6766443283179191,
+        "score_after": 0.7579709334883793
       },
       "gt_mask_source": "modnet"
     },
@@ -1424,24 +1897,27 @@
       "frame_name": "000043.jpg",
       "frame_index": 43,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000043_gt_stage1_contour.png",
-      "iou_before": 0.8886527444095361,
-      "iou_after": 0.8078996923868674,
+      "iou_before": 0.8883000219381805,
+      "iou_after": 0.8170215766464533,
       "align": {
         "applied": true,
-        "scale": 0.9425510794937546,
+        "accepted": true,
+        "scale": 0.9431344205026275,
+        "tx_px": 41.37039044736571,
+        "ty_px": 40.21435078526156,
         "center_src": [
-          621.0,
-          567.0
+          622.0,
+          566.5
         ],
         "center_tgt": [
           628.0,
           574.5
         ],
         "bbox_src": [
-          543.0,
+          544.0,
           144.0,
-          699.0,
-          990.0
+          700.0,
+          989.0
         ],
         "bbox_tgt": [
           558.0,
@@ -1449,7 +1925,15 @@
           698.0,
           992.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8883000219381805,
+        "iou_after": 0.8170215766464533,
+        "outside_before": 0.05207062679431733,
+        "outside_after": 0.03753132224883363,
+        "area_ratio_before": 0.9851664825627269,
+        "area_ratio_after": 0.8768162561755745,
+        "score_before": 0.812587795325887,
+        "score_after": 0.7614269418575508
       },
       "gt_mask_source": "modnet"
     },
@@ -1457,32 +1941,43 @@
       "frame_name": "000044.jpg",
       "frame_index": 44,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000044_gt_stage1_contour.png",
-      "iou_before": 0.8599697752858206,
-      "iou_after": 0.8732338824165672,
+      "iou_before": 0.8632653731964636,
+      "iou_after": 0.8796054638511338,
       "align": {
         "applied": true,
-        "scale": 0.9785298876207966,
+        "accepted": true,
+        "scale": 0.9774725949691807,
+        "tx_px": 13.282374789539404,
+        "ty_px": 26.205456437382054,
         "center_src": [
-          634.5,
-          563.0
+          634.0,
+          564.0
         ],
         "center_tgt": [
-          632.5,
+          633.0,
           577.5
         ],
         "bbox_src": [
-          554.0,
+          553.0,
           140.0,
           715.0,
-          986.0
+          988.0
         ],
         "bbox_tgt": [
           555.0,
           157.0,
-          710.0,
+          711.0,
           998.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8632653731964636,
+        "iou_after": 0.8796054638511338,
+        "outside_before": 0.06990084985835694,
+        "outside_after": 0.03891117832232578,
+        "area_ratio_before": 0.9925372260037255,
+        "area_ratio_after": 0.9490141406094403,
+        "score_before": 0.7667569881453705,
+        "score_after": 0.8250359387403716
       },
       "gt_mask_source": "modnet"
     },
@@ -1490,17 +1985,20 @@
       "frame_name": "000045.jpg",
       "frame_index": 45,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000045_gt_stage1_contour.png",
-      "iou_before": 0.7089826311090146,
-      "iou_after": 0.7363362556832351,
+      "iou_before": 0.7134266336708925,
+      "iou_after": 0.7348524826097386,
       "align": {
         "applied": true,
-        "scale": 0.889810360259566,
+        "accepted": true,
+        "scale": 0.8882859700156636,
+        "tx_px": 82.86084694562533,
+        "ty_px": 70.95628216603262,
         "center_src": [
           598.5,
           572.5
         ],
         "center_tgt": [
-          614.0,
+          614.5,
           579.5
         ],
         "bbox_src": [
@@ -1510,12 +2008,20 @@
           1008.0
         ],
         "bbox_tgt": [
-          481.0,
+          482.0,
           159.0,
           747.0,
           1000.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7134266336708925,
+        "iou_after": 0.7348524826097386,
+        "outside_before": 0.20174452120169728,
+        "outside_after": 0.08564538465211785,
+        "area_ratio_before": 1.0903236442695077,
+        "area_ratio_after": 0.8630926007975188,
+        "score_before": 0.41113924133909724,
+        "score_after": 0.6137549173612802
       },
       "gt_mask_source": "modnet"
     },
@@ -1523,21 +2029,24 @@
       "frame_name": "000046.jpg",
       "frame_index": 46,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000046_gt_stage1_contour.png",
-      "iou_before": 0.6745456251340339,
-      "iou_after": 0.729476207840977,
+      "iou_before": 0.6744782082081412,
+      "iou_after": 0.730396973377794,
       "align": {
         "applied": true,
-        "scale": 0.8893932064925293,
+        "accepted": true,
+        "scale": 0.8915724314044511,
+        "tx_px": 79.58069303996945,
+        "ty_px": 66.29163815814286,
         "center_src": [
-          590.5,
+          591.0,
           574.5
         ],
         "center_tgt": [
-          606.0,
+          606.5,
           578.5
         ],
         "bbox_src": [
-          381.0,
+          382.0,
           132.0,
           800.0,
           1017.0
@@ -1545,10 +2054,18 @@
         "bbox_tgt": [
           433.0,
           157.0,
-          779.0,
+          780.0,
           1000.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.6744782082081412,
+        "iou_after": 0.730396973377794,
+        "outside_before": 0.22890017748944244,
+        "outside_after": 0.09348773789633386,
+        "area_ratio_before": 1.0936686831162095,
+        "area_ratio_after": 0.8713572127814453,
+        "score_before": 0.3351267491759835,
+        "score_after": 0.599042815729001
       },
       "gt_mask_source": "modnet"
     },
@@ -1556,32 +2073,43 @@
       "frame_name": "000047.jpg",
       "frame_index": 47,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000047_gt_stage1_contour.png",
-      "iou_before": 0.6953449519933954,
-      "iou_after": 0.7760151393067558,
+      "iou_before": 0.6958906245938711,
+      "iou_after": 0.7722904863512619,
       "align": {
         "applied": true,
-        "scale": 0.9204814990512334,
+        "accepted": true,
+        "scale": 0.9219411307646602,
+        "tx_px": 54.10326111796701,
+        "ty_px": 50.68870263723204,
         "center_src": [
-          565.5,
+          565.0,
           572.5
         ],
         "center_tgt": [
           575.0,
-          578.0
+          578.5
         ],
         "bbox_src": [
           318.0,
           131.0,
-          813.0,
+          812.0,
           1014.0
         ],
         "bbox_tgt": [
           356.0,
           156.0,
           794.0,
-          1000.0
+          1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.6958906245938711,
+        "iou_after": 0.7722904863512619,
+        "outside_before": 0.21164874156195018,
+        "outside_after": 0.09305199125558407,
+        "area_ratio_before": 1.0855195339656867,
+        "area_ratio_after": 0.9248048201628563,
+        "score_before": 0.38457708969408455,
+        "score_after": 0.6436624909627376
       },
       "gt_mask_source": "modnet"
     },
@@ -1589,14 +2117,17 @@
       "frame_name": "000048.jpg",
       "frame_index": 48,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000048_gt_stage1_contour.png",
-      "iou_before": 0.7343976194305936,
-      "iou_after": 0.8946401365804363,
+      "iou_before": 0.7356984240927967,
+      "iou_after": 0.8938713355422747,
       "align": {
         "applied": true,
-        "scale": 0.9550292840963441,
+        "accepted": true,
+        "scale": 0.9556025369978858,
+        "tx_px": 22.375264270613116,
+        "ty_px": 39.473572938689244,
         "center_src": [
           526.5,
-          563.0
+          562.5
         ],
         "center_tgt": [
           525.5,
@@ -1606,7 +2137,7 @@
           269.0,
           134.0,
           784.0,
-          992.0
+          991.0
         ],
         "bbox_tgt": [
           287.0,
@@ -1614,7 +2145,15 @@
           764.0,
           999.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7356984240927967,
+        "iou_after": 0.8938713355422747,
+        "outside_before": 0.17223237065776958,
+        "outside_after": 0.03662589791592785,
+        "area_ratio_before": 1.04941381495564,
+        "area_ratio_after": 0.9604958808618504,
+        "score_before": 0.4885968702552749,
+        "score_after": 0.8428462085902461
       },
       "gt_mask_source": "modnet"
     },
@@ -1622,14 +2161,17 @@
       "frame_name": "000049.jpg",
       "frame_index": 49,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000049_gt_stage1_contour.png",
-      "iou_before": 0.7464757170795306,
-      "iou_after": 0.8937757993962171,
+      "iou_before": 0.749967653848511,
+      "iou_after": 0.8924933697197986,
       "align": {
         "applied": true,
-        "scale": 0.9558305647840531,
+        "accepted": true,
+        "scale": 0.9572898986039154,
+        "tx_px": 20.15770879062285,
+        "ty_px": 33.21662749157997,
         "center_src": [
-          531.0,
-          566.5
+          530.5,
+          567.0
         ],
         "center_tgt": [
           528.0,
@@ -1637,8 +2179,8 @@
         ],
         "bbox_src": [
           269.0,
-          137.0,
-          793.0,
+          138.0,
+          792.0,
           996.0
         ],
         "bbox_tgt": [
@@ -1647,7 +2189,15 @@
           772.0,
           997.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.749967653848511,
+        "iou_after": 0.8924933697197986,
+        "outside_before": 0.16471748198710656,
+        "outside_after": 0.04092388520825417,
+        "area_ratio_before": 1.0536957268782317,
+        "area_ratio_after": 0.9674181457832192,
+        "score_before": 0.5122167420607008,
+        "score_after": 0.8359428505199843
       },
       "gt_mask_source": "modnet"
     },
@@ -1655,14 +2205,17 @@
       "frame_name": "000050.jpg",
       "frame_index": 50,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000050_gt_stage1_contour.png",
-      "iou_before": 0.7287227280938268,
-      "iou_after": 0.8782251475607614,
+      "iou_before": 0.7296076450000335,
+      "iou_after": 0.8795123592755751,
       "align": {
         "applied": true,
-        "scale": 0.9522729888109907,
+        "accepted": true,
+        "scale": 0.9508218241186075,
+        "tx_px": 25.425051295062417,
+        "ty_px": 35.982382076512295,
         "center_src": [
-          547.0,
-          568.5
+          547.5,
+          569.0
         ],
         "center_tgt": [
           546.0,
@@ -1671,8 +2224,8 @@
         "bbox_src": [
           286.0,
           137.0,
-          808.0,
-          1000.0
+          809.0,
+          1001.0
         ],
         "bbox_tgt": [
           303.0,
@@ -1680,7 +2233,15 @@
           789.0,
           997.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7296076450000335,
+        "iou_after": 0.8795123592755751,
+        "outside_before": 0.18550393330195655,
+        "outside_after": 0.050780024762690876,
+        "area_ratio_before": 1.0742937399678973,
+        "area_ratio_after": 0.9723113964686998,
+        "score_before": 0.458694971643681,
+        "score_after": 0.8098517817046904
       },
       "gt_mask_source": "modnet"
     },
@@ -1688,14 +2249,17 @@
       "frame_name": "000051.jpg",
       "frame_index": 51,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000051_gt_stage1_contour.png",
-      "iou_before": 0.747856641856601,
-      "iou_after": 0.8789167326664155,
+      "iou_before": 0.7523700243149468,
+      "iou_after": 0.8790375893612115,
       "align": {
         "applied": true,
-        "scale": 0.9517537460014591,
+        "accepted": true,
+        "scale": 0.952317062207839,
+        "tx_px": 23.84549397698663,
+        "ty_px": 34.155433072635674,
         "center_src": [
           563.0,
-          569.0
+          569.5
         ],
         "center_tgt": [
           560.0,
@@ -1703,7 +2267,7 @@
         ],
         "bbox_src": [
           306.0,
-          137.0,
+          138.0,
           820.0,
           1001.0
         ],
@@ -1713,7 +2277,15 @@
           799.0,
           997.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7523700243149468,
+        "iou_after": 0.8790375893612115,
+        "outside_before": 0.16428826122250798,
+        "outside_after": 0.044557888492484564,
+        "area_ratio_before": 1.0565419174875958,
+        "area_ratio_after": 0.9593609977796838,
+        "score_before": 0.5141360143259662,
+        "score_after": 0.8172588798075446
       },
       "gt_mask_source": "modnet"
     },
@@ -1721,22 +2293,25 @@
       "frame_name": "000052.jpg",
       "frame_index": 52,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000052_gt_stage1_contour.png",
-      "iou_before": 0.7407639153381577,
-      "iou_after": 0.8280929316148099,
+      "iou_before": 0.741476114086843,
+      "iou_after": 0.8322997164722868,
       "align": {
         "applied": true,
-        "scale": 0.9563901706944191,
+        "accepted": true,
+        "scale": 0.956025103820695,
+        "tx_px": 20.209038122865763,
+        "ty_px": 34.455753581755516,
         "center_src": [
-          596.5,
-          567.0
+          596.0,
+          567.5
         ],
         "center_tgt": [
           590.0,
           577.0
         ],
         "bbox_src": [
-          348.0,
-          138.0,
+          347.0,
+          139.0,
           845.0,
           996.0
         ],
@@ -1746,7 +2321,15 @@
           822.0,
           997.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.741476114086843,
+        "iou_after": 0.8322997164722868,
+        "outside_before": 0.1734821448866865,
+        "outside_after": 0.07831230479914505,
+        "area_ratio_before": 1.0624617613910803,
+        "area_ratio_after": 0.9717356303332797,
+        "score_before": 0.48985381998270233,
+        "score_after": 0.7254475302067722
       },
       "gt_mask_source": "modnet"
     },
@@ -1754,24 +2337,27 @@
       "frame_name": "000053.jpg",
       "frame_index": 53,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000053_gt_stage1_contour.png",
-      "iou_before": 0.7862973166003469,
-      "iou_after": 0.7674090844347154,
+      "iou_before": 0.782508463763493,
+      "iou_after": 0.7730065044567574,
       "align": {
         "applied": true,
-        "scale": 0.9616897914281224,
+        "accepted": true,
+        "scale": 0.9576744457831661,
+        "tx_px": 10.987890289135976,
+        "ty_px": 35.59114699998054,
         "center_src": [
-          614.5,
-          580.5
+          614.0,
+          581.0
         ],
         "center_tgt": [
           599.0,
           592.0
         ],
         "bbox_src": [
-          413.0,
+          411.0,
           140.0,
-          816.0,
-          1021.0
+          817.0,
+          1022.0
         ],
         "bbox_tgt": [
           410.0,
@@ -1779,7 +2365,15 @@
           788.0,
           1026.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.782508463763493,
+        "iou_after": 0.7730065044567574,
+        "outside_before": 0.14212140961040198,
+        "outside_after": 0.11063376438897214,
+        "area_ratio_before": 1.048001399312005,
+        "area_ratio_after": 0.9616355291981442,
+        "score_before": 0.5765485583712651,
+        "score_after": 0.6221163436995709
       },
       "gt_mask_source": "modnet"
     },
@@ -1787,24 +2381,27 @@
       "frame_name": "000054.jpg",
       "frame_index": 54,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000054_gt_stage1_contour.png",
-      "iou_before": 0.8060717527349162,
-      "iou_after": 0.8044359009723467,
+      "iou_before": 0.8064285031999235,
+      "iou_after": 0.8090835908488925,
       "align": {
         "applied": true,
-        "scale": 0.922817234738625,
+        "accepted": true,
+        "scale": 0.9204054503157195,
+        "tx_px": 32.95571618477902,
+        "ty_px": 52.9434197407777,
         "center_src": [
-          603.0,
-          583.0
+          602.5,
+          583.5
         ],
         "center_tgt": [
           587.5,
           590.0
         ],
         "bbox_src": [
-          486.0,
+          485.0,
           125.0,
           720.0,
-          1041.0
+          1042.0
         ],
         "bbox_tgt": [
           483.0,
@@ -1812,7 +2409,15 @@
           692.0,
           1026.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8064285031999235,
+        "iou_after": 0.8090835908488925,
+        "outside_before": 0.14447127970409904,
+        "outside_after": 0.06973665877107427,
+        "area_ratio_before": 1.091208993733874,
+        "area_ratio_after": 0.9258938444526355,
+        "score_before": 0.5844080806934095,
+        "score_after": 0.7119748552860476
       },
       "gt_mask_source": "modnet"
     },
@@ -1820,14 +2425,17 @@
       "frame_name": "000055.jpg",
       "frame_index": 55,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000055_gt_stage1_contour.png",
-      "iou_before": 0.8798754951895869,
-      "iou_after": 0.8412843740238477,
+      "iou_before": 0.8814936350777935,
+      "iou_after": 0.841876339050203,
       "align": {
         "applied": true,
-        "scale": 1.0289389949528198,
+        "accepted": true,
+        "scale": 1.0283616323399325,
+        "tx_px": -14.045341036299419,
+        "ty_px": -6.47810838950079,
         "center_src": [
           601.0,
-          580.5
+          581.0
         ],
         "center_tgt": [
           604.0,
@@ -1837,7 +2445,7 @@
           528.0,
           147.0,
           674.0,
-          1014.0
+          1015.0
         ],
         "bbox_tgt": [
           527.0,
@@ -1845,7 +2453,15 @@
           681.0,
           1026.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8814936350777935,
+        "iou_after": 0.841876339050203,
+        "outside_before": 0.06371164501280002,
+        "outside_after": 0.11145957616044543,
+        "area_ratio_before": 1.0015528324144738,
+        "area_ratio_after": 1.0593567181067483,
+        "score_before": 0.7951412911793293,
+        "score_after": 0.678347433250117
       },
       "gt_mask_source": "modnet"
     },
@@ -1853,23 +2469,26 @@
       "frame_name": "000056.jpg",
       "frame_index": 56,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000056_gt_stage1_contour.png",
-      "iou_before": 0.8397190930338174,
-      "iou_after": 0.8432854537163703,
+      "iou_before": 0.8417833039662223,
+      "iou_after": 0.8503287029097353,
       "align": {
         "applied": true,
-        "scale": 0.9721532733478127,
+        "accepted": true,
+        "scale": 0.9727169186166909,
+        "tx_px": 14.019905777593635,
+        "ty_px": 25.865111824394262,
         "center_src": [
-          606.5,
-          581.0
+          605.5,
+          581.5
         ],
         "center_tgt": [
           603.0,
           591.5
         ],
         "bbox_src": [
-          530.0,
-          142.0,
-          683.0,
+          529.0,
+          143.0,
+          682.0,
           1020.0
         ],
         "bbox_tgt": [
@@ -1878,7 +2497,15 @@
           676.0,
           1026.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8417833039662223,
+        "iou_after": 0.8503287029097353,
+        "outside_before": 0.05884102144742222,
+        "outside_after": 0.025893570483687182,
+        "area_ratio_before": 0.9440974171813588,
+        "area_ratio_after": 0.8931195021523489,
+        "score_before": 0.7578679556075945,
+        "score_after": 0.8110971628428516
       },
       "gt_mask_source": "modnet"
     },
@@ -1886,13 +2513,16 @@
       "frame_name": "000057.jpg",
       "frame_index": 57,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000057_gt_stage1_contour.png",
-      "iou_before": 0.8326864430274467,
-      "iou_after": 0.8470493996850509,
+      "iou_before": 0.832190060454884,
+      "iou_after": 0.8483940785928895,
       "align": {
         "applied": true,
-        "scale": 0.9586759150503159,
+        "accepted": true,
+        "scale": 0.9565499044097897,
+        "tx_px": 23.41701031742275,
+        "ty_px": 36.853454677600325,
         "center_src": [
-          631.5,
+          631.0,
           572.0
         ],
         "center_tgt": [
@@ -1900,7 +2530,7 @@
           584.0
         ],
         "bbox_src": [
-          523.0,
+          522.0,
           139.0,
           740.0,
           1005.0
@@ -1911,7 +2541,15 @@
           728.0,
           1011.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.832190060454884,
+        "iou_after": 0.8483940785928895,
+        "outside_before": 0.10588027284317102,
+        "outside_after": 0.055135728888030026,
+        "area_ratio_before": 1.0324846272098387,
+        "area_ratio_after": 0.9446675634127594,
+        "score_before": 0.6784711731377229,
+        "score_after": 0.7717475471305594
       },
       "gt_mask_source": "modnet"
     },
@@ -1919,13 +2557,16 @@
       "frame_name": "000058.jpg",
       "frame_index": 58,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000058_gt_stage1_contour.png",
-      "iou_before": 0.7556663581026116,
-      "iou_after": 0.7532865077019829,
+      "iou_before": 0.7605353615588469,
+      "iou_after": 0.7604935828144269,
       "align": {
         "applied": true,
-        "scale": 0.9224978406711075,
+        "accepted": true,
+        "scale": 0.9224275576581904,
+        "tx_px": 57.891743051448884,
+        "ty_px": 45.4186649911295,
         "center_src": [
-          662.0,
+          662.5,
           585.5
         ],
         "center_tgt": [
@@ -1934,9 +2575,9 @@
         ],
         "bbox_src": [
           473.0,
-          140.0,
-          851.0,
-          1031.0
+          141.0,
+          852.0,
+          1030.0
         ],
         "bbox_tgt": [
           503.0,
@@ -1944,7 +2585,15 @@
           835.0,
           1016.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7605353615588469,
+        "iou_after": 0.7604935828144269,
+        "outside_before": 0.1606634446056337,
+        "outside_after": 0.08947320452059788,
+        "area_ratio_before": 1.0605023488469671,
+        "area_ratio_after": 0.9026812232103926,
+        "score_before": 0.5236015168105418,
+        "score_after": 0.6358120056400355
       },
       "gt_mask_source": "modnet"
     },
@@ -1952,11 +2601,14 @@
       "frame_name": "000059.jpg",
       "frame_index": 59,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000059_gt_stage1_contour.png",
-      "iou_before": 0.8091692977830134,
-      "iou_after": 0.8038861501925084,
+      "iou_before": 0.8132261254085529,
+      "iou_after": 0.8041027044151954,
       "align": {
         "applied": true,
+        "accepted": true,
         "scale": 0.9474688049858296,
+        "tx_px": 45.32532135229883,
+        "ty_px": 28.335811473318017,
         "center_src": [
           691.5,
           587.0
@@ -1977,7 +2629,15 @@
           932.0,
           1016.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8132261254085529,
+        "iou_after": 0.8041027044151954,
+        "outside_before": 0.11333128701159666,
+        "outside_after": 0.06984666383482005,
+        "area_ratio_before": 1.02356357951846,
+        "area_ratio_after": 0.9200370886910144,
+        "score_before": 0.6506094028588163,
+        "score_after": 0.7066111917858289
       },
       "gt_mask_source": "modnet"
     },
@@ -1985,32 +2645,43 @@
       "frame_name": "000060.jpg",
       "frame_index": 60,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000060_gt_stage1_contour.png",
-      "iou_before": 0.7815633135304719,
-      "iou_after": 0.8585462998608191,
+      "iou_before": 0.7899798657718121,
+      "iou_after": 0.8594026940801134,
       "align": {
         "applied": true,
-        "scale": 0.9388791012014788,
+        "accepted": true,
+        "scale": 0.9425825852000349,
+        "tx_px": 40.79026845637577,
+        "ty_px": 30.347566024579464,
         "center_src": [
           693.0,
           589.5
         ],
         "center_tgt": [
-          693.5,
+          694.0,
           586.0
         ],
         "bbox_src": [
-          423.0,
-          142.0,
-          963.0,
-          1037.0
+          424.0,
+          143.0,
+          962.0,
+          1036.0
         ],
         "bbox_tgt": [
           446.0,
           156.0,
-          941.0,
+          942.0,
           1016.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7899798657718121,
+        "iou_after": 0.8594026940801134,
+        "outside_before": 0.12784434021680338,
+        "outside_after": 0.03050853105838443,
+        "area_ratio_before": 1.024403017928438,
+        "area_ratio_after": 0.9110864845991529,
+        "score_before": 0.60714814282153,
+        "score_after": 0.8146596365352605
       },
       "gt_mask_source": "modnet"
     },
@@ -2018,14 +2689,17 @@
       "frame_name": "000061.jpg",
       "frame_index": 61,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000061_gt_stage1_contour.png",
-      "iou_before": 0.7547363540010599,
-      "iou_after": 0.8757557277196787,
+      "iou_before": 0.7591083301782144,
+      "iou_after": 0.875964034460705,
       "align": {
         "applied": true,
-        "scale": 0.9394146588449639,
+        "accepted": true,
+        "scale": 0.9399680073126142,
+        "tx_px": 35.561083180987225,
+        "ty_px": 37.96863574040219,
         "center_src": [
           659.0,
-          582.0
+          582.5
         ],
         "center_tgt": [
           655.0,
@@ -2033,7 +2707,7 @@
         ],
         "bbox_src": [
           386.0,
-          142.0,
+          143.0,
           932.0,
           1022.0
         ],
@@ -2043,7 +2717,15 @@
           902.0,
           1014.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7591083301782144,
+        "iou_after": 0.875964034460705,
+        "outside_before": 0.1532522764823994,
+        "outside_after": 0.025447848652268543,
+        "area_ratio_before": 1.0392869518345975,
+        "area_ratio_after": 0.9198783351942402,
+        "score_before": 0.5384653478695579,
+        "score_after": 0.8384045721879121
       },
       "gt_mask_source": "modnet"
     },
@@ -2051,13 +2733,16 @@
       "frame_name": "000062.jpg",
       "frame_index": 62,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000062_gt_stage1_contour.png",
-      "iou_before": 0.7571713463568801,
-      "iou_after": 0.8178366244340448,
+      "iou_before": 0.7630133475559496,
+      "iou_after": 0.8252833757952066,
       "align": {
         "applied": true,
-        "scale": 0.9367994185740318,
+        "accepted": true,
+        "scale": 0.9387480538820823,
+        "tx_px": 26.86435981181876,
+        "ty_px": 34.20988458674606,
         "center_src": [
-          635.0,
+          634.5,
           583.0
         ],
         "center_tgt": [
@@ -2066,9 +2751,9 @@
         ],
         "bbox_src": [
           363.0,
-          148.0,
-          907.0,
-          1018.0
+          149.0,
+          906.0,
+          1017.0
         ],
         "bbox_tgt": [
           379.0,
@@ -2076,7 +2761,15 @@
           866.0,
           1007.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7630133475559496,
+        "iou_after": 0.8252833757952066,
+        "outside_before": 0.14750381141800228,
+        "outside_after": 0.05077206527460958,
+        "area_ratio_before": 1.0311704479255612,
+        "area_ratio_after": 0.9095769724924389,
+        "score_before": 0.5518058198718524,
+        "score_after": 0.7531241665741812
       },
       "gt_mask_source": "modnet"
     },
@@ -2084,14 +2777,17 @@
       "frame_name": "000063.jpg",
       "frame_index": 63,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000063_gt_stage1_contour.png",
-      "iou_before": 0.7771398972676652,
-      "iou_after": 0.7632593108565457,
+      "iou_before": 0.7801804010353952,
+      "iou_after": 0.7588997619677335,
       "align": {
         "applied": true,
-        "scale": 0.9418535586277522,
+        "accepted": true,
+        "scale": 0.9419816369064384,
+        "tx_px": 23.060046189376408,
+        "ty_px": 35.563623049625335,
         "center_src": [
-          655.5,
-          579.5
+          656.0,
+          578.5
         ],
         "center_tgt": [
           641.0,
@@ -2100,8 +2796,8 @@
         "bbox_src": [
           431.0,
           146.0,
-          880.0,
-          1013.0
+          881.0,
+          1011.0
         ],
         "bbox_tgt": [
           438.0,
@@ -2109,7 +2805,15 @@
           844.0,
           1005.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7801804010353952,
+        "iou_after": 0.7588997619677335,
+        "outside_before": 0.13584742920120754,
+        "outside_after": 0.09591026529712017,
+        "area_ratio_before": 1.0290349356103254,
+        "area_ratio_after": 0.9129034113789335,
+        "score_before": 0.5854713402075267,
+        "score_after": 0.6259370402717785
       },
       "gt_mask_source": "modnet"
     },
@@ -2117,24 +2821,27 @@
       "frame_name": "000064.jpg",
       "frame_index": 64,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000064_gt_stage1_contour.png",
-      "iou_before": 0.7860019909640861,
-      "iou_after": 0.7992012350651094,
+      "iou_before": 0.7889302796173657,
+      "iou_after": 0.7934179454443805,
       "align": {
         "applied": true,
-        "scale": 0.9181818181818182,
+        "accepted": true,
+        "scale": 0.9201134825687012,
+        "tx_px": 42.36277511199887,
+        "ty_px": 47.03531493584035,
         "center_src": [
-          680.0,
-          570.5
+          680.5,
+          570.0
         ],
         "center_tgt": [
           668.5,
           571.5
         ],
         "bbox_src": [
-          521.0,
+          522.0,
           136.0,
           839.0,
-          1005.0
+          1004.0
         ],
         "bbox_tgt": [
           529.0,
@@ -2142,7 +2849,15 @@
           808.0,
           988.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7889302796173657,
+        "iou_after": 0.7934179454443805,
+        "outside_before": 0.1506902441640743,
+        "outside_after": 0.07436503996183912,
+        "area_ratio_before": 1.0800966114686013,
+        "area_ratio_after": 0.9155184399565071,
+        "score_before": 0.5609313985514388,
+        "score_after": 0.689645879094158
       },
       "gt_mask_source": "modnet"
     },
@@ -2150,11 +2865,14 @@
       "frame_name": "000065.jpg",
       "frame_index": 65,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000065_gt_stage1_contour.png",
-      "iou_before": 0.8655371676360128,
-      "iou_after": 0.8235562069238691,
+      "iou_before": 0.8608781634499678,
+      "iou_after": 0.8248498699037387,
       "align": {
         "applied": true,
+        "accepted": true,
         "scale": 0.9222703097298988,
+        "tx_px": 49.280623631244225,
+        "ty_px": 48.500247679632935,
         "center_src": [
           634.0,
           572.5
@@ -2175,7 +2893,15 @@
           730.0,
           997.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8608781634499678,
+        "iou_after": 0.8248498699037387,
+        "outside_before": 0.09351026943137505,
+        "outside_after": 0.03915964643379853,
+        "area_ratio_before": 1.0422395348122973,
+        "area_ratio_after": 0.8883303815481004,
+        "score_before": 0.7186041371264403,
+        "score_after": 0.7675175624800347
       },
       "gt_mask_source": "modnet"
     },
@@ -2183,14 +2909,17 @@
       "frame_name": "000066.jpg",
       "frame_index": 66,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000066_gt_stage1_contour.png",
-      "iou_before": 0.892389310211856,
-      "iou_after": 0.8385925917168159,
+      "iou_before": 0.8942698835741338,
+      "iou_after": 0.8388018465825235,
       "align": {
         "applied": true,
-        "scale": 0.9584904536974557,
+        "accepted": true,
+        "scale": 0.9590676972599201,
+        "tx_px": 30.132433882409032,
+        "ty_px": 29.372344864585557,
         "center_src": [
           614.0,
-          570.5
+          571.0
         ],
         "center_tgt": [
           619.0,
@@ -2198,7 +2927,7 @@
         ],
         "bbox_src": [
           526.0,
-          144.0,
+          145.0,
           702.0,
           997.0
         ],
@@ -2208,7 +2937,15 @@
           701.0,
           997.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8942698835741338,
+        "iou_after": 0.8388018465825235,
+        "outside_before": 0.04709531164366499,
+        "outside_after": 0.039608511098494066,
+        "area_ratio_before": 0.9818630988051414,
+        "area_ratio_after": 0.9046926021500116,
+        "score_before": 0.8265513957462112,
+        "score_after": 0.781518060685557
       },
       "gt_mask_source": "modnet"
     },
@@ -2216,24 +2953,27 @@
       "frame_name": "000067.jpg",
       "frame_index": 67,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000067_gt_stage1_contour.png",
-      "iou_before": 0.8337713211484139,
-      "iou_after": 0.8161877444589309,
+      "iou_before": 0.8326436736418946,
+      "iou_after": 0.8237656483679681,
       "align": {
         "applied": true,
-        "scale": 0.933392209165405,
+        "accepted": true,
+        "scale": 0.9351185557371808,
+        "tx_px": 50.871711895383896,
+        "ty_px": 42.1121861183326,
         "center_src": [
-          575.5,
-          571.5
+          576.0,
+          572.0
         ],
         "center_tgt": [
           589.5,
           577.0
         ],
         "bbox_src": [
-          479.0,
+          480.0,
           143.0,
           672.0,
-          1000.0
+          1001.0
         ],
         "bbox_tgt": [
           504.0,
@@ -2241,7 +2981,15 @@
           675.0,
           997.0
         ],
-        "accepted": false
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.8326436736418946,
+        "iou_after": 0.8237656483679681,
+        "outside_before": 0.1148239867088806,
+        "outside_after": 0.058172208869916656,
+        "area_ratio_before": 1.054555271509168,
+        "area_ratio_after": 0.9215334097320169,
+        "score_before": 0.6600784821420256,
+        "score_after": 0.7420945027828613
       },
       "gt_mask_source": "modnet"
     },
@@ -2249,13 +2997,16 @@
       "frame_name": "000068.jpg",
       "frame_index": 68,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000068_gt_stage1_contour.png",
-      "iou_before": 0.7412066673326827,
-      "iou_after": 0.7542291623861379,
+      "iou_before": 0.7435236549129435,
+      "iou_after": 0.7570490172537989,
       "align": {
         "applied": true,
-        "scale": 0.9026375205254515,
+        "accepted": true,
+        "scale": 0.9025130249285509,
+        "tx_px": 66.91029721451133,
+        "ty_px": 62.1163192782617,
         "center_src": [
-          552.5,
+          553.0,
           570.5
         ],
         "center_tgt": [
@@ -2264,9 +3015,9 @@
         ],
         "bbox_src": [
           385.0,
-          136.0,
-          720.0,
-          1005.0
+          137.0,
+          721.0,
+          1004.0
         ],
         "bbox_tgt": [
           426.0,
@@ -2274,7 +3025,15 @@
           706.0,
           998.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7435236549129435,
+        "iou_after": 0.7570490172537989,
+        "outside_before": 0.18126980361590728,
+        "outside_after": 0.08342331492171602,
+        "area_ratio_before": 1.0870994777899554,
+        "area_ratio_after": 0.8870755316503495,
+        "score_before": 0.4710061549150648,
+        "score_after": 0.6399105633754962
       },
       "gt_mask_source": "modnet"
     },
@@ -2282,11 +3041,14 @@
       "frame_name": "000069.jpg",
       "frame_index": 69,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000069_gt_stage1_contour.png",
-      "iou_before": 0.6902437828027664,
-      "iou_after": 0.7459534149230161,
+      "iou_before": 0.6889827368008894,
+      "iou_after": 0.74695172479106,
       "align": {
         "applied": true,
+        "accepted": true,
         "scale": 0.9162397578799735,
+        "tx_px": 60.898051229054374,
+        "ty_px": 58.450177160995054,
         "center_src": [
           542.0,
           566.5
@@ -2307,7 +3069,15 @@
           758.0,
           1000.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.6889827368008894,
+        "iou_after": 0.74695172479106,
+        "outside_before": 0.22165086887835703,
+        "outside_after": 0.11044380533468674,
+        "area_ratio_before": 1.1012526096033404,
+        "area_ratio_after": 0.9255219206680585,
+        "score_before": 0.360165098952874,
+        "score_after": 0.5948734644159552
       },
       "gt_mask_source": "modnet"
     },
@@ -2315,24 +3085,27 @@
       "frame_name": "000070.jpg",
       "frame_index": 70,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000070_gt_stage1_contour.png",
-      "iou_before": 0.7228697000683971,
-      "iou_after": 0.8379517244538085,
+      "iou_before": 0.7238039728636201,
+      "iou_after": 0.834814758347309,
       "align": {
         "applied": true,
-        "scale": 0.9464884174860972,
+        "accepted": true,
+        "scale": 0.946154023067812,
+        "tx_px": 36.59990110509307,
+        "ty_px": 41.58451489748279,
         "center_src": [
-          559.5,
-          568.5
+          559.0,
+          568.0
         ],
         "center_tgt": [
           565.5,
           579.0
         ],
         "bbox_src": [
-          308.0,
+          307.0,
           138.0,
           811.0,
-          999.0
+          998.0
         ],
         "bbox_tgt": [
           336.0,
@@ -2340,7 +3113,15 @@
           795.0,
           1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7238039728636201,
+        "iou_after": 0.834814758347309,
+        "outside_before": 0.1880701861087459,
+        "outside_after": 0.07098016593427102,
+        "area_ratio_before": 1.0710266828430215,
+        "area_ratio_after": 0.9598169574882138,
+        "score_before": 0.4497305216727706,
+        "score_after": 0.7373842126355717
       },
       "gt_mask_source": "modnet"
     },
@@ -2348,13 +3129,16 @@
       "frame_name": "000071.jpg",
       "frame_index": 71,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000071_gt_stage1_contour.png",
-      "iou_before": 0.7502374942322829,
-      "iou_after": 0.8840436227446105,
+      "iou_before": 0.7498050543474576,
+      "iou_after": 0.8795044095899962,
       "align": {
         "applied": true,
-        "scale": 0.9515438233694926,
+        "accepted": true,
+        "scale": 0.9506476522605556,
+        "tx_px": 31.698390210486878,
+        "ty_px": 39.00745734213467,
         "center_src": [
-          582.0,
+          581.5,
           567.5
         ],
         "center_tgt": [
@@ -2362,7 +3146,7 @@
           578.5
         ],
         "bbox_src": [
-          324.0,
+          323.0,
           134.0,
           840.0,
           1001.0
@@ -2373,7 +3157,15 @@
           824.0,
           1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7498050543474576,
+        "iou_after": 0.8795044095899962,
+        "outside_before": 0.1711216718637563,
+        "outside_after": 0.04859591539022611,
+        "area_ratio_before": 1.0702779025736473,
+        "area_ratio_after": 0.9679096335280148,
+        "score_before": 0.4991765029563341,
+        "score_after": 0.8126163091543116
       },
       "gt_mask_source": "modnet"
     },
@@ -2381,32 +3173,43 @@
       "frame_name": "000072.jpg",
       "frame_index": 72,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000072_gt_stage1_contour.png",
-      "iou_before": 0.7682487836412507,
-      "iou_after": 0.8883953486594139,
+      "iou_before": 0.778841074821812,
+      "iou_after": 0.886726634321708,
       "align": {
         "applied": true,
-        "scale": 0.950719231027761,
+        "accepted": true,
+        "scale": 0.9552816502323473,
+        "tx_px": 23.011818542445894,
+        "ty_px": 33.48945936756206,
         "center_src": [
-          570.0,
-          570.5
+          570.5,
+          570.0
         ],
         "center_tgt": [
-          568.5,
+          568.0,
           578.0
         ],
         "bbox_src": [
-          314.0,
-          136.0,
-          826.0,
-          1005.0
+          316.0,
+          138.0,
+          825.0,
+          1002.0
         ],
         "bbox_tgt": [
           331.0,
           155.0,
-          806.0,
+          805.0,
           1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.778841074821812,
+        "iou_after": 0.886726634321708,
+        "outside_before": 0.14799444673745826,
+        "outside_after": 0.043078364649603,
+        "area_ratio_before": 1.0571430838066829,
+        "area_ratio_after": 0.9651731031637737,
+        "score_before": 0.562732157980383,
+        "score_after": 0.8271777661712948
       },
       "gt_mask_source": "modnet"
     },
@@ -2414,23 +3217,26 @@
       "frame_name": "000073.jpg",
       "frame_index": 73,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000073_gt_stage1_contour.png",
-      "iou_before": 0.7849364345868775,
-      "iou_after": 0.8871981728044244,
+      "iou_before": 0.7854912390268548,
+      "iou_after": 0.8907680063668921,
       "align": {
         "applied": true,
-        "scale": 0.9703075164277755,
+        "accepted": true,
+        "scale": 0.9708964429386573,
+        "tx_px": 11.628610141941067,
+        "ty_px": 28.001716853781318,
         "center_src": [
-          538.0,
-          566.5
+          537.0,
+          567.0
         ],
         "center_tgt": [
           533.0,
           578.5
         ],
         "bbox_src": [
-          293.0,
-          143.0,
-          783.0,
+          292.0,
+          144.0,
+          782.0,
           990.0
         ],
         "bbox_tgt": [
@@ -2439,7 +3245,15 @@
           764.0,
           1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7854912390268548,
+        "iou_after": 0.8907680063668921,
+        "outside_before": 0.13800352690225554,
+        "outside_after": 0.04971753257355582,
+        "area_ratio_before": 1.0423241776764645,
+        "area_ratio_after": 0.9831923330069189,
+        "score_before": 0.587477081480205,
+        "score_after": 0.8229770307128684
       },
       "gt_mask_source": "modnet"
     },
@@ -2447,14 +3261,17 @@
       "frame_name": "000074.jpg",
       "frame_index": 74,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000074_gt_stage1_contour.png",
-      "iou_before": 0.7107986708519943,
-      "iou_after": 0.8658325750682438,
+      "iou_before": 0.7139037609235369,
+      "iou_after": 0.8655929455614308,
       "align": {
         "applied": true,
-        "scale": 0.9447374124106047,
+        "accepted": true,
+        "scale": 0.9462009479231064,
+        "tx_px": 25.21288527775323,
+        "ty_px": 39.16545968382934,
         "center_src": [
-          543.5,
-          569.5
+          543.0,
+          570.0
         ],
         "center_tgt": [
           539.0,
@@ -2462,8 +3279,8 @@
         ],
         "bbox_src": [
           290.0,
-          134.0,
-          797.0,
+          135.0,
+          796.0,
           1005.0
         ],
         "bbox_tgt": [
@@ -2472,7 +3289,15 @@
           772.0,
           1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7139037609235369,
+        "iou_after": 0.8655929455614308,
+        "outside_before": 0.19936337250094166,
+        "outside_after": 0.058852600798978624,
+        "area_ratio_before": 1.084448609208935,
+        "area_ratio_after": 0.9723523711125528,
+        "score_before": 0.4216358775233145,
+        "score_after": 0.7850360293273118
       },
       "gt_mask_source": "modnet"
     },
@@ -2480,13 +3305,16 @@
       "frame_name": "000075.jpg",
       "frame_index": 75,
       "output_image": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\evaluation\\output_images\\stage1\\000075_gt_stage1_contour.png",
-      "iou_before": 0.7429438952801862,
-      "iou_after": 0.8798372860541868,
+      "iou_before": 0.7435525347768276,
+      "iou_after": 0.8801794810722765,
       "align": {
         "applied": true,
-        "scale": 0.9482220372242374,
+        "accepted": true,
+        "scale": 0.9473012670247174,
+        "tx_px": 28.405893000207698,
+        "ty_px": 37.14367526186163,
         "center_src": [
-          558.5,
+          558.0,
           572.0
         ],
         "center_tgt": [
@@ -2494,7 +3322,7 @@
           579.0
         ],
         "bbox_src": [
-          308.0,
+          307.0,
           137.0,
           809.0,
           1007.0
@@ -2505,7 +3333,15 @@
           789.0,
           1001.0
         ],
-        "accepted": true
+        "search_downsample_ratio": 1.0,
+        "iou_before": 0.7435525347768276,
+        "iou_after": 0.8801794810722765,
+        "outside_before": 0.17505485206790425,
+        "outside_after": 0.04478483102502314,
+        "area_ratio_before": 1.0701944190668526,
+        "area_ratio_after": 0.961108172653107,
+        "score_before": 0.48733528159350337,
+        "score_after": 0.8181642860946196
       },
       "gt_mask_source": "modnet"
     }

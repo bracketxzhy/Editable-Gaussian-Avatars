@@ -14,7 +14,6 @@ from tqdm import tqdm
 
 from avatar_gs.alignment import (
     apply_similarity_to_camera_points,
-    apply_uv_similarity,
     estimate_mask_similarity_transform,
     mask_iou,
     mask_outside_ratio,
@@ -730,6 +729,7 @@ def _write_stage1_sequence_assets_full(
 
     frame_names: list[str] = []
     verts_cam_seq: list[np.ndarray] = []
+    verts_cam_raw_seq: list[np.ndarray] = []
     joints_cam_seq: list[np.ndarray] = []
     masks_seq: list[np.ndarray] = []
     kpt_map: dict[str, list[list[float]]] = {}
@@ -757,13 +757,11 @@ def _write_stage1_sequence_assets_full(
     for rec in export_iter:
         frame_name = str(rec["frame_name"])
         frame_idx = int(rec["frame_idx"])
-        verts_cam = np.asarray(rec["verts_cam"], dtype=np.float32)
+        verts_cam_raw = np.asarray(rec["verts_cam"], dtype=np.float32)
+        verts_cam = np.asarray(verts_cam_raw, dtype=np.float32)
         faces = shared_faces if shared_faces is not None else np.asarray(rec["faces"], dtype=np.int32)
         joints2d = rec.get("joints2d", None)
         joints_cam = rec.get("joints_cam", None)
-
-        obj_name = f"frame_{frame_idx:06d}.obj"
-        export_obj(seq_dir / obj_name, verts_cam, faces, face_text=shared_face_text)
 
         img = cv2.imread(str(frames_dir / frame_name), cv2.IMREAD_COLOR)
         if img is None:
@@ -800,50 +798,48 @@ def _write_stage1_sequence_assets_full(
             person_mask=mask,
         )
         if bool(align_report.get("accepted", False)):
+            s = float(align_report.get("scale", 1.0))
+            tx = float(align_report.get("tx_px", 0.0))
+            ty = float(align_report.get("ty_px", 0.0))
             verts_cam = apply_similarity_to_camera_points(
                 verts_cam,
                 fx=float(fx),
                 fy=float(fy),
                 cx=float(cx),
                 cy=float(cy),
-                scale=float(align_report.get("scale", 1.0)),
-                tx_px=float(align_report.get("tx_px", 0.0)),
-                ty_px=float(align_report.get("ty_px", 0.0)),
+                scale=s,
+                tx_px=tx,
+                ty_px=ty,
             )
-            if joints_cam is not None and np.asarray(joints_cam).ndim == 2 and np.asarray(joints_cam).shape[1] == 3:
+            if joints_cam is not None:
                 joints_cam = apply_similarity_to_camera_points(
                     np.asarray(joints_cam, dtype=np.float32),
                     fx=float(fx),
                     fy=float(fy),
                     cx=float(cx),
                     cy=float(cy),
-                    scale=float(align_report.get("scale", 1.0)),
-                    tx_px=float(align_report.get("tx_px", 0.0)),
-                    ty_px=float(align_report.get("ty_px", 0.0)),
+                    scale=s,
+                    tx_px=tx,
+                    ty_px=ty,
                 )
-            cam_t_aligned = apply_similarity_to_camera_points(
+            rec["cam_t"] = apply_similarity_to_camera_points(
                 np.asarray(rec["cam_t"], dtype=np.float32).reshape(1, 3),
                 fx=float(fx),
                 fy=float(fy),
                 cx=float(cx),
                 cy=float(cy),
-                scale=float(align_report.get("scale", 1.0)),
-                tx_px=float(align_report.get("tx_px", 0.0)),
-                ty_px=float(align_report.get("ty_px", 0.0)),
-            )[0]
-            rec["cam_t"] = cam_t_aligned.astype(np.float32)
-            rec["verts_local"] = np.asarray(verts_cam - cam_t_aligned.reshape(1, 3), dtype=np.float32)
-            rec["verts_cam"] = np.asarray(verts_cam, dtype=np.float32)
-            if joints_cam is not None:
-                rec["joints_cam"] = np.asarray(joints_cam, dtype=np.float32)
-            uv_hint = apply_uv_similarity(
-                uv_raw,
-                scale=float(align_report.get("scale", 1.0)),
-                tx=float(align_report.get("tx_px", 0.0)),
-                ty=float(align_report.get("ty_px", 0.0)),
-            )
-        else:
-            rec["verts_cam"] = np.asarray(verts_cam, dtype=np.float32)
+                scale=s,
+                tx_px=tx,
+                ty_px=ty,
+            ).reshape(3)
+        rec["verts_cam"] = np.asarray(verts_cam, dtype=np.float32)
+
+        obj_name = f"frame_{frame_idx:06d}.obj"
+        export_obj(seq_dir / obj_name, verts_cam, faces, face_text=shared_face_text)
+
+        rec["verts_cam"] = np.asarray(verts_cam, dtype=np.float32)
+        if joints_cam is not None:
+            rec["joints_cam"] = np.asarray(joints_cam, dtype=np.float32)
 
         mask_hint = _rasterize_mesh_mask(
             uv=uv_hint,
@@ -874,6 +870,7 @@ def _write_stage1_sequence_assets_full(
 
         frame_names.append(frame_name)
         verts_cam_seq.append(verts_cam)
+        verts_cam_raw_seq.append(verts_cam_raw)
         if joints_cam is not None and np.asarray(joints_cam).ndim == 2 and np.asarray(joints_cam).shape[1] == 3:
             joints_cam_seq.append(np.asarray(joints_cam, dtype=np.float32))
         else:
@@ -910,6 +907,7 @@ def _write_stage1_sequence_assets_full(
         verts_npz,
         frame_names=np.asarray(frame_names, dtype=object),
         verts_cam=verts_cam_arr,
+        verts_cam_raw=np.asarray(verts_cam_raw_seq, dtype=np.float32),
     )
 
     joints_valid = [j for j in joints_cam_seq if j.shape[0] > 0]

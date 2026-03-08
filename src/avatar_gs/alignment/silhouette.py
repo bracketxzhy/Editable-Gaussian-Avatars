@@ -4,6 +4,13 @@ import cv2
 import numpy as np
 
 
+def _resize_mask_nearest(mask_u8: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
+    out_h, out_w = int(out_hw[0]), int(out_hw[1])
+    if out_h <= 0 or out_w <= 0:
+        raise ValueError(f"invalid out_hw: {out_hw}")
+    return cv2.resize(np.asarray(mask_u8, dtype=np.uint8), (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+
+
 def mask_bbox(mask_u8: np.ndarray) -> np.ndarray | None:
     ys, xs = np.where(np.asarray(mask_u8, dtype=np.uint8) > 0)
     if ys.size <= 0 or xs.size <= 0:
@@ -124,6 +131,7 @@ def estimate_mask_similarity_transform(
     undersize_weight: float = 0.04,
     expand_weight: float = 0.08,
     accept_outside_slack: float = 0.01,
+    search_max_side: int = 384,
 ) -> tuple[np.ndarray, dict]:
     b_s = mask_bbox(smpl_mask)
     b_p = mask_bbox(person_mask)
@@ -141,7 +149,6 @@ def estimate_mask_similarity_transform(
     s0 = float(np.clip(0.5 * (wp / ws + hp / hs), scale_min, scale_max))
     tx0 = float(cpx - s0 * csx)
     ty0 = float(cpy - s0 * csy)
-
     iou_before, outside_before, area_ratio_before = _metrics(smpl_mask, person_mask)
     score_before = _score(
         iou=iou_before,
@@ -154,40 +161,84 @@ def estimate_mask_similarity_transform(
         undersize_weight=undersize_weight,
         expand_weight=expand_weight,
     )
-
     base_extent = float(max(wp, hp, ws, hs))
     trans_span = float(np.clip(float(trans_ratio) * base_extent, trans_min_px, trans_max_px))
+    h, w = int(image_hw[0]), int(image_hw[1])
+    long_side = max(h, w)
+    ds_ratio = min(1.0, float(max(int(search_max_side), 32)) / float(max(long_side, 1)))
+    hs_ = max(32, int(round(float(h) * ds_ratio)))
+    ws_ = max(32, int(round(float(w) * ds_ratio)))
+    if hs_ != h or ws_ != w:
+        person_mask_search = _resize_mask_nearest(person_mask, (hs_, ws_))
+        uv_search = np.asarray(uv, dtype=np.float32).copy()
+        uv_search[:, 0] *= float(ws_) / float(max(w, 1))
+        uv_search[:, 1] *= float(hs_) / float(max(h, 1))
+    else:
+        person_mask_search = np.asarray(person_mask, dtype=np.uint8)
+        uv_search = np.asarray(uv, dtype=np.float32)
+
     best = None
     best_score = -1e18
-    ds_vals = np.linspace(-float(scale_delta), float(scale_delta), int(max(3, scale_steps)))
-    dt_vals = np.linspace(-trans_span, trans_span, int(max(3, trans_steps)))
-    for ds in ds_vals:
-        s = float(np.clip(s0 * (1.0 + float(ds)), scale_min, scale_max))
-        for dtx in dt_vals:
-            for dty in dt_vals:
-                tx = float(tx0 + float(dtx))
-                ty = float(ty0 + float(dty))
-                uv2 = apply_uv_similarity(uv, scale=s, tx=tx, ty=ty)
-                mask2 = _rasterize_mesh_mask(uv=uv2, valid_v=valid_v, faces=faces, image_hw=image_hw)
-                iou, outside, area_ratio = _metrics(mask2, person_mask)
-                score = _score(
-                    iou=iou,
-                    outside=outside,
-                    area_ratio=area_ratio,
-                    scale=s,
-                    scale_init=s0,
-                    outside_weight=outside_weight,
-                    oversize_weight=oversize_weight,
-                    undersize_weight=undersize_weight,
-                    expand_weight=expand_weight,
-                )
-                if score > best_score:
-                    best_score = score
-                    best = (uv2, s, tx, ty, iou, outside, area_ratio, score)
+    scale_center = float(s0)
+    tx_center = float(tx0) * (float(ws_) / float(max(w, 1)))
+    ty_center = float(ty0) * (float(hs_) / float(max(h, 1)))
+    scale_window = float(scale_delta)
+    trans_window = float(trans_span) * (float(ws_) / float(max(w, 1)))
+    levels = (
+        (float(max(scale_window, 0.01)), float(max(trans_window, 2.0)), max(5, int(min(scale_steps, 7)))),
+        (float(max(scale_window * 0.35, 0.006)), float(max(trans_window * 0.35, 1.0)), 5),
+        (float(max(scale_window * 0.15, 0.003)), float(max(trans_window * 0.15, 0.5)), 5),
+    )
+    for lvl_scale_delta, lvl_trans_span, lvl_steps in levels:
+        ds_vals = np.linspace(-lvl_scale_delta, lvl_scale_delta, int(max(3, lvl_steps)))
+        dt_vals = np.linspace(-lvl_trans_span, lvl_trans_span, int(max(3, lvl_steps)))
+        lvl_best = None
+        lvl_best_score = -1e18
+        for ds in ds_vals:
+            s = float(np.clip(scale_center * (1.0 + float(ds)), scale_min, scale_max))
+            for dtx in dt_vals:
+                for dty in dt_vals:
+                    tx = float(tx_center + float(dtx))
+                    ty = float(ty_center + float(dty))
+                    uv2 = apply_uv_similarity(uv_search, scale=s, tx=tx, ty=ty)
+                    mask2 = _rasterize_mesh_mask(uv=uv2, valid_v=valid_v, faces=faces, image_hw=(hs_, ws_))
+                    iou, outside, area_ratio = _metrics(mask2, person_mask_search)
+                    score = _score(
+                        iou=iou,
+                        outside=outside,
+                        area_ratio=area_ratio,
+                        scale=s,
+                        scale_init=s0,
+                        outside_weight=outside_weight,
+                        oversize_weight=oversize_weight,
+                        undersize_weight=undersize_weight,
+                        expand_weight=expand_weight,
+                    )
+                    if score > lvl_best_score:
+                        lvl_best_score = score
+                        lvl_best = (s, tx, ty, iou, outside, area_ratio, score)
+        if lvl_best is None:
+            continue
+        scale_center, tx_center, ty_center, iou_lvl, outside_lvl, area_ratio_lvl, score_lvl = lvl_best
+        lvl_best_full = (
+            scale_center,
+            tx_center * (float(w) / float(max(ws_, 1))),
+            ty_center * (float(h) / float(max(hs_, 1))),
+            iou_lvl,
+            outside_lvl,
+            area_ratio_lvl,
+            score_lvl,
+        )
+        if score_lvl > best_score:
+            best_score = score_lvl
+            best = lvl_best_full
     if best is None:
         return uv, {"applied": False, "accepted": False, "reason": "search_failed"}
 
-    uv_best, s_best, tx_best, ty_best, iou_after, outside_after, area_ratio_after, score_after = best
+    s_best, tx_best, ty_best, _, _, _, score_after = best
+    uv_best = apply_uv_similarity(uv, scale=s_best, tx=tx_best, ty=ty_best)
+    mask_best = _rasterize_mesh_mask(uv=uv_best, valid_v=valid_v, faces=faces, image_hw=image_hw)
+    iou_after, outside_after, area_ratio_after = _metrics(mask_best, person_mask)
     accepted = bool((score_after > score_before + 1e-6) and (outside_after <= outside_before + float(accept_outside_slack)))
     return uv_best, {
         "applied": True,
@@ -195,6 +246,11 @@ def estimate_mask_similarity_transform(
         "scale": float(s_best),
         "tx_px": float(tx_best),
         "ty_px": float(ty_best),
+        "center_src": [float(csx), float(csy)],
+        "center_tgt": [float(cpx), float(cpy)],
+        "bbox_src": b_s.tolist(),
+        "bbox_tgt": b_p.tolist(),
+        "search_downsample_ratio": float(ds_ratio),
         "iou_before": float(iou_before),
         "iou_after": float(iou_after),
         "outside_before": float(outside_before),
@@ -203,6 +259,4 @@ def estimate_mask_similarity_transform(
         "area_ratio_after": float(area_ratio_after),
         "score_before": float(score_before),
         "score_after": float(score_after),
-        "bbox_src": b_s.tolist(),
-        "bbox_tgt": b_p.tolist(),
     }
