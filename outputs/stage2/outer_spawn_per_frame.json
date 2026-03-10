@@ -1,0 +1,596 @@
+{
+  "frames": [
+    {
+      "frame_idx": 0,
+      "frame_name": "000000.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 1,
+      "frame_name": "000001.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 2,
+      "frame_name": "000002.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 3,
+      "frame_name": "000004.jpg",
+      "total": 2932,
+      "trigger": 2932,
+      "fallback": 0,
+      "iters_hit": 1
+    },
+    {
+      "frame_idx": 4,
+      "frame_name": "000005.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 5,
+      "frame_name": "000006.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 6,
+      "frame_name": "000007.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 7,
+      "frame_name": "000008.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 8,
+      "frame_name": "000009.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 9,
+      "frame_name": "000010.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 10,
+      "frame_name": "000011.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 11,
+      "frame_name": "000013.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 12,
+      "frame_name": "000015.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 13,
+      "frame_name": "000016.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 14,
+      "frame_name": "000017.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 15,
+      "frame_name": "000018.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 16,
+      "frame_name": "000020.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 17,
+      "frame_name": "000021.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 18,
+      "frame_name": "000022.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 19,
+      "frame_name": "000023.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 20,
+      "frame_name": "000024.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 21,
+      "frame_name": "000025.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 22,
+      "frame_name": "000026.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 23,
+      "frame_name": "000027.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 24,
+      "frame_name": "000028.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 25,
+      "frame_name": "000029.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 26,
+      "frame_name": "000030.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 27,
+      "frame_name": "000031.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 28,
+      "frame_name": "000032.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 29,
+      "frame_name": "000033.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 30,
+      "frame_name": "000034.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 31,
+      "frame_name": "000035.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 32,
+      "frame_name": "000036.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 33,
+      "frame_name": "000037.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 34,
+      "frame_name": "000038.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 35,
+      "frame_name": "000039.jpg",
+      "total": 18273,
+      "trigger": 18273,
+      "fallback": 0,
+      "iters_hit": 1
+    },
+    {
+      "frame_idx": 36,
+      "frame_name": "000040.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 37,
+      "frame_name": "000041.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 38,
+      "frame_name": "000042.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 39,
+      "frame_name": "000043.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 40,
+      "frame_name": "000044.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 41,
+      "frame_name": "000045.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 42,
+      "frame_name": "000046.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 43,
+      "frame_name": "000047.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 44,
+      "frame_name": "000048.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 45,
+      "frame_name": "000049.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 46,
+      "frame_name": "000050.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 47,
+      "frame_name": "000051.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 48,
+      "frame_name": "000052.jpg",
+      "total": 8752,
+      "trigger": 8752,
+      "fallback": 0,
+      "iters_hit": 1
+    },
+    {
+      "frame_idx": 49,
+      "frame_name": "000053.jpg",
+      "total": 8507,
+      "trigger": 8507,
+      "fallback": 0,
+      "iters_hit": 1
+    },
+    {
+      "frame_idx": 50,
+      "frame_name": "000054.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 51,
+      "frame_name": "000055.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 52,
+      "frame_name": "000056.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 53,
+      "frame_name": "000057.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 54,
+      "frame_name": "000058.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 55,
+      "frame_name": "000060.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 56,
+      "frame_name": "000061.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 57,
+      "frame_name": "000062.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 58,
+      "frame_name": "000064.jpg",
+      "total": 6233,
+      "trigger": 6233,
+      "fallback": 0,
+      "iters_hit": 1
+    },
+    {
+      "frame_idx": 59,
+      "frame_name": "000065.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 60,
+      "frame_name": "000066.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 61,
+      "frame_name": "000067.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 62,
+      "frame_name": "000068.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 63,
+      "frame_name": "000070.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 64,
+      "frame_name": "000071.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 65,
+      "frame_name": "000072.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 66,
+      "frame_name": "000073.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 67,
+      "frame_name": "000074.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    },
+    {
+      "frame_idx": 68,
+      "frame_name": "000075.jpg",
+      "total": 0,
+      "trigger": 0,
+      "fallback": 0,
+      "iters_hit": 0
+    }
+  ],
+  "total_spawned": 44697,
+  "trigger_spawned": 44697,
+  "fallback_spawned": 0,
+  "iter_records": [
+    {
+      "iter": 217,
+      "frame_idx": 35,
+      "frame_name": "000039.jpg",
+      "mode": "trigger",
+      "count": 18273
+    },
+    {
+      "iter": 420,
+      "frame_idx": 58,
+      "frame_name": "000064.jpg",
+      "mode": "trigger",
+      "count": 6233
+    },
+    {
+      "iter": 480,
+      "frame_idx": 49,
+      "frame_name": "000053.jpg",
+      "mode": "trigger",
+      "count": 8507
+    },
+    {
+      "iter": 540,
+      "frame_idx": 48,
+      "frame_name": "000052.jpg",
+      "mode": "trigger",
+      "count": 8752
+    },
+    {
+      "iter": 600,
+      "frame_idx": 3,
+      "frame_name": "000004.jpg",
+      "mode": "trigger",
+      "count": 2932
+    }
+  ]
+}

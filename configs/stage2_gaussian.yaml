@@ -8,13 +8,16 @@ data:
 stage2:
   stage1_dir: outputs/stage1
   out_dir: outputs/stage2
+  training_mode: full
+  init_ckpt: ""
+  inner_ckpt_path: outputs/stage2/gaussians3d_inner.pt
   init_mesh_obj: ""
   enable_tf32: true
   cudnn_benchmark: true
 
   # ---------- Stage2 training schedule (Stage A: stabilize) ----------
   n_frames: 76
-  n_gaussians: 55000
+  n_gaussians: 50000
   sample_on_surface: true
   # Extra background gaussians (unbound)
   n_gaussians_bg: 0
@@ -39,7 +42,7 @@ stage2:
   outer_prune_dual_enable: true
   outer_prune_dual_max_vis: 0.06
   outer_prune_dual_min_support: 0.001
-  iters: 2200
+  iters: 1800
 
   # Learning rates
   lr_gauss: 0.003
@@ -70,10 +73,9 @@ stage2:
   bg_rgb: [1.0, 1.0, 1.0]
   # Dataset-agnostic coverage: sample frames uniformly across the full sequence.
   frame_select: stage1_sequence
-  stage1_eval_filter_enable: true
-  stage1_eval_report_json: evaluation/output_images/stage1/stage1_eval_report_all.json
-  stage1_eval_metric: iou_after
-  stage1_eval_min: 0.80
+  stage1_align_filter_enable: true
+  stage1_align_filter_metric: camera_align_iou
+  stage1_align_filter_min: 0.995
   # Use per-frame optimization without forcing last-frame anchoring.
   temporal_ref_anchor: sample
   temporal_ref_window: 0
@@ -209,8 +211,8 @@ stage2:
   inner_count_auto: true
   inner_count_kV: 1.2
   inner_count_kF: 0.35
-  inner_count_min: 90000
-  inner_count_max: 280000
+  inner_count_min: 70000
+  inner_count_max: 180000
 
   tau_vis: 0.15
   frame_weight_k: 1.5
@@ -227,8 +229,6 @@ stage2:
   V_min: 8
   densify_top_percent: 10.0
 
-  phase0_ratio: 0.08
-  phase2_ratio: 0.15
   phase_ratio_inner_only: 0.12
   phase_ratio_outer_only: 0.38
   phase_ratio_occlusion_simplify: 0.25
@@ -242,11 +242,11 @@ stage2:
   outer_face_anchor_rule: centroid
   shell_max_ratio: 0.0
   shell_spawn_top_percent: 20.0
-  shell_spawn_every: 100
-  shell_prune_every: 1600
+  shell_spawn_every: 1
+  shell_prune_every: 1400
   shell_offset_max_n: 0.12
   shell_offset_max_t: 0.02
-  outer_offset_unbounded: true
+  outer_offset_unbounded: false
   outer_offset_auto_range_enable: true
   outer_offset_auto_range_min_scale: 0.50
   outer_offset_auto_range_edge_mix: 0.75
@@ -289,12 +289,16 @@ stage2:
   outer_gap_hard_target_enable: true
   outer_gap_hard_target_blend: 1.0
   outer_gap_refine_steps: 5
-  outer_geom_fraction: 0.65
+  outer_gap_fallback_enable: true
+  outer_gap_fallback_support_th: 0.03
+  outer_gap_fallback_half_min_n: 0.010
+  outer_gap_fallback_half_max_n: 0.045
+  outer_geom_fraction: 0.62
   outer_phase_residual_weight: 0.18
-  outer_trigger_face_topk: 128
+  outer_trigger_face_topk: 0
   outer_trigger_face_ema_decay: 0.88
   outer_trigger_face_ema_weight: 0.65
-  outer_trigger_face_topk_min_support: 0.03
+  outer_trigger_face_topk_min_support: 0.0
   outer_airspace_penalty_weight: 0.05
   outer_airspace_main_support_scale: 1.6
   outer_airspace_sharp_allow_dot: 0.10
@@ -303,7 +307,7 @@ stage2:
   outer_offset_edge_grad_scale: 2.0
   outer_offset_grad_scale_max: 8.0
   outer_support_weight: 1.1
-  outer_spawn_support_th: 0.05
+  outer_spawn_support_th: 0.0
   outer_spawn_inside_only: true
   outer_phase_inner_vis_scale: 0.00
   outer_phase_inner_full_mask: true
@@ -315,13 +319,15 @@ stage2:
   outer_zero_stop_patience: 120
   outer_zero_stop_warmup_iters: 200
   outer_zero_stop_after_phase_inner: true
-  outer_boundary_enforce: none
+  outer_boundary_enforce: hard
   outer_boundary_tol_px: 1
   outer_boundary_check_every: 60
   outer_boundary_alpha_cap: 0.03
   outer_boundary_scale_decay: 0.80
   outer_boundary_offset_decay: 0.85
   outer_boundary_patience: 4
+  outer_boundary_geom_start_frac: 0.45
+  outer_offset_cap_geom_start_frac: 0.55
   bind_face_offset_straight_through: true
   outer_edge_trigger_enable: true
   outer_edge_trigger_weight: 0.45
@@ -424,4 +430,6 @@ render:
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset: [0.0, 0.0, 0.0]
+
+
 

@@ -15,7 +15,7 @@ from avatar_gs.utils.log import setup_logger
 from avatar_gs.utils.seed import seed_everything
 
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
-from avatar_gs.gaussian.init_from_smpl import load_obj_vertices, load_obj_mesh
+from avatar_gs.gaussian.init_from_smpl import load_obj_vertices
 from avatar_gs.gaussian.binding import (
     BindingFrameData,
     build_binding_frame_data,
@@ -27,11 +27,12 @@ from avatar_gs.gaussian.binding_layers import (
     apply_inner_binding_per_frame,
     apply_outer_anchor_per_frame,
 )
-from avatar_gs.gaussian.rigid_align import (
-    apply_rigid_transform_np,
-    normalize_rigid_align_config,
+from avatar_gs.gaussian.rigid_align import apply_rigid_transform_np
+from avatar_gs.stage2 import (
+    Stage2MeshRuntime,
+    project_points_numpy as _project_points_numpy,
+    rasterize_mesh_mask as _rasterize_mesh_mask,
 )
-from avatar_gs.data.sequence_mesh import SequenceMeshProvider
 from avatar_gs.renderer.gaussian_renderer import render_gaussians_3d
 from avatar_gs.deform.smplx_param_source import load_deform_smplx_vertices_from_npz as _load_deform_smplx_vertices_from_npz
 
@@ -697,25 +698,6 @@ def _overlay_smpl_skeleton(
     out_rgb = torch.from_numpy(bgr[..., ::-1].copy()).float() / 255.0
     return out_rgb.permute(2, 0, 1).contiguous()
 
-def _project_points_numpy(
-    xyz: np.ndarray,
-    K: np.ndarray,
-    R: np.ndarray,
-    t: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    Xc = xyz @ R.T + t.reshape(1, 3)
-    z = Xc[:, 2]
-    valid = z > 1e-6
-    u = np.zeros((xyz.shape[0],), dtype=np.float32)
-    v = np.zeros((xyz.shape[0],), dtype=np.float32)
-    if np.any(valid):
-        Xcv = Xc[valid]
-        zv = z[valid]
-        u[valid] = K[0, 0] * (Xcv[:, 0] / zv) + K[0, 2]
-        v[valid] = K[1, 1] * (Xcv[:, 1] / zv) + K[1, 2]
-    return u, v, valid
-
-
 def _fit_subject_camera_numpy(
     verts: np.ndarray,
     K: np.ndarray,
@@ -779,53 +761,6 @@ def _fit_subject_camera_numpy(
             K_new[1, 1] *= float(s_fit)
 
     return K_new, t_new
-
-
-def _rasterize_mesh_mask(
-    verts: np.ndarray,
-    faces: np.ndarray | None,
-    K: np.ndarray,
-    R: np.ndarray,
-    t: np.ndarray,
-    H: int,
-    W: int,
-    dilate_px: int = 0,
-    erode_px: int = 0,
-) -> np.ndarray:
-    mask = np.zeros((H, W), dtype=np.uint8)
-    if faces is None or len(faces) == 0 or verts.shape[0] == 0:
-        return mask
-    u, v, valid = _project_points_numpy(verts, K, R, t)
-    if not np.any(valid):
-        return mask
-    uv = np.stack([u, v], axis=1).astype(np.float32)
-    for tri in faces:
-        i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
-        if i0 < 0 or i1 < 0 or i2 < 0:
-            continue
-        if i0 >= len(valid) or i1 >= len(valid) or i2 >= len(valid):
-            continue
-        if not (valid[i0] and valid[i1] and valid[i2]):
-            continue
-        pts = uv[[i0, i1, i2]]
-        if (
-            (pts[:, 0] < -2).all()
-            or (pts[:, 0] > W + 1).all()
-            or (pts[:, 1] < -2).all()
-            or (pts[:, 1] > H + 1).all()
-        ):
-            continue
-        poly = np.round(pts).astype(np.int32).reshape(-1, 1, 2)
-        cv2.fillConvexPoly(mask, poly, 1)
-    if int(dilate_px) > 0:
-        k = int(dilate_px) * 2 + 1
-        kernel = np.ones((k, k), dtype=np.uint8)
-        mask = cv2.dilate(mask, kernel, iterations=1)
-    if int(erode_px) > 0:
-        k = int(erode_px) * 2 + 1
-        kernel = np.ones((k, k), dtype=np.uint8)
-        mask = cv2.erode(mask, kernel, iterations=1)
-    return mask
 
 
 def _load_person_mask_map(npz_path: Path) -> dict[str, np.ndarray]:
@@ -1561,22 +1496,6 @@ def main():
 
     # Optional: dynamic binding to SMPL mesh sequence
     bind_to_mesh = bool(render_cfg.get("bind_to_mesh", True))
-    bind_mesh_dir = render_cfg.get("bind_mesh_sequence_dir", None)
-    # Prefer a `sequence` subfolder under the provided bind_mesh_sequence_dir (or outputs/stage1)
-    if bind_mesh_dir is not None:
-        try:
-            cand = Path(resolve_path(str(bind_mesh_dir)))
-            if not cand.is_absolute():
-                cand = project_root / cand
-            seq_cand = cand / "sequence"
-            if seq_cand.exists():
-                bind_mesh_dir = str(seq_cand)
-                logger.info(f"Using bind mesh sequence dir: {seq_cand}")
-        except Exception:
-            # non-fatal: leave bind_mesh_dir as-is
-            pass
-    bind_seq_npz = render_cfg.get("bind_sequence_npz", ckpt.get("bind_sequence_npz", None))
-    bind_vertices_npz = render_cfg.get("bind_vertices_npz", ckpt.get("bind_vertices_npz", None))
     strict_binding_topology = bool(render_cfg.get("strict_binding_topology", True))
     pose_drive_enabled = bool(render_cfg.get("pose_drive_enabled", False))
     pose_drive_mesh_dir_cfg = render_cfg.get("pose_drive_mesh_sequence_dir", "")
@@ -1584,23 +1503,6 @@ def main():
     pose_drive_index_mode = str(render_cfg.get("pose_drive_index_mode", "frame_name")).strip().lower()
     pose_drive_fixed_index = int(render_cfg.get("pose_drive_fixed_index", -1))
     pose_drive_loop = bool(render_cfg.get("pose_drive_loop", True))
-    bind_mesh_indices = ckpt.get("bind_mesh_indices", None)
-    if not bind_to_mesh:
-        bind_mesh_dir = None
-        bind_seq_npz = None
-        bind_vertices_npz = None
-        bind_mesh_indices = None
-    if bind_mesh_indices is not None:
-        bind_mesh_indices = [int(x) for x in bind_mesh_indices]
-        if len(bind_mesh_indices) == total_frames:
-            bind_mesh_indices = [bind_mesh_indices[i] for i in selected_idx]
-        elif len(bind_mesh_indices) != to_render:
-            logger.warning(
-                "bind_mesh_indices length does not match selected frames; "
-                "will remap by frame names from bind_sequence_npz."
-            )
-            bind_mesh_indices = None
-    binding_enabled = bind_to_mesh and bind_mesh_dir is not None and g.bind_idx is not None
     if pose_drive_enabled:
         logger.info(
             "Pose-drive enabled: source(mesh_dir=%s, verts_npz=%s), mode=%s, fixed=%d, loop=%s",
@@ -1610,8 +1512,7 @@ def main():
             int(pose_drive_fixed_index),
             str(bool(pose_drive_loop)).lower(),
         )
-    if fg_mask_mode in ("smpl", "mesh") and not binding_enabled:
-        raise ValueError("fg_mask_mode=smpl requires bind_mesh_sequence_dir and bound gaussians.")
+
     bind_mesh_to_camera = bool(render_cfg.get("bind_mesh_to_camera", False))
     bind_inverse_export_upright = bool(render_cfg.get("bind_inverse_export_upright", True))
     bind_mesh_obj_space_mode = str(render_cfg.get("bind_mesh_obj_space", "auto")).strip().lower()
@@ -1624,8 +1525,6 @@ def main():
         raise ValueError(
             f"render.deform_mesh_obj_space must be auto|camera|blender. Got: {deform_mesh_obj_space_mode}"
         )
-    mesh_obj_in_camera_space = bool(bind_mesh_obj_space_mode == "camera")
-    deform_mesh_obj_in_camera_space = bool(deform_mesh_obj_space_mode == "camera")
     bind_align_quat_to_mesh_normals = bool(render_cfg.get("bind_align_quat_to_mesh_normals", True))
     bind_quat_normal_blend = float(np.clip(render_cfg.get("bind_quat_normal_blend", 1.0), 0.0, 1.0))
     binding_cfg_dict = render_cfg.get("binding", ckpt.get("binding", None))
@@ -1635,45 +1534,47 @@ def main():
     bind_mesh_offset_cfg = render_cfg.get("bind_mesh_offset", [0.0, 0.0, 0.0])
     if not (isinstance(bind_mesh_offset_cfg, (list, tuple)) and len(bind_mesh_offset_cfg) == 3):
         raise ValueError("render.bind_mesh_offset must be a 3-value list/tuple, e.g. [0, 0, 0].")
-    bind_mesh_offset_t = torch.tensor(
-        [float(bind_mesh_offset_cfg[0]), float(bind_mesh_offset_cfg[1]), float(bind_mesh_offset_cfg[2])],
-        dtype=torch.float32,
-        device=device,
-    ).view(1, 3)
-    bind_mesh_offset_np = bind_mesh_offset_t.detach().cpu().numpy().reshape(1, 3).astype(np.float32)
     bind_rigid_align_auto_from_stage2 = bool(render_cfg.get("bind_rigid_align_auto_from_stage2", True))
-    bind_rigid_align_cfg_raw = render_cfg.get("bind_rigid_align", {"enabled": False})
-    bind_rigid_align_cfg = normalize_rigid_align_config(bind_rigid_align_cfg_raw, default_enabled=False)
-    if (
-        bind_rigid_align_auto_from_stage2
-        and (bind_rigid_align_cfg is None or (not bool(bind_rigid_align_cfg.get("enabled", False))))
-    ):
-        report_path = stage2_dir / "bind_rigid_align_pre_stage2.json"
-        if report_path.exists():
-            try:
-                import json as _json
 
-                with report_path.open("r", encoding="utf-8") as f:
-                    report_cfg = _json.load(f)
-                report_norm = normalize_rigid_align_config(report_cfg, default_enabled=False)
-                if report_norm is not None and bool(report_norm.get("enabled", False)):
-                    bind_rigid_align_cfg = report_norm
-                    logger.info(f"Loaded bind_rigid_align from pre-stage2 report: {report_path}")
-            except Exception as e:
-                logger.warning(f"Failed to load pre-stage2 rigid align report ({report_path}): {e}")
-    bind_rigid_align_apply_cfg = (
-        {
-            "enabled": True,
-            "rx_deg": float(bind_rigid_align_cfg.get("rx_deg", 0.0)),
-            "ry_deg": float(bind_rigid_align_cfg.get("ry_deg", 0.0)),
-            "rz_deg": float(bind_rigid_align_cfg.get("rz_deg", 0.0)),
-            "tx": float(bind_rigid_align_cfg.get("tx", 0.0)),
-            "ty": float(bind_rigid_align_cfg.get("ty", 0.0)),
-            "tz": float(bind_rigid_align_cfg.get("tz", 0.0)),
-        }
-        if bind_rigid_align_cfg is not None and bool(bind_rigid_align_cfg.get("enabled", False))
-        else None
+    render_bind_cfg = {
+        "bind_mesh_sequence_dir": render_cfg.get("bind_mesh_sequence_dir", None),
+        "bind_sequence_npz": render_cfg.get("bind_sequence_npz", ckpt.get("bind_sequence_npz", None)),
+        "bind_vertices_npz": render_cfg.get("bind_vertices_npz", ckpt.get("bind_vertices_npz", None)),
+        "bind_deform_obj": render_cfg.get("bind_deform_obj", ckpt.get("bind_deform_obj", None)),
+        "bind_mesh_offset": bind_mesh_offset_cfg,
+        "bind_mesh_to_camera": bind_mesh_to_camera,
+        "bind_inverse_export_upright": bind_inverse_export_upright,
+        "bind_mesh_obj_space": bind_mesh_obj_space_mode,
+        "bind_rigid_align": render_cfg.get("bind_rigid_align", {"enabled": False}),
+    }
+    mesh_runtime = Stage2MeshRuntime.from_stage2_config(
+        project_root=project_root,
+        stage1_dir=stage1_dir,
+        cfg=render_bind_cfg,
+        frames=frames,
+        logger=logger,
+        device=device,
+        bind_to_mesh=bind_to_mesh,
+        auto_from_stage2_report=bind_rigid_align_auto_from_stage2,
+        stage2_dir_for_report=stage2_dir,
     )
+    mesh_context = mesh_runtime.context
+    bind_seq_npz = mesh_context.bind_seq_npz_path
+    bind_vertices_npz = mesh_context.bind_vertices_npz_path
+    bind_mesh_indices = [] if mesh_context.bind_mesh_indices is None else [int(x) for x in mesh_context.bind_mesh_indices]
+    binding_enabled = bind_to_mesh and mesh_context.bind_mesh_dir is not None and g.bind_idx is not None
+    if fg_mask_mode in ("smpl", "mesh") and not binding_enabled:
+        raise ValueError("fg_mask_mode=smpl requires bind_mesh_sequence_dir and bound gaussians.")
+
+    bind_mesh_obj_space_mode = str(mesh_context.bind_mesh_obj_space_mode).strip().lower()
+    mesh_obj_in_camera_space = bool(mesh_context.mesh_obj_in_camera_space)
+    deform_mesh_obj_in_camera_space = bool(deform_mesh_obj_space_mode == "camera")
+    bind_mesh_offset_np = np.asarray(mesh_context.bind_mesh_offset_np, dtype=np.float32).reshape(1, 3)
+    bind_mesh_offset_t = torch.from_numpy(bind_mesh_offset_np.copy()).to(device=device, dtype=torch.float32)
+    bind_rigid_align_apply_cfg = None if mesh_context.bind_rigid_apply_cfg is None else dict(mesh_context.bind_rigid_apply_cfg)
+    if bind_rigid_align_apply_cfg is not None and (not binding_enabled):
+        logger.warning("bind_rigid_align is enabled but binding is disabled; ignoring rigid align.")
+        bind_rigid_align_apply_cfg = None
     if bind_rigid_align_apply_cfg is not None:
         logger.info(
             "Bind rigid align enabled: "
@@ -1684,261 +1585,72 @@ def main():
             f"{bind_rigid_align_apply_cfg['ty']:.4f},"
             f"{bind_rigid_align_apply_cfg['tz']:.4f})"
         )
-    if bind_seq_npz is not None:
-        bind_seq_npz = Path(resolve_path(str(bind_seq_npz)))
-        if not bind_seq_npz.is_absolute():
-            bind_seq_npz = project_root / bind_seq_npz
-    if bind_vertices_npz is not None:
-        bind_vertices_npz = Path(resolve_path(str(bind_vertices_npz)))
-        if not bind_vertices_npz.is_absolute():
-            bind_vertices_npz = project_root / bind_vertices_npz
-    if bind_vertices_npz is None and binding_enabled:
-        cand_vseq = project_root / Path("outputs/stage1/smpl_vertices_sequence.npz")
-        if cand_vseq.exists():
-            bind_vertices_npz = cand_vseq
-    if bind_rigid_align_apply_cfg is not None and (not binding_enabled):
-        logger.warning("bind_rigid_align is enabled but binding is disabled; ignoring rigid align.")
-        bind_rigid_align_apply_cfg = None
 
-    mesh_cache: dict[int, torch.Tensor] = {}
     mesh_normal_cache: dict[int, torch.Tensor] = {}
-    mesh_np_cache: dict[int, np.ndarray] = {}
-    mesh_binding_cache: dict[int, BindingFrameData] = {}
-    mesh_cache_order: list[int] = []
     bind_idx_t = None
     bind_vertex_offset_t = None
     bind_face_idx_t = None
     bind_bary_t = None
-    bind_faces_np = None
-    bind_adjacency: list[np.ndarray] | None = None
+    bind_faces_np = mesh_context.bind_faces_np
     prev_vertex_dirs: torch.Tensor | None = None
-    exp_upright_rot = np.eye(3, dtype=np.float32)
-    exp_center_xy = np.zeros((2,), dtype=np.float32)
-    exp_floor_z = 0.0
-    exp_has_center_xy = False
-    exp_has_floor = False
+    exp_upright_rot = np.asarray(mesh_context.exp_upright_rot, dtype=np.float32)
+    exp_center_xy = np.asarray(mesh_context.exp_center_xy, dtype=np.float32).reshape(2,)
+    exp_floor_z = float(mesh_context.exp_floor_z)
+    exp_has_center_xy = bool(mesh_context.exp_has_center_xy)
+    exp_has_floor = bool(mesh_context.exp_has_floor)
     deform_verts_cam_np: np.ndarray | None = None
     deform_default_joints_cam_np: np.ndarray | None = None
+
+    if binding_enabled and bind_faces_np is not None and len(bind_mesh_indices) == 0:
+        raise RuntimeError("Binding is enabled but bind mesh indices are empty.")
+    if bind_faces_np is None or len(bind_faces_np) == 0:
+        if fg_mask_mode in ("smpl", "mesh") and binding_enabled:
+            raise RuntimeError("fg_mask_mode=smpl requires mesh faces, but loaded mesh has no faces.")
+        if binding_enabled and str(binding_cfg.mode).lower() == "games_face":
+            raise RuntimeError("binding.mode=games_face requires mesh faces, but loaded mesh has no faces.")
+        bind_faces_np = None
+
+    if bind_seq_npz is not None and bind_seq_npz.exists():
+        seq_meta = np.load(bind_seq_npz, allow_pickle=True)
+        fit_strategy_hint = None
+        if "fit_strategy" in seq_meta.files:
+            fs_arr = np.asarray(seq_meta["fit_strategy"]).reshape(-1)
+            if fs_arr.size > 0:
+                fit_strategy_hint = str(fs_arr[0]).strip().lower()
+        if deform_mesh_obj_space_mode == "auto" and fit_strategy_hint in ("stage1_motion_prior", "vibe"):
+            deform_mesh_obj_in_camera_space = True
+        elif deform_mesh_obj_space_mode == "blender":
+            deform_mesh_obj_in_camera_space = False
+        deform_verts_key = "verts_canonical_cam" if "verts_canonical_cam" in seq_meta.files else ("verts_tpose_cam" if "verts_tpose_cam" in seq_meta.files else "")
+        if deform_verts_key:
+            deform_verts_cam_np = np.asarray(seq_meta[deform_verts_key], dtype=np.float32)
+            if deform_verts_cam_np.ndim != 2 or deform_verts_cam_np.shape[1] != 3:
+                logger.warning(
+                    f"Ignore malformed {deform_verts_key} in {bind_seq_npz}: {deform_verts_cam_np.shape}"
+                )
+                deform_verts_cam_np = None
+            else:
+                logger.info(
+                    f"Loaded camera-space canonical verts from {bind_seq_npz} "
+                    f"(source={deform_verts_key}, V={int(deform_verts_cam_np.shape[0])})"
+                )
+        deform_joints_key = "joints_canonical_cam" if "joints_canonical_cam" in seq_meta.files else ("joints_tpose_cam" if "joints_tpose_cam" in seq_meta.files else "")
+        if deform_joints_key:
+            deform_default_joints_cam_np = np.asarray(seq_meta[deform_joints_key], dtype=np.float32)
+            if deform_default_joints_cam_np.ndim == 3 and deform_default_joints_cam_np.shape[0] == 1:
+                deform_default_joints_cam_np = deform_default_joints_cam_np[0]
+            if deform_default_joints_cam_np.ndim != 2 or deform_default_joints_cam_np.shape[1] != 3:
+                logger.warning(
+                    f"Ignore malformed {deform_joints_key} in {bind_seq_npz}: {deform_default_joints_cam_np.shape}"
+                )
+                deform_default_joints_cam_np = None
+            else:
+                logger.info(
+                    f"Loaded camera-space canonical joints from {bind_seq_npz} "
+                    f"(source={deform_joints_key}, J={int(deform_default_joints_cam_np.shape[0])})"
+                )
+
     if binding_enabled:
-        bind_mesh_dir = Path(resolve_path(str(bind_mesh_dir)))
-        if not bind_mesh_dir.is_absolute():
-            bind_mesh_dir = project_root / bind_mesh_dir
-        if not bind_mesh_dir.exists():
-            raise FileNotFoundError(f"bind_mesh_sequence_dir not found: {bind_mesh_dir}")
-
-        if bind_mesh_indices is None:
-            # try to map frame names -> mesh indices using smpl_params_sequence.npz
-            if bind_seq_npz is None:
-                bind_seq_npz = project_root / Path("outputs/stage1/smpl_params_sequence.npz")
-            else:
-                bind_seq_npz = Path(resolve_path(str(bind_seq_npz)))
-                if not bind_seq_npz.is_absolute():
-                    bind_seq_npz = project_root / bind_seq_npz
-            if bind_seq_npz.exists():
-                import numpy as _np
-                seq = _np.load(bind_seq_npz, allow_pickle=True)
-                seq_names = [str(x) for x in seq["frame_names"].tolist()]
-                seq_ids = []
-                for i_s, n_s in enumerate(seq_names):
-                    pidx = _parse_frame_idx_from_name(n_s)
-                    seq_ids.append(int(pidx) if pidx is not None else int(i_s))
-                name_to_idx = {n: int(seq_ids[i]) for i, n in enumerate(seq_names)}
-                bind_mesh_indices = []
-                missing = []
-                for fn in frames:
-                    if fn in name_to_idx:
-                        bind_mesh_indices.append(int(name_to_idx[fn]))
-                    else:
-                        missing.append(fn)
-                if missing and len(seq_names) == len(frames):
-                    bind_mesh_indices = [int(x) for x in seq_ids[:len(frames)]]
-                elif missing:
-                    raise RuntimeError(f"Binding failed: {len(missing)} frames not in {bind_seq_npz}")
-            else:
-                bind_mesh_indices = [int(i) for i in range(len(frames))]
-
-        verts_seq_np = None
-        verts_seq_ids_set: set[int] = set()
-        verts_seq_row_map: dict[int, int] = {}
-        verts_seq_row_to_frame: dict[int, int] = {}
-        verts_seq_fallback_idx = 0
-        if bind_vertices_npz is not None and bind_vertices_npz.exists():
-            vseq = np.load(bind_vertices_npz, allow_pickle=True)
-            if "verts_cam" in vseq.files:
-                verts_seq_np = np.asarray(vseq["verts_cam"], dtype=np.float32)
-                if verts_seq_np.ndim != 3 or verts_seq_np.shape[-1] != 3:
-                    raise RuntimeError(
-                        f"Bad verts_cam shape in {bind_vertices_npz}: {verts_seq_np.shape}"
-                    )
-                n_vs = int(verts_seq_np.shape[0])
-                verts_seq_row_map = {}
-                if "frame_names" in vseq.files:
-                    vseq_names = [str(x) for x in np.asarray(vseq["frame_names"]).reshape(-1).tolist()]
-                    for row_i, fn in enumerate(vseq_names[:n_vs]):
-                        parsed_idx = _parse_frame_idx_from_name(fn)
-                        if parsed_idx is None:
-                            parsed_idx = int(row_i)
-                        if int(parsed_idx) not in verts_seq_row_map:
-                            verts_seq_row_map[int(parsed_idx)] = int(row_i)
-                if len(verts_seq_row_map) == 0:
-                    verts_seq_row_map = {int(i): int(i) for i in range(n_vs)}
-                verts_seq_row_to_frame = {}
-                for fid, rid in verts_seq_row_map.items():
-                    rid_i = int(rid)
-                    if rid_i not in verts_seq_row_to_frame:
-                        verts_seq_row_to_frame[rid_i] = int(fid)
-                verts_seq_ids_set = set(int(k) for k in verts_seq_row_map.keys())
-                verts_seq_fallback_idx = int(sorted(verts_seq_ids_set)[-1])
-                logger.info(
-                    f"Using dynamic bind vertices from {bind_vertices_npz} "
-                    f"(frames={len(verts_seq_ids_set)}, rows={n_vs})"
-                )
-            else:
-                logger.warning(
-                    f"{bind_vertices_npz} missing verts_cam; fallback to OBJ sequence binding."
-                )
-
-        def _parse_mesh_frame_idx(p: Path) -> int | None:
-            stem = p.stem.strip().lower()
-            if stem.isdigit():
-                return int(stem)
-            if stem.startswith("frame_") and stem[6:].isdigit():
-                return int(stem[6:])
-            return None
-
-        mesh_path_map: dict[int, Path] = {}
-        for p in bind_mesh_dir.glob("*.obj"):
-            idx = _parse_mesh_frame_idx(p)
-            if idx is None:
-                continue
-            old_p = mesh_path_map.get(idx, None)
-            if old_p is None:
-                mesh_path_map[idx] = p
-            else:
-                old_is_canonical = old_p.stem.lower().startswith("frame_")
-                new_is_canonical = p.stem.lower().startswith("frame_")
-                if new_is_canonical and (not old_is_canonical):
-                    mesh_path_map[idx] = p
-        mesh_ids = sorted(mesh_path_map.keys())
-        if len(mesh_ids) == 0:
-            raise FileNotFoundError(f"No sequence OBJ meshes found in {bind_mesh_dir}")
-        mesh_ids_set = set(mesh_ids)
-        fallback_mesh_idx = int(mesh_ids[-1])
-        if verts_seq_np is not None:
-            remapped_row_ids = 0
-            remapped_bind_indices: list[int] = []
-            for mi in bind_mesh_indices:
-                mii = int(mi)
-                if mii in verts_seq_ids_set:
-                    remapped_bind_indices.append(mii)
-                elif mii in verts_seq_row_to_frame:
-                    remapped_bind_indices.append(int(verts_seq_row_to_frame[mii]))
-                    remapped_row_ids += 1
-                else:
-                    remapped_bind_indices.append(int(verts_seq_fallback_idx))
-            if remapped_row_ids > 0:
-                logger.info(
-                    "Detected row-index bind mesh ids in checkpoint; remapped %d entries to frame ids.",
-                    remapped_row_ids,
-                )
-            bind_mesh_indices = remapped_bind_indices
-            missing_seq_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in verts_seq_ids_set]
-            if len(missing_seq_ids) > 0:
-                logger.warning(
-                    "Some bind indices are missing in bind_vertices_npz; "
-                    f"fallback to frame {verts_seq_fallback_idx} for {len(missing_seq_ids)} frames."
-                )
-                bind_mesh_indices = [
-                    int(mi) if int(mi) in verts_seq_ids_set else verts_seq_fallback_idx
-                    for mi in bind_mesh_indices
-                ]
-        else:
-            missing_mesh_ids = [int(mi) for mi in bind_mesh_indices if int(mi) not in mesh_ids_set]
-            if len(missing_mesh_ids) > 0:
-                logger.warning(
-                    "Some bind mesh indices are missing from bind_mesh_sequence_dir; "
-                    f"fallback to mesh {fallback_mesh_idx:06d}.obj for {len(missing_mesh_ids)} frames."
-                )
-                bind_mesh_indices = [
-                    int(mi) if int(mi) in mesh_ids_set else fallback_mesh_idx
-                    for mi in bind_mesh_indices
-                ]
-
-        if (
-            fg_mask_mode in ("smpl", "mesh")
-            or bool(bind_align_quat_to_mesh_normals)
-            or str(binding_cfg.mode).lower() in ("games_face", "hybrid")
-        ):
-            if len(bind_mesh_indices) == 0:
-                raise RuntimeError("fg_mask_mode=smpl requires non-empty bind_mesh_indices.")
-            first_mesh_idx = int(bind_mesh_indices[0]) if int(bind_mesh_indices[0]) in mesh_ids_set else fallback_mesh_idx
-            first_obj = mesh_path_map.get(first_mesh_idx, None)
-            if first_obj is None:
-                raise FileNotFoundError(f"Mesh frame not found for fg mask index: {first_mesh_idx}")
-            _, bind_faces_np = load_obj_mesh(first_obj)
-            if bind_faces_np is None or len(bind_faces_np) == 0:
-                if fg_mask_mode in ("smpl", "mesh"):
-                    raise RuntimeError("fg_mask_mode=smpl requires mesh faces, but loaded mesh has no faces.")
-                if str(binding_cfg.mode).lower() == "games_face":
-                    raise RuntimeError("binding.mode=games_face requires mesh faces, but loaded mesh has no faces.")
-                bind_faces_np = None
-
-        if bind_seq_npz is not None and bind_seq_npz.exists():
-            seq_meta = np.load(bind_seq_npz, allow_pickle=True)
-            fit_strategy_hint = None
-            if "fit_strategy" in seq_meta.files:
-                fs_arr = np.asarray(seq_meta["fit_strategy"]).reshape(-1)
-                if fs_arr.size > 0:
-                    fit_strategy_hint = str(fs_arr[0]).strip().lower()
-            if bind_mesh_obj_space_mode == "auto" and fit_strategy_hint in ("stage1_motion_prior", "vibe"):
-                mesh_obj_in_camera_space = True
-            elif bind_mesh_obj_space_mode == "blender":
-                mesh_obj_in_camera_space = False
-            if deform_mesh_obj_space_mode == "auto" and fit_strategy_hint in ("stage1_motion_prior", "vibe"):
-                deform_mesh_obj_in_camera_space = True
-            elif deform_mesh_obj_space_mode == "blender":
-                deform_mesh_obj_in_camera_space = False
-            deform_verts_key = "verts_canonical_cam" if "verts_canonical_cam" in seq_meta.files else ("verts_tpose_cam" if "verts_tpose_cam" in seq_meta.files else "")
-            if deform_verts_key:
-                deform_verts_cam_np = np.asarray(seq_meta[deform_verts_key], dtype=np.float32)
-                if deform_verts_cam_np.ndim != 2 or deform_verts_cam_np.shape[1] != 3:
-                    logger.warning(
-                        f"Ignore malformed {deform_verts_key} in {bind_seq_npz}: {deform_verts_cam_np.shape}"
-                    )
-                    deform_verts_cam_np = None
-                else:
-                    logger.info(
-                        f"Loaded camera-space canonical verts from {bind_seq_npz} "
-                        f"(source={deform_verts_key}, V={int(deform_verts_cam_np.shape[0])})"
-                    )
-            deform_joints_key = "joints_canonical_cam" if "joints_canonical_cam" in seq_meta.files else ("joints_tpose_cam" if "joints_tpose_cam" in seq_meta.files else "")
-            if deform_joints_key:
-                deform_default_joints_cam_np = np.asarray(seq_meta[deform_joints_key], dtype=np.float32)
-                if deform_default_joints_cam_np.ndim == 3 and deform_default_joints_cam_np.shape[0] == 1:
-                    deform_default_joints_cam_np = deform_default_joints_cam_np[0]
-                if deform_default_joints_cam_np.ndim != 2 or deform_default_joints_cam_np.shape[1] != 3:
-                    logger.warning(
-                        f"Ignore malformed {deform_joints_key} in {bind_seq_npz}: {deform_default_joints_cam_np.shape}"
-                    )
-                    deform_default_joints_cam_np = None
-                else:
-                    logger.info(
-                        f"Loaded camera-space canonical joints from {bind_seq_npz} "
-                        f"(source={deform_joints_key}, J={int(deform_default_joints_cam_np.shape[0])})"
-                    )
-
-            if bind_mesh_to_camera and bind_inverse_export_upright:
-                if "export_upright_rot" in seq_meta.files:
-                    exp_upright_rot = np.asarray(seq_meta["export_upright_rot"], dtype=np.float32).reshape(3, 3)
-                if "export_center_xy" in seq_meta.files:
-                    exp_has_center_xy = bool(int(np.asarray(seq_meta["export_center_xy"]).reshape(-1)[0]))
-                if "export_center_xy_value" in seq_meta.files:
-                    exp_center_xy = np.asarray(seq_meta["export_center_xy_value"], dtype=np.float32).reshape(2,)
-                if "export_on_floor" in seq_meta.files:
-                    exp_has_floor = bool(int(np.asarray(seq_meta["export_on_floor"]).reshape(-1)[0]))
-                if "export_floor_z" in seq_meta.files:
-                    exp_floor_z = float(np.asarray(seq_meta["export_floor_z"], dtype=np.float32).reshape(-1)[0])
-
         bind_idx_t = g.bind_idx.to(device=device, dtype=torch.long)
         bind_mask = bind_idx_t >= 0
         if g.bind_face_idx is not None:
@@ -1947,7 +1659,7 @@ def main():
             bind_bary_t = g.bind_bary.to(device=device, dtype=torch.float32)
         if (
             legacy_cam_t_autofix
-            and bind_mesh_to_camera
+            and mesh_context.bind_mesh_to_camera
             and cam_t is not None
             and cam_t.numel() > 0
         ):
@@ -1985,90 +1697,22 @@ def main():
             return False
 
         def _load_mesh_verts(mesh_idx: int) -> tuple[torch.Tensor, torch.Tensor | None, int]:
-            if verts_seq_np is not None:
-                mesh_idx_use = int(mesh_idx)
-                if mesh_idx_use not in verts_seq_ids_set:
-                    mesh_idx_use = verts_seq_fallback_idx
-                if mesh_idx_use in mesh_cache:
-                    return mesh_cache[mesh_idx_use], mesh_normal_cache.get(mesh_idx_use, None), mesh_idx_use
-                row_idx = int(verts_seq_row_map.get(mesh_idx_use, verts_seq_row_map.get(int(verts_seq_fallback_idx), 0)))
-                row_idx = int(np.clip(row_idx, 0, int(verts_seq_np.shape[0]) - 1))
-                verts_np = np.asarray(verts_seq_np[row_idx], dtype=np.float32)
-                if bind_rigid_align_apply_cfg is not None:
-                    verts_np = apply_rigid_transform_np(verts_np, bind_rigid_align_apply_cfg)
-                verts_np = verts_np + bind_mesh_offset_np
-                verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
-                mesh_cache[mesh_idx_use] = verts_t
-                mesh_np_cache[mesh_idx_use] = np.asarray(verts_np, dtype=np.float32)
-                normals_t = None
-                if (
-                    bool(bind_align_quat_to_mesh_normals)
-                    and bind_faces_np is not None
-                    and _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}")
-                ):
+            verts_t, mesh_idx_use = mesh_runtime.load_mesh_verts(mesh_idx, bind_cache_size=int(render_cfg.get("bind_cache_size", 8)))
+            normals_t = mesh_normal_cache.get(mesh_idx_use, None)
+            if normals_t is None and bool(bind_align_quat_to_mesh_normals) and bind_faces_np is not None:
+                verts_np = np.asarray(mesh_runtime.mesh_np_cache[mesh_idx_use], dtype=np.float32)
+                if _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}"):
                     normals_np = _compute_vertex_normals_np(verts_np, bind_faces_np)
                     normals_t = torch.from_numpy(normals_np).to(device=device, dtype=torch.float32)
                     mesh_normal_cache[mesh_idx_use] = normals_t
-                mesh_cache_order.append(mesh_idx_use)
-                if len(mesh_cache_order) > 8:
-                    old = mesh_cache_order.pop(0)
-                    mesh_cache.pop(old, None)
-                    mesh_normal_cache.pop(old, None)
-                    mesh_np_cache.pop(old, None)
-                    mesh_binding_cache.pop(old, None)
-                return verts_t, normals_t, mesh_idx_use
-
-            mesh_idx_use = int(mesh_idx)
-            if mesh_idx_use not in mesh_ids_set:
-                mesh_idx_use = fallback_mesh_idx
-            if mesh_idx_use in mesh_cache:
-                return mesh_cache[mesh_idx_use], mesh_normal_cache.get(mesh_idx_use, None), mesh_idx_use
-            obj_path = mesh_path_map.get(mesh_idx_use, None)
-            if obj_path is None:
-                raise FileNotFoundError(f"Mesh frame index not found: {mesh_idx_use}")
-            verts_np = load_obj_vertices(obj_path)
-            if bind_mesh_to_camera and (not bool(mesh_obj_in_camera_space)):
-                if bind_inverse_export_upright:
-                    if exp_has_center_xy:
-                        verts_np[:, 0] += float(exp_center_xy[0])
-                        verts_np[:, 1] += float(exp_center_xy[1])
-                    if exp_has_floor:
-                        verts_np[:, 2] += float(exp_floor_z)
-                    # Inverse of stage1 upright rotation: v_blender_raw = v_export @ U
-                    verts_np = (verts_np @ exp_upright_rot.astype(np.float32))
-                # Inverse of stage1 _camera_to_blender: (x, y, z) = (x_b, -z_b, y_b)
-                import numpy as _np
-                verts_np = _np.stack([verts_np[:, 0], -verts_np[:, 2], verts_np[:, 1]], axis=-1).astype(_np.float32)
-            if bind_rigid_align_apply_cfg is not None:
-                verts_np = apply_rigid_transform_np(verts_np, bind_rigid_align_apply_cfg)
-            verts_np = np.asarray(verts_np, dtype=np.float32) + bind_mesh_offset_np
-            verts_t = torch.from_numpy(verts_np).to(device=device, dtype=torch.float32)
-            mesh_cache[mesh_idx_use] = verts_t
-            mesh_np_cache[mesh_idx_use] = np.asarray(verts_np, dtype=np.float32)
-            normals_t = None
-            if (
-                bool(bind_align_quat_to_mesh_normals)
-                and bind_faces_np is not None
-                and _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}")
-            ):
-                normals_np = _compute_vertex_normals_np(verts_np, bind_faces_np)
-                normals_t = torch.from_numpy(normals_np).to(device=device, dtype=torch.float32)
-                mesh_normal_cache[mesh_idx_use] = normals_t
-            mesh_cache_order.append(mesh_idx_use)
-            if len(mesh_cache_order) > 8:
-                old = mesh_cache_order.pop(0)
-                mesh_cache.pop(old, None)
-                mesh_normal_cache.pop(old, None)
-                mesh_np_cache.pop(old, None)
-                mesh_binding_cache.pop(old, None)
             return verts_t, normals_t, mesh_idx_use
 
         def _load_binding_frame(mesh_idx_use: int) -> BindingFrameData:
-            if mesh_idx_use in mesh_binding_cache:
-                return mesh_binding_cache[mesh_idx_use]
-            if mesh_idx_use not in mesh_np_cache:
-                raise RuntimeError(f"Mesh verts cache miss for binding frame: {mesh_idx_use}")
-            verts_np = mesh_np_cache[mesh_idx_use]
+            if mesh_idx_use in mesh_runtime.mesh_binding_cache:
+                return mesh_runtime.mesh_binding_cache[mesh_idx_use]
+            if mesh_idx_use not in mesh_runtime.mesh_np_cache:
+                mesh_runtime.load_mesh_verts(mesh_idx_use, bind_cache_size=int(render_cfg.get("bind_cache_size", 8)))
+            verts_np = np.asarray(mesh_runtime.mesh_np_cache[mesh_idx_use], dtype=np.float32)
             faces_use = bind_faces_np
             if faces_use is not None and (not _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}")):
                 if str(binding_cfg.mode).lower() in ("games_face", "hybrid"):
@@ -2076,18 +1720,19 @@ def main():
                         "binding.mode requires mesh faces, but current verts/faces topology is inconsistent."
                     )
                 faces_use = None
-            nonlocal bind_adjacency
+            adjacency = None
             if faces_use is not None:
-                if bind_adjacency is None or len(bind_adjacency) != int(verts_np.shape[0]):
-                    bind_adjacency = build_vertex_adjacency(int(verts_np.shape[0]), faces_use)
+                if mesh_runtime.bind_adjacency is None or len(mesh_runtime.bind_adjacency) != int(verts_np.shape[0]):
+                    mesh_runtime.bind_adjacency = build_vertex_adjacency(int(verts_np.shape[0]), faces_use)
+                adjacency = mesh_runtime.bind_adjacency
             frame = build_binding_frame_data(
                 verts_np=verts_np,
                 faces_np=faces_use,
-                adjacency=bind_adjacency,
+                adjacency=adjacency,
                 cfg=binding_cfg,
                 device=device,
             )
-            mesh_binding_cache[mesh_idx_use] = frame
+            mesh_runtime.mesh_binding_cache[mesh_idx_use] = frame
             return frame
 
     deform_pick_mode = str(render_cfg.get("deform_frame_source", "last")).strip().lower()
@@ -2805,13 +2450,15 @@ def main():
                                         q_mix = (1.0 - bind_quat_normal_blend) * q_old + bind_quat_normal_blend * q_target
                                         g_deform.quat[valid_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
                 else:
+                    deform_adjacency = None
                     if bind_faces_np is not None:
-                        if bind_adjacency is None or len(bind_adjacency) != int(verts_np_bind.shape[0]):
-                            bind_adjacency = build_vertex_adjacency(int(verts_np_bind.shape[0]), bind_faces_np)
+                        if mesh_runtime.bind_adjacency is None or len(mesh_runtime.bind_adjacency) != int(verts_np_bind.shape[0]):
+                            mesh_runtime.bind_adjacency = build_vertex_adjacency(int(verts_np_bind.shape[0]), bind_faces_np)
+                        deform_adjacency = mesh_runtime.bind_adjacency
                     deform_frame = build_binding_frame_data(
                         verts_np=verts_np_bind,
                         faces_np=bind_faces_np,
-                        adjacency=bind_adjacency,
+                        adjacency=deform_adjacency,
                         cfg=binding_cfg,
                         device=device,
                     )

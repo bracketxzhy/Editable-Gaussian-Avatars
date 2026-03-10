@@ -13,4 +13,3 @@ def resolve_inner_supervision_mask(
     if bool(strict_inner_mask) and smpl_mask is not None:
         return smpl_mask
     return smpl_mask_for_color if smpl_mask_for_color is not None else person_mask_curr
-

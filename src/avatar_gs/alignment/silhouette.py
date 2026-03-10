@@ -1,14 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import cv2
 import numpy as np
-
-
-def _resize_mask_nearest(mask_u8: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
-    out_h, out_w = int(out_hw[0]), int(out_hw[1])
-    if out_h <= 0 or out_w <= 0:
-        raise ValueError(f"invalid out_hw: {out_hw}")
-    return cv2.resize(np.asarray(mask_u8, dtype=np.uint8), (out_w, out_h), interpolation=cv2.INTER_NEAREST)
 
 
 def mask_bbox(mask_u8: np.ndarray) -> np.ndarray | None:
@@ -83,6 +76,14 @@ def _rasterize_mesh_mask(uv: np.ndarray, valid_v: np.ndarray, faces: np.ndarray,
     return mask
 
 
+def _resize_mask_nn(mask_u8: np.ndarray, image_hw: tuple[int, int]) -> np.ndarray:
+    h, w = int(image_hw[0]), int(image_hw[1])
+    src = np.asarray(mask_u8, dtype=np.uint8)
+    if src.shape[0] == h and src.shape[1] == w:
+        return src
+    return cv2.resize(src, (w, h), interpolation=cv2.INTER_NEAREST)
+
+
 def _metrics(mask_pred: np.ndarray, mask_gt: np.ndarray) -> tuple[float, float, float]:
     iou = mask_iou(mask_pred, mask_gt)
     outside = mask_outside_ratio(mask_pred, mask_gt)
@@ -131,7 +132,13 @@ def estimate_mask_similarity_transform(
     undersize_weight: float = 0.04,
     expand_weight: float = 0.08,
     accept_outside_slack: float = 0.01,
-    search_max_side: int = 384,
+    search_max_side: int = 256,
+    local_scale_delta: float = 0.05,
+    local_scale_steps: int = 3,
+    local_trans_ratio: float = 0.03,
+    local_trans_min_px: float = 4.0,
+    local_trans_max_px: float = 24.0,
+    local_trans_steps: int = 5,
 ) -> tuple[np.ndarray, dict]:
     b_s = mask_bbox(smpl_mask)
     b_p = mask_bbox(person_mask)
@@ -146,111 +153,138 @@ def estimate_mask_similarity_transform(
     csy = float(0.5 * (b_s[1] + b_s[3]))
     cpx = float(0.5 * (b_p[0] + b_p[2]))
     cpy = float(0.5 * (b_p[1] + b_p[3]))
-    s0 = float(np.clip(0.5 * (wp / ws + hp / hs), scale_min, scale_max))
-    tx0 = float(cpx - s0 * csx)
-    ty0 = float(cpy - s0 * csy)
+    s_best = float(np.clip(0.5 * (wp / ws + hp / hs), scale_min, scale_max))
+    tx_best = float(cpx - s_best * csx)
+    ty_best = float(cpy - s_best * csy)
+
     iou_before, outside_before, area_ratio_before = _metrics(smpl_mask, person_mask)
     score_before = _score(
         iou=iou_before,
         outside=outside_before,
         area_ratio=area_ratio_before,
         scale=1.0,
-        scale_init=max(s0, 1e-6),
+        scale_init=max(s_best, 1e-6),
         outside_weight=outside_weight,
         oversize_weight=oversize_weight,
         undersize_weight=undersize_weight,
         expand_weight=expand_weight,
     )
-    base_extent = float(max(wp, hp, ws, hs))
-    trans_span = float(np.clip(float(trans_ratio) * base_extent, trans_min_px, trans_max_px))
-    h, w = int(image_hw[0]), int(image_hw[1])
-    long_side = max(h, w)
-    ds_ratio = min(1.0, float(max(int(search_max_side), 32)) / float(max(long_side, 1)))
-    hs_ = max(32, int(round(float(h) * ds_ratio)))
-    ws_ = max(32, int(round(float(w) * ds_ratio)))
-    if hs_ != h or ws_ != w:
-        person_mask_search = _resize_mask_nearest(person_mask, (hs_, ws_))
-        uv_search = np.asarray(uv, dtype=np.float32).copy()
-        uv_search[:, 0] *= float(ws_) / float(max(w, 1))
-        uv_search[:, 1] *= float(hs_) / float(max(h, 1))
-    else:
-        person_mask_search = np.asarray(person_mask, dtype=np.uint8)
-        uv_search = np.asarray(uv, dtype=np.float32)
 
-    best = None
-    best_score = -1e18
-    scale_center = float(s0)
-    tx_center = float(tx0) * (float(ws_) / float(max(w, 1)))
-    ty_center = float(ty0) * (float(hs_) / float(max(h, 1)))
-    scale_window = float(scale_delta)
-    trans_window = float(trans_span) * (float(ws_) / float(max(w, 1)))
-    levels = (
-        (float(max(scale_window, 0.01)), float(max(trans_window, 2.0)), max(5, int(min(scale_steps, 7)))),
-        (float(max(scale_window * 0.35, 0.006)), float(max(trans_window * 0.35, 1.0)), 5),
-        (float(max(scale_window * 0.15, 0.003)), float(max(trans_window * 0.15, 0.5)), 5),
+    h0, w0 = int(image_hw[0]), int(image_hw[1])
+    ds = min(1.0, float(max(search_max_side, 8)) / float(max(h0, w0, 1)))
+    hs = max(8, int(round(float(h0) * ds)))
+    ws = max(8, int(round(float(w0) * ds)))
+    small_hw = (hs, ws)
+    smpl_small = _resize_mask_nn(smpl_mask, small_hw)
+    person_small = _resize_mask_nn(person_mask, small_hw)
+    uv_small = np.asarray(uv, dtype=np.float32).copy()
+    uv_small[:, 0] *= float(ws) / float(max(w0, 1))
+    uv_small[:, 1] *= float(hs) / float(max(h0, 1))
+
+    trans_base = max(
+        float(local_trans_min_px),
+        min(
+            float(local_trans_max_px),
+            float(local_trans_ratio) * float(max(wp, hp)),
+        ),
     )
-    for lvl_scale_delta, lvl_trans_span, lvl_steps in levels:
-        ds_vals = np.linspace(-lvl_scale_delta, lvl_scale_delta, int(max(3, lvl_steps)))
-        dt_vals = np.linspace(-lvl_trans_span, lvl_trans_span, int(max(3, lvl_steps)))
-        lvl_best = None
-        lvl_best_score = -1e18
-        for ds in ds_vals:
-            s = float(np.clip(scale_center * (1.0 + float(ds)), scale_min, scale_max))
-            for dtx in dt_vals:
-                for dty in dt_vals:
-                    tx = float(tx_center + float(dtx))
-                    ty = float(ty_center + float(dty))
-                    uv2 = apply_uv_similarity(uv_search, scale=s, tx=tx, ty=ty)
-                    mask2 = _rasterize_mesh_mask(uv=uv2, valid_v=valid_v, faces=faces, image_hw=(hs_, ws_))
-                    iou, outside, area_ratio = _metrics(mask2, person_mask_search)
-                    score = _score(
-                        iou=iou,
-                        outside=outside,
-                        area_ratio=area_ratio,
-                        scale=s,
-                        scale_init=s0,
-                        outside_weight=outside_weight,
-                        oversize_weight=oversize_weight,
-                        undersize_weight=undersize_weight,
-                        expand_weight=expand_weight,
-                    )
-                    if score > lvl_best_score:
-                        lvl_best_score = score
-                        lvl_best = (s, tx, ty, iou, outside, area_ratio, score)
-        if lvl_best is None:
-            continue
-        scale_center, tx_center, ty_center, iou_lvl, outside_lvl, area_ratio_lvl, score_lvl = lvl_best
-        lvl_best_full = (
-            scale_center,
-            tx_center * (float(w) / float(max(ws_, 1))),
-            ty_center * (float(h) / float(max(hs_, 1))),
-            iou_lvl,
-            outside_lvl,
-            area_ratio_lvl,
-            score_lvl,
+    tx_grid = np.linspace(tx_best - trans_base, tx_best + trans_base, num=max(int(local_trans_steps), 1), dtype=np.float32)
+    ty_grid = np.linspace(ty_best - trans_base, ty_best + trans_base, num=max(int(local_trans_steps), 1), dtype=np.float32)
+    if int(local_scale_steps) <= 1 or float(local_scale_delta) <= 0.0:
+        scale_grid = np.asarray([s_best], dtype=np.float32)
+    else:
+        scale_grid = np.linspace(
+            max(scale_min, s_best - float(local_scale_delta)),
+            min(scale_max, s_best + float(local_scale_delta)),
+            num=max(int(local_scale_steps), 2),
+            dtype=np.float32,
         )
-        if score_lvl > best_score:
-            best_score = score_lvl
-            best = lvl_best_full
-    if best is None:
-        return uv, {"applied": False, "accepted": False, "reason": "search_failed"}
 
-    s_best, tx_best, ty_best, _, _, _, score_after = best
-    uv_best = apply_uv_similarity(uv, scale=s_best, tx=tx_best, ty=ty_best)
+    best = {
+        "scale": float(s_best),
+        "tx": float(tx_best),
+        "ty": float(ty_best),
+        "iou": float(iou_before),
+        "outside": float(outside_before),
+        "area_ratio": float(area_ratio_before),
+        "score": float(score_before),
+    }
+    for s_c in scale_grid.tolist():
+        scale_ratio_x = float(ws) / float(max(w0, 1))
+        scale_ratio_y = float(hs) / float(max(h0, 1))
+        for tx_c in tx_grid.tolist():
+            for ty_c in ty_grid.tolist():
+                uv_c = apply_uv_similarity(
+                    uv_small,
+                    scale=float(s_c),
+                    tx=float(tx_c) * scale_ratio_x,
+                    ty=float(ty_c) * scale_ratio_y,
+                )
+                mask_c = _rasterize_mesh_mask(uv=uv_c, valid_v=valid_v, faces=faces, image_hw=small_hw)
+                iou_c, outside_c, area_ratio_c = _metrics(mask_c, person_small)
+                score_c = _score(
+                    iou=iou_c,
+                    outside=outside_c,
+                    area_ratio=area_ratio_c,
+                    scale=float(s_c),
+                    scale_init=max(s_best, 1e-6),
+                    outside_weight=outside_weight,
+                    oversize_weight=oversize_weight,
+                    undersize_weight=undersize_weight,
+                    expand_weight=expand_weight,
+                )
+                if (
+                    (score_c > float(best["score"]) + 1e-6)
+                    or (
+                        abs(score_c - float(best["score"])) <= 1e-6
+                        and outside_c < float(best["outside"]) - 1e-6
+                    )
+                ):
+                    best = {
+                        "scale": float(s_c),
+                        "tx": float(tx_c),
+                        "ty": float(ty_c),
+                        "iou": float(iou_c),
+                        "outside": float(outside_c),
+                        "area_ratio": float(area_ratio_c),
+                        "score": float(score_c),
+                    }
+
+    uv_best = apply_uv_similarity(uv, scale=float(best["scale"]), tx=float(best["tx"]), ty=float(best["ty"]))
     mask_best = _rasterize_mesh_mask(uv=uv_best, valid_v=valid_v, faces=faces, image_hw=image_hw)
     iou_after, outside_after, area_ratio_after = _metrics(mask_best, person_mask)
-    accepted = bool((score_after > score_before + 1e-6) and (outside_after <= outside_before + float(accept_outside_slack)))
+    score_after = _score(
+        iou=iou_after,
+        outside=outside_after,
+        area_ratio=area_ratio_after,
+        scale=float(best["scale"]),
+        scale_init=max(s_best, 1e-6),
+        outside_weight=outside_weight,
+        oversize_weight=oversize_weight,
+        undersize_weight=undersize_weight,
+        expand_weight=expand_weight,
+    )
+    accepted = bool(
+        (
+            (score_after > score_before + 1e-4)
+            and (outside_after <= outside_before + float(accept_outside_slack))
+        )
+        or (
+            (iou_after > iou_before + 0.01)
+            and (outside_after <= outside_before + float(accept_outside_slack) + 0.01)
+        )
+    )
     return uv_best, {
         "applied": True,
         "accepted": accepted,
-        "scale": float(s_best),
-        "tx_px": float(tx_best),
-        "ty_px": float(ty_best),
+        "scale": float(best["scale"]),
+        "tx_px": float(best["tx"]),
+        "ty_px": float(best["ty"]),
         "center_src": [float(csx), float(csy)],
         "center_tgt": [float(cpx), float(cpy)],
         "bbox_src": b_s.tolist(),
         "bbox_tgt": b_p.tolist(),
-        "search_downsample_ratio": float(ds_ratio),
+        "search_downsample_ratio": float(ds),
         "iou_before": float(iou_before),
         "iou_after": float(iou_after),
         "outside_before": float(outside_before),

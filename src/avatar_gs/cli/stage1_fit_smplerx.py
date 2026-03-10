@@ -278,10 +278,6 @@ def _estimate_person_mask_modnet_stage1(
     except Exception:
         pass
 
-    cand_ck = _estimate_person_mask_chromakey(image_bgr)
-    if int((cand_ck > 0).sum()) > 0:
-        cands.append(cand_ck)
-
     if mesh_hint_u8 is not None and int((mesh_hint_u8 > 0).sum()) > 0:
         cands.append(mesh_hint_u8)
 
@@ -732,6 +728,8 @@ def _write_stage1_sequence_assets_full(
     verts_cam_raw_seq: list[np.ndarray] = []
     joints_cam_seq: list[np.ndarray] = []
     masks_seq: list[np.ndarray] = []
+    cached_masks_by_name: dict[str, np.ndarray] = {}
+    export_hint_cache: dict[str, dict[str, object]] = {}
     kpt_map: dict[str, list[list[float]]] = {}
     align_scale_seq: list[float] = []
     align_tx_seq: list[float] = []
@@ -753,6 +751,66 @@ def _write_stage1_sequence_assets_full(
             shared_faces = first_faces
             shared_face_text = build_obj_face_text(first_faces)
 
+    if person_masks_npz.exists():
+        try:
+            pm_cache = np.load(person_masks_npz, allow_pickle=True)
+            if "frame_names" in pm_cache.files and "masks" in pm_cache.files:
+                pm_names = [str(x) for x in np.asarray(pm_cache["frame_names"]).reshape(-1).tolist()]
+                pm_masks = np.asarray(pm_cache["masks"], dtype=np.uint8)
+                n_pm = min(len(pm_names), int(pm_masks.shape[0]))
+                for i_pm in range(n_pm):
+                    cached_masks_by_name[pm_names[i_pm]] = (pm_masks[i_pm] > 0).astype(np.uint8) * 255
+        except Exception:
+            cached_masks_by_name = {}
+
+    need_mask_precache = len(cached_masks_by_name) < len(records)
+    if need_mask_precache:
+        pre_iter = tqdm(records, desc="Stage1 precompute masks", leave=False)
+        for rec in pre_iter:
+            frame_name = str(rec["frame_name"])
+            if frame_name in export_hint_cache and frame_name in cached_masks_by_name:
+                continue
+            img_path = frames_dir / frame_name
+            img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+            if img is None:
+                raise FileNotFoundError(f"Cannot read frame image: {img_path}")
+            hh, ww = int(img.shape[0]), int(img.shape[1])
+            fx, fy, cx, cy = _camera_intrinsics_from_record(rec, width=ww, height=hh)
+            faces_rec = shared_faces if shared_faces is not None else np.asarray(rec["faces"], dtype=np.int32)
+            uv_raw, valid_hint = _project_verts_to_uv(
+                verts=np.asarray(rec["verts_local"], dtype=np.float32),
+                cam_t=np.asarray(rec["cam_t"], dtype=np.float32),
+                width=ww,
+                height=hh,
+                fx=float(fx),
+                fy=float(fy),
+                cx=float(cx),
+                cy=float(cy),
+            )
+            mask_hint_raw = _rasterize_mesh_mask(
+                uv=uv_raw,
+                valid_v=valid_hint,
+                faces=faces_rec,
+                image_hw=(hh, ww),
+            )
+            export_hint_cache[frame_name] = {
+                "hh": hh,
+                "ww": ww,
+                "fx": float(fx),
+                "fy": float(fy),
+                "cx": float(cx),
+                "cy": float(cy),
+                "faces": faces_rec,
+                "uv_raw": uv_raw,
+                "valid_hint": valid_hint,
+                "mask_hint_raw": mask_hint_raw,
+            }
+            if frame_name not in cached_masks_by_name:
+                cached_masks_by_name[frame_name] = _estimate_person_mask_modnet_stage1(
+                    img,
+                    mesh_hint_mask=mask_hint_raw,
+                )
+
     export_iter = tqdm(records, desc="Stage1 export sequence", leave=False)
     for rec in export_iter:
         frame_name = str(rec["frame_name"])
@@ -762,33 +820,50 @@ def _write_stage1_sequence_assets_full(
         faces = shared_faces if shared_faces is not None else np.asarray(rec["faces"], dtype=np.int32)
         joints2d = rec.get("joints2d", None)
         joints_cam = rec.get("joints_cam", None)
-
-        img = cv2.imread(str(frames_dir / frame_name), cv2.IMREAD_COLOR)
-        if img is None:
-            raise FileNotFoundError(f"Cannot read frame image: {frames_dir / frame_name}")
-        hh, ww = int(img.shape[0]), int(img.shape[1])
-        fx, fy, cx, cy = _camera_intrinsics_from_record(rec, width=ww, height=hh)
-
-        uv_raw, valid_hint = _project_verts_to_uv(
-            verts=np.asarray(rec["verts_local"], dtype=np.float32),
-            cam_t=np.asarray(rec["cam_t"], dtype=np.float32),
-            width=ww,
-            height=hh,
-            fx=float(fx),
-            fy=float(fy),
-            cx=float(cx),
-            cy=float(cy),
-        )
-        mask_hint_raw = _rasterize_mesh_mask(
-            uv=uv_raw,
-            valid_v=valid_hint,
-            faces=faces,
-            image_hw=(hh, ww),
-        )
-        mask = _estimate_person_mask_modnet_stage1(
-            img,
-            mesh_hint_mask=mask_hint_raw,
-        )
+        hint_cached = export_hint_cache.get(frame_name, None)
+        if hint_cached is not None:
+            hh = int(hint_cached["hh"])
+            ww = int(hint_cached["ww"])
+            fx = float(hint_cached["fx"])
+            fy = float(hint_cached["fy"])
+            cx = float(hint_cached["cx"])
+            cy = float(hint_cached["cy"])
+            faces = np.asarray(hint_cached["faces"], dtype=np.int32)
+            uv_raw = np.asarray(hint_cached["uv_raw"], dtype=np.float32)
+            valid_hint = np.asarray(hint_cached["valid_hint"], dtype=bool)
+            mask_hint_raw = np.asarray(hint_cached["mask_hint_raw"], dtype=np.uint8)
+            mask = np.asarray(cached_masks_by_name[frame_name], dtype=np.uint8)
+        else:
+            img = cv2.imread(str(frames_dir / frame_name), cv2.IMREAD_COLOR)
+            if img is None:
+                raise FileNotFoundError(f"Cannot read frame image: {frames_dir / frame_name}")
+            hh, ww = int(img.shape[0]), int(img.shape[1])
+            fx, fy, cx, cy = _camera_intrinsics_from_record(rec, width=ww, height=hh)
+            uv_raw, valid_hint = _project_verts_to_uv(
+                verts=np.asarray(rec["verts_local"], dtype=np.float32),
+                cam_t=np.asarray(rec["cam_t"], dtype=np.float32),
+                width=ww,
+                height=hh,
+                fx=float(fx),
+                fy=float(fy),
+                cx=float(cx),
+                cy=float(cy),
+            )
+            mask_hint_raw = _rasterize_mesh_mask(
+                uv=uv_raw,
+                valid_v=valid_hint,
+                faces=faces,
+                image_hw=(hh, ww),
+            )
+            mask = cached_masks_by_name.get(frame_name, None)
+            if mask is None or tuple(mask.shape[:2]) != (hh, ww):
+                img = cv2.imread(str(frames_dir / frame_name), cv2.IMREAD_COLOR)
+                if img is None:
+                    raise FileNotFoundError(f"Cannot read frame image: {frames_dir / frame_name}")
+                mask = _estimate_person_mask_modnet_stage1(
+                    img,
+                    mesh_hint_mask=mask_hint_raw,
+                )
         uv_hint, align_report = estimate_mask_similarity_transform(
             uv=uv_raw,
             valid_v=valid_hint,
@@ -841,12 +916,15 @@ def _write_stage1_sequence_assets_full(
         if joints_cam is not None:
             rec["joints_cam"] = np.asarray(joints_cam, dtype=np.float32)
 
-        mask_hint = _rasterize_mesh_mask(
-            uv=uv_hint,
-            valid_v=valid_hint,
-            faces=faces,
-            image_hw=(hh, ww),
-        )
+        if bool(align_report.get("accepted", False)):
+            mask_hint = _rasterize_mesh_mask(
+                uv=uv_hint,
+                valid_v=valid_hint,
+                faces=faces,
+                image_hw=(hh, ww),
+            )
+        else:
+            mask_hint = mask_hint_raw
 
         if joints2d is not None and np.asarray(joints2d).ndim == 2 and np.asarray(joints2d).shape[1] >= 2:
             j2 = np.asarray(joints2d, dtype=np.float32)

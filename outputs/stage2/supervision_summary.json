@@ -1,0 +1,698 @@
+{
+  "frame_count": 69,
+  "cache_path": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage2\\supervision_cache.npz",
+  "preview_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage2\\supervision_preview",
+  "inner_mask_alias_to_smpl_mask": true,
+  "frames": [
+    {
+      "frame_idx": 0,
+      "frame_name": "000000.jpg",
+      "inner_pixels": 119577,
+      "outer_pixels": 13251,
+      "smpl_pixels": 119577,
+      "gt_contour_pixels": 124091,
+      "gt_train_contour_pixels": 124096,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 1,
+      "frame_name": "000001.jpg",
+      "inner_pixels": 120469,
+      "outer_pixels": 12878,
+      "smpl_pixels": 120469,
+      "gt_contour_pixels": 124023,
+      "gt_train_contour_pixels": 124002,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 2,
+      "frame_name": "000002.jpg",
+      "inner_pixels": 118397,
+      "outer_pixels": 13581,
+      "smpl_pixels": 118397,
+      "gt_contour_pixels": 123424,
+      "gt_train_contour_pixels": 123682,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 3,
+      "frame_name": "000004.jpg",
+      "inner_pixels": 115079,
+      "outer_pixels": 17626,
+      "smpl_pixels": 115079,
+      "gt_contour_pixels": 122271,
+      "gt_train_contour_pixels": 122537,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 4,
+      "frame_name": "000005.jpg",
+      "inner_pixels": 106244,
+      "outer_pixels": 12879,
+      "smpl_pixels": 106244,
+      "gt_contour_pixels": 110323,
+      "gt_train_contour_pixels": 110618,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 5,
+      "frame_name": "000006.jpg",
+      "inner_pixels": 86212,
+      "outer_pixels": 5718,
+      "smpl_pixels": 86212,
+      "gt_contour_pixels": 85977,
+      "gt_train_contour_pixels": 86201,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 6,
+      "frame_name": "000007.jpg",
+      "inner_pixels": 93654,
+      "outer_pixels": 7107,
+      "smpl_pixels": 93654,
+      "gt_contour_pixels": 95627,
+      "gt_train_contour_pixels": 95748,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 7,
+      "frame_name": "000008.jpg",
+      "inner_pixels": 92639,
+      "outer_pixels": 19791,
+      "smpl_pixels": 92639,
+      "gt_contour_pixels": 108728,
+      "gt_train_contour_pixels": 109173,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 8,
+      "frame_name": "000009.jpg",
+      "inner_pixels": 113045,
+      "outer_pixels": 16006,
+      "smpl_pixels": 113045,
+      "gt_contour_pixels": 122965,
+      "gt_train_contour_pixels": 123256,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 9,
+      "frame_name": "000010.jpg",
+      "inner_pixels": 115228,
+      "outer_pixels": 20005,
+      "smpl_pixels": 115228,
+      "gt_contour_pixels": 129841,
+      "gt_train_contour_pixels": 129767,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 10,
+      "frame_name": "000011.jpg",
+      "inner_pixels": 102979,
+      "outer_pixels": 27839,
+      "smpl_pixels": 102979,
+      "gt_contour_pixels": 128305,
+      "gt_train_contour_pixels": 128240,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 11,
+      "frame_name": "000013.jpg",
+      "inner_pixels": 112845,
+      "outer_pixels": 15690,
+      "smpl_pixels": 112845,
+      "gt_contour_pixels": 124968,
+      "gt_train_contour_pixels": 125397,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 12,
+      "frame_name": "000015.jpg",
+      "inner_pixels": 103168,
+      "outer_pixels": 15038,
+      "smpl_pixels": 103168,
+      "gt_contour_pixels": 113004,
+      "gt_train_contour_pixels": 113459,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 13,
+      "frame_name": "000016.jpg",
+      "inner_pixels": 91031,
+      "outer_pixels": 9654,
+      "smpl_pixels": 91031,
+      "gt_contour_pixels": 95858,
+      "gt_train_contour_pixels": 96126,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 14,
+      "frame_name": "000017.jpg",
+      "inner_pixels": 83015,
+      "outer_pixels": 5297,
+      "smpl_pixels": 83015,
+      "gt_contour_pixels": 83949,
+      "gt_train_contour_pixels": 84115,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 15,
+      "frame_name": "000018.jpg",
+      "inner_pixels": 79330,
+      "outer_pixels": 7258,
+      "smpl_pixels": 79330,
+      "gt_contour_pixels": 81688,
+      "gt_train_contour_pixels": 82003,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 16,
+      "frame_name": "000020.jpg",
+      "inner_pixels": 103063,
+      "outer_pixels": 20060,
+      "smpl_pixels": 103063,
+      "gt_contour_pixels": 116033,
+      "gt_train_contour_pixels": 116114,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 17,
+      "frame_name": "000021.jpg",
+      "inner_pixels": 109600,
+      "outer_pixels": 17856,
+      "smpl_pixels": 109600,
+      "gt_contour_pixels": 122708,
+      "gt_train_contour_pixels": 123079,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 18,
+      "frame_name": "000022.jpg",
+      "inner_pixels": 104407,
+      "outer_pixels": 22664,
+      "smpl_pixels": 104407,
+      "gt_contour_pixels": 123469,
+      "gt_train_contour_pixels": 123564,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 19,
+      "frame_name": "000023.jpg",
+      "inner_pixels": 108719,
+      "outer_pixels": 18617,
+      "smpl_pixels": 108719,
+      "gt_contour_pixels": 123701,
+      "gt_train_contour_pixels": 123848,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 20,
+      "frame_name": "000024.jpg",
+      "inner_pixels": 119238,
+      "outer_pixels": 10054,
+      "smpl_pixels": 119238,
+      "gt_contour_pixels": 123317,
+      "gt_train_contour_pixels": 123414,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 21,
+      "frame_name": "000025.jpg",
+      "inner_pixels": 119399,
+      "outer_pixels": 9523,
+      "smpl_pixels": 119399,
+      "gt_contour_pixels": 123632,
+      "gt_train_contour_pixels": 123865,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 22,
+      "frame_name": "000026.jpg",
+      "inner_pixels": 121743,
+      "outer_pixels": 8031,
+      "smpl_pixels": 121743,
+      "gt_contour_pixels": 123635,
+      "gt_train_contour_pixels": 123734,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 23,
+      "frame_name": "000027.jpg",
+      "inner_pixels": 120738,
+      "outer_pixels": 14452,
+      "smpl_pixels": 120738,
+      "gt_contour_pixels": 126522,
+      "gt_train_contour_pixels": 126659,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 24,
+      "frame_name": "000028.jpg",
+      "inner_pixels": 120050,
+      "outer_pixels": 14082,
+      "smpl_pixels": 120050,
+      "gt_contour_pixels": 124409,
+      "gt_train_contour_pixels": 124667,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 25,
+      "frame_name": "000029.jpg",
+      "inner_pixels": 111847,
+      "outer_pixels": 17289,
+      "smpl_pixels": 111847,
+      "gt_contour_pixels": 120023,
+      "gt_train_contour_pixels": 120491,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 26,
+      "frame_name": "000030.jpg",
+      "inner_pixels": 97484,
+      "outer_pixels": 13966,
+      "smpl_pixels": 97484,
+      "gt_contour_pixels": 104546,
+      "gt_train_contour_pixels": 104794,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 27,
+      "frame_name": "000031.jpg",
+      "inner_pixels": 84949,
+      "outer_pixels": 6868,
+      "smpl_pixels": 84949,
+      "gt_contour_pixels": 87392,
+      "gt_train_contour_pixels": 87507,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 28,
+      "frame_name": "000032.jpg",
+      "inner_pixels": 88109,
+      "outer_pixels": 7710,
+      "smpl_pixels": 88109,
+      "gt_contour_pixels": 91804,
+      "gt_train_contour_pixels": 91990,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 29,
+      "frame_name": "000033.jpg",
+      "inner_pixels": 96197,
+      "outer_pixels": 11363,
+      "smpl_pixels": 96197,
+      "gt_contour_pixels": 103224,
+      "gt_train_contour_pixels": 103286,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 30,
+      "frame_name": "000034.jpg",
+      "inner_pixels": 97380,
+      "outer_pixels": 21028,
+      "smpl_pixels": 97380,
+      "gt_contour_pixels": 114589,
+      "gt_train_contour_pixels": 114915,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 31,
+      "frame_name": "000035.jpg",
+      "inner_pixels": 112207,
+      "outer_pixels": 16751,
+      "smpl_pixels": 112207,
+      "gt_contour_pixels": 123660,
+      "gt_train_contour_pixels": 123932,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 32,
+      "frame_name": "000036.jpg",
+      "inner_pixels": 112753,
+      "outer_pixels": 19135,
+      "smpl_pixels": 112753,
+      "gt_contour_pixels": 127078,
+      "gt_train_contour_pixels": 127221,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 33,
+      "frame_name": "000037.jpg",
+      "inner_pixels": 116055,
+      "outer_pixels": 15972,
+      "smpl_pixels": 116055,
+      "gt_contour_pixels": 126893,
+      "gt_train_contour_pixels": 127053,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 34,
+      "frame_name": "000038.jpg",
+      "inner_pixels": 114625,
+      "outer_pixels": 15344,
+      "smpl_pixels": 114625,
+      "gt_contour_pixels": 126370,
+      "gt_train_contour_pixels": 126689,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 35,
+      "frame_name": "000039.jpg",
+      "inner_pixels": 114147,
+      "outer_pixels": 14717,
+      "smpl_pixels": 114147,
+      "gt_contour_pixels": 124991,
+      "gt_train_contour_pixels": 125308,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 36,
+      "frame_name": "000040.jpg",
+      "inner_pixels": 109998,
+      "outer_pixels": 16137,
+      "smpl_pixels": 109998,
+      "gt_contour_pixels": 121493,
+      "gt_train_contour_pixels": 121773,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 37,
+      "frame_name": "000041.jpg",
+      "inner_pixels": 99488,
+      "outer_pixels": 13209,
+      "smpl_pixels": 99488,
+      "gt_contour_pixels": 107872,
+      "gt_train_contour_pixels": 108464,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 38,
+      "frame_name": "000042.jpg",
+      "inner_pixels": 85612,
+      "outer_pixels": 10815,
+      "smpl_pixels": 85612,
+      "gt_contour_pixels": 91783,
+      "gt_train_contour_pixels": 91802,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 39,
+      "frame_name": "000043.jpg",
+      "inner_pixels": 81166,
+      "outer_pixels": 5427,
+      "smpl_pixels": 81166,
+      "gt_contour_pixels": 82378,
+      "gt_train_contour_pixels": 82705,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 40,
+      "frame_name": "000044.jpg",
+      "inner_pixels": 81140,
+      "outer_pixels": 7443,
+      "smpl_pixels": 81140,
+      "gt_contour_pixels": 85367,
+      "gt_train_contour_pixels": 85696,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 41,
+      "frame_name": "000045.jpg",
+      "inner_pixels": 84162,
+      "outer_pixels": 18808,
+      "smpl_pixels": 84162,
+      "gt_contour_pixels": 97032,
+      "gt_train_contour_pixels": 97272,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 42,
+      "frame_name": "000046.jpg",
+      "inner_pixels": 104180,
+      "outer_pixels": 19713,
+      "smpl_pixels": 104180,
+      "gt_contour_pixels": 119502,
+      "gt_train_contour_pixels": 120235,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 43,
+      "frame_name": "000047.jpg",
+      "inner_pixels": 115653,
+      "outer_pixels": 15951,
+      "smpl_pixels": 115653,
+      "gt_contour_pixels": 125127,
+      "gt_train_contour_pixels": 125306,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 44,
+      "frame_name": "000048.jpg",
+      "inner_pixels": 121298,
+      "outer_pixels": 9439,
+      "smpl_pixels": 121298,
+      "gt_contour_pixels": 126222,
+      "gt_train_contour_pixels": 126159,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 45,
+      "frame_name": "000049.jpg",
+      "inner_pixels": 120984,
+      "outer_pixels": 9151,
+      "smpl_pixels": 120984,
+      "gt_contour_pixels": 125112,
+      "gt_train_contour_pixels": 125048,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 46,
+      "frame_name": "000050.jpg",
+      "inner_pixels": 121195,
+      "outer_pixels": 8422,
+      "smpl_pixels": 121195,
+      "gt_contour_pixels": 124585,
+      "gt_train_contour_pixels": 124632,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 47,
+      "frame_name": "000051.jpg",
+      "inner_pixels": 119648,
+      "outer_pixels": 10627,
+      "smpl_pixels": 119648,
+      "gt_contour_pixels": 124750,
+      "gt_train_contour_pixels": 124823,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 48,
+      "frame_name": "000052.jpg",
+      "inner_pixels": 120721,
+      "outer_pixels": 13340,
+      "smpl_pixels": 120721,
+      "gt_contour_pixels": 124237,
+      "gt_train_contour_pixels": 124069,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 49,
+      "frame_name": "000053.jpg",
+      "inner_pixels": 115476,
+      "outer_pixels": 12059,
+      "smpl_pixels": 115476,
+      "gt_contour_pixels": 120060,
+      "gt_train_contour_pixels": 120146,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 50,
+      "frame_name": "000054.jpg",
+      "inner_pixels": 100998,
+      "outer_pixels": 12208,
+      "smpl_pixels": 100998,
+      "gt_contour_pixels": 108526,
+      "gt_train_contour_pixels": 108857,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 51,
+      "frame_name": "000055.jpg",
+      "inner_pixels": 79793,
+      "outer_pixels": 6308,
+      "smpl_pixels": 79793,
+      "gt_contour_pixels": 83074,
+      "gt_train_contour_pixels": 83297,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 52,
+      "frame_name": "000056.jpg",
+      "inner_pixels": 76460,
+      "outer_pixels": 11041,
+      "smpl_pixels": 76460,
+      "gt_contour_pixels": 85484,
+      "gt_train_contour_pixels": 85685,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 53,
+      "frame_name": "000057.jpg",
+      "inner_pixels": 97984,
+      "outer_pixels": 12170,
+      "smpl_pixels": 97984,
+      "gt_contour_pixels": 104078,
+      "gt_train_contour_pixels": 104228,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 54,
+      "frame_name": "000058.jpg",
+      "inner_pixels": 109883,
+      "outer_pixels": 17161,
+      "smpl_pixels": 109883,
+      "gt_contour_pixels": 121565,
+      "gt_train_contour_pixels": 121665,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 55,
+      "frame_name": "000060.jpg",
+      "inner_pixels": 120088,
+      "outer_pixels": 15316,
+      "smpl_pixels": 120088,
+      "gt_contour_pixels": 131733,
+      "gt_train_contour_pixels": 131715,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 56,
+      "frame_name": "000061.jpg",
+      "inner_pixels": 119436,
+      "outer_pixels": 13439,
+      "smpl_pixels": 119436,
+      "gt_contour_pixels": 129867,
+      "gt_train_contour_pixels": 130169,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 57,
+      "frame_name": "000062.jpg",
+      "inner_pixels": 113972,
+      "outer_pixels": 17111,
+      "smpl_pixels": 113972,
+      "gt_contour_pixels": 125294,
+      "gt_train_contour_pixels": 125565,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 58,
+      "frame_name": "000064.jpg",
+      "inner_pixels": 102187,
+      "outer_pixels": 16437,
+      "smpl_pixels": 102187,
+      "gt_contour_pixels": 112199,
+      "gt_train_contour_pixels": 112275,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 59,
+      "frame_name": "000065.jpg",
+      "inner_pixels": 86773,
+      "outer_pixels": 14203,
+      "smpl_pixels": 86773,
+      "gt_contour_pixels": 97701,
+      "gt_train_contour_pixels": 97922,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 60,
+      "frame_name": "000066.jpg",
+      "inner_pixels": 80402,
+      "outer_pixels": 5187,
+      "smpl_pixels": 80402,
+      "gt_contour_pixels": 81775,
+      "gt_train_contour_pixels": 82106,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 61,
+      "frame_name": "000067.jpg",
+      "inner_pixels": 83703,
+      "outer_pixels": 11919,
+      "smpl_pixels": 83703,
+      "gt_contour_pixels": 90747,
+      "gt_train_contour_pixels": 90897,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 62,
+      "frame_name": "000068.jpg",
+      "inner_pixels": 96325,
+      "outer_pixels": 17543,
+      "smpl_pixels": 96325,
+      "gt_contour_pixels": 108576,
+      "gt_train_contour_pixels": 108752,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 63,
+      "frame_name": "000070.jpg",
+      "inner_pixels": 105937,
+      "outer_pixels": 20550,
+      "smpl_pixels": 105937,
+      "gt_contour_pixels": 122795,
+      "gt_train_contour_pixels": 122773,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 64,
+      "frame_name": "000071.jpg",
+      "inner_pixels": 120631,
+      "outer_pixels": 9887,
+      "smpl_pixels": 120631,
+      "gt_contour_pixels": 124640,
+      "gt_train_contour_pixels": 124695,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 65,
+      "frame_name": "000072.jpg",
+      "inner_pixels": 121799,
+      "outer_pixels": 9468,
+      "smpl_pixels": 121799,
+      "gt_contour_pixels": 126042,
+      "gt_train_contour_pixels": 125698,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 66,
+      "frame_name": "000073.jpg",
+      "inner_pixels": 122456,
+      "outer_pixels": 8177,
+      "smpl_pixels": 122456,
+      "gt_contour_pixels": 124583,
+      "gt_train_contour_pixels": 124559,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 67,
+      "frame_name": "000074.jpg",
+      "inner_pixels": 121425,
+      "outer_pixels": 9039,
+      "smpl_pixels": 121425,
+      "gt_contour_pixels": 124851,
+      "gt_train_contour_pixels": 124914,
+      "gt_eval_mask_source": "modnet"
+    },
+    {
+      "frame_idx": 68,
+      "frame_name": "000075.jpg",
+      "inner_pixels": 119894,
+      "outer_pixels": 9667,
+      "smpl_pixels": 119894,
+      "gt_contour_pixels": 124775,
+      "gt_train_contour_pixels": 124890,
+      "gt_eval_mask_source": "modnet"
+    }
+  ]
+}
