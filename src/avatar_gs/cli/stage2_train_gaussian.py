@@ -574,7 +574,7 @@ def main():
     stage1_dir = project_root / cfg["stage2"]["stage1_dir"]
     out_dir = ensure_dir(project_root / cfg["stage2"]["out_dir"])
     stage2_cfg = cfg["stage2"]
-    deprecated_trigger_keys = [k for k in ("outer_supervision_mode", "outer_residual_only") if k in stage2_cfg]
+    deprecated_trigger_keys = [k for k in ("outer_supervision_mode", "outer_residual_only", "outer_vis_floor", "outer_vis_edge_floor", "outer_edge_visibility_boost", "outer_spawn_allow_outer_source", "outer_reassign_allow_outer_source", "outer_reassign_preserve_source_offset") if k in stage2_cfg]
     if len(deprecated_trigger_keys) > 0:
         raise ValueError(
             "Deprecated stage2 keys detected: "
@@ -583,6 +583,9 @@ def main():
             "outer_trigger_smpl_gap_px / outer_trigger_edge_th / "
             "outer_trigger_min_pixels / outer_trigger_use_edge_gate."
         )
+
+    if int(stage2_cfg.get("outer_support_sample_dilate_px", 0)) != 0:
+        raise ValueError("stage2.outer_support_sample_dilate_px is hard-locked to 0 in ring-only mode.")
 
     if torch.cuda.is_available() and bool(stage2_cfg.get("enable_tf32", True)):
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -1017,7 +1020,8 @@ def main():
         outer_contour_band_px=int(cfg["stage2"].get("outer_contour_band_px", 12)),
         outer_trigger_smpl_gap_px=int(cfg["stage2"].get("outer_trigger_smpl_gap_px", 3)),
         outer_trigger_edge_th=float(cfg["stage2"].get("outer_trigger_edge_th", 0.06)),
-        outer_trigger_min_pixels=int(cfg["stage2"].get("outer_trigger_min_pixels", 24)),
+        outer_trigger_min_pixels=int(cfg["stage2"].get("outer_trigger_min_pixels", 32)),
+        outer_trigger_ring_width_px=int(cfg["stage2"].get("outer_trigger_ring_width_px", 2)),
         outer_trigger_use_edge_gate=bool(cfg["stage2"].get("outer_trigger_use_edge_gate", True)),
         outer_contour_inside_only=bool(cfg["stage2"].get("outer_contour_inside_only", False)),
         outer_support_sample_dilate_px=int(cfg["stage2"].get("outer_support_sample_dilate_px", 0)),
@@ -1129,6 +1133,20 @@ def main():
         inner_prune_protect_parts=cfg["stage2"].get("inner_prune_protect_parts", ["face", "hands"]),
         outer_pruned_opacity_logit_max=float(cfg["stage2"].get("outer_pruned_opacity_logit_max", -12.0)),
         outer_quality_log_every=int(cfg["stage2"].get("outer_quality_log_every", 100)),
+        outer_boundary_enforce=str(cfg["stage2"].get("outer_boundary_enforce", "hard")),
+        outer_boundary_tol_px=int(cfg["stage2"].get("outer_boundary_tol_px", 1)),
+        outer_boundary_check_every=int(cfg["stage2"].get("outer_boundary_check_every", 50)),
+        outer_boundary_alpha_cap=float(cfg["stage2"].get("outer_boundary_alpha_cap", 0.01)),
+        outer_boundary_scale_decay=float(cfg["stage2"].get("outer_boundary_scale_decay", 0.85)),
+        outer_boundary_offset_decay=float(cfg["stage2"].get("outer_boundary_offset_decay", 0.90)),
+        outer_boundary_patience=int(cfg["stage2"].get("outer_boundary_patience", 6)),
+        outer_spawn_visible_faces_only=bool(cfg["stage2"].get("outer_spawn_visible_faces_only", True)),
+        outer_spawn_frontface_min_cos=float(cfg["stage2"].get("outer_spawn_frontface_min_cos", -0.2)),
+        outer_spawn_temporal_persist_iters=int(cfg["stage2"].get("outer_spawn_temporal_persist_iters", 3)),
+        outer_spawn_temporal_decay=float(cfg["stage2"].get("outer_spawn_temporal_decay", 0.9)),
+        outer_spawn_dedup_px=float(cfg["stage2"].get("outer_spawn_dedup_px", 1.5)),
+        outer_viewplane_init_enable=bool(cfg["stage2"].get("outer_viewplane_init_enable", True)),
+        outer_viewplane_init_normal_eps=float(cfg["stage2"].get("outer_viewplane_init_normal_eps", 0.002)),
         dual_quality_gate=cfg["stage2"].get("dual_quality_gate", None),
     )
 
