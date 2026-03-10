@@ -3,6 +3,7 @@ from .config import (
     Stage2FrameSelectionConfig,
     Stage2SupervisionConfig,
     Stage2TrainConfig,
+    Stage2TrainLoopConfig,
 )
 from .mesh_runtime import (
     Stage2MeshContext,
@@ -17,9 +18,11 @@ from .mesh_runtime import (
 from .rigid_align import normalize_rigid_align_config, run_stage2_rigid_align_search
 from .reporting import (
     Stage2QualityEvaluation,
+    Stage2ReportPaths,
     build_outer_face_records,
     build_outer_spawn_report,
     compute_outer_dynamic_caps,
+    prepare_stage2_report_paths,
     default_stage2_quality_thresholds,
     evaluate_stage2_quality,
     write_stage2_json_report,
@@ -47,6 +50,7 @@ __all__ = [
     "Stage2FrameSelectionConfig",
     "Stage2SupervisionConfig",
     "Stage2TrainConfig",
+    "Stage2TrainLoopConfig",
     "Stage2MeshContext",
     "Stage2MeshRuntime",
     "Stage2TrainingBindingState",
@@ -58,9 +62,11 @@ __all__ = [
     "normalize_rigid_align_config",
     "run_stage2_rigid_align_search",
     "Stage2QualityEvaluation",
+    "Stage2ReportPaths",
     "build_outer_face_records",
     "build_outer_spawn_report",
     "compute_outer_dynamic_caps",
+    "prepare_stage2_report_paths",
     "default_stage2_quality_thresholds",
     "evaluate_stage2_quality",
     "write_stage2_json_report",

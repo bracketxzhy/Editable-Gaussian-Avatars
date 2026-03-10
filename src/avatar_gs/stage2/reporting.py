@@ -50,6 +50,25 @@ class Stage2QualityEvaluation:
     report: dict[str, object]
 
 
+@dataclass(slots=True)
+class Stage2ReportPaths:
+    quality_log_path: Path
+    quality_report_path: Path
+    outer_spawn_report_path: Path
+
+
+def prepare_stage2_report_paths(*, out_ckpt_path: Path, reset_quality_log: bool = True) -> Stage2ReportPaths:
+    out_ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+    report_paths = Stage2ReportPaths(
+        quality_log_path=out_ckpt_path.parent / "outer_quality_metrics.jsonl",
+        quality_report_path=out_ckpt_path.parent / "outer_quality_report.json",
+        outer_spawn_report_path=out_ckpt_path.with_name("outer_spawn_per_frame.json"),
+    )
+    if reset_quality_log and report_paths.quality_log_path.exists():
+        report_paths.quality_log_path.unlink()
+    return report_paths
+
+
 def evaluate_stage2_quality(
     *,
     shell_enable: bool,

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import json
+import logging
 import math
 import cv2
 import numpy as np
@@ -56,6 +57,7 @@ from avatar_gs.gaussian.shell_policy import (
 from avatar_gs.stage2 import (
     Stage2FrameAssets,
     Stage2MeshRuntime,
+    Stage2TrainLoopConfig,
     build_outer_face_records,
     build_outer_spawn_report,
     build_stage2_training_supervision_state,
@@ -73,12 +75,18 @@ from avatar_gs.stage2 import (
     write_stage2_quality_log,
 )
 
-class _TrainLoopLogger:
-    def info(self, msg: str, *args) -> None:
-        print(msg % args if args else msg)
+def _log_info(logger, msg: str, *args) -> None:
+    if logger is not None:
+        logger.info(msg, *args)
+        return
+    print(msg % args if args else msg)
 
-    def warning(self, msg: str, *args) -> None:
-        print((msg % args if args else msg))
+
+def _log_warning(logger, msg: str, *args) -> None:
+    if logger is not None:
+        logger.warning(msg, *args)
+        return
+    print(msg % args if args else msg)
 
 
 def read_image_rgb(path: str | Path) -> torch.Tensor:
@@ -395,7 +403,74 @@ def _fscore_binary_torch(
     return (2.0 * precision * recall) / (precision + recall + 1e-6)
 
 
+def _set_camera_trainable(cam_w: torch.Tensor, cam_t: torch.Tensor, *, learn_cam: bool, flag: bool) -> None:
+    if learn_cam:
+        cam_w.requires_grad_(flag)
+        cam_t.requires_grad_(flag)
+
+
+def _checkpoint_cpu_tensor(value: torch.Tensor | object) -> torch.Tensor:
+    if torch.is_tensor(value):
+        return value.detach().cpu()
+    return torch.tensor(value)
+
+
+def _build_stage2_checkpoint_payload(
+    *,
+    g: Gaussian3D,
+    K: torch.Tensor,
+    cam_w: torch.Tensor | object,
+    cam_t: torch.Tensor | object,
+    checkpoint_metadata: dict[str, object],
+    quality_pass_now: bool,
+) -> dict[str, object]:
+    payload = {
+        "gaussians": g.state_dict(),
+        "K": K.detach().cpu(),
+        "cam_w": _checkpoint_cpu_tensor(cam_w),
+        "cam_t": _checkpoint_cpu_tensor(cam_t),
+    }
+    payload.update(checkpoint_metadata)
+    payload["outer_quality_pass"] = quality_pass_now
+    return payload
+
+
+def _save_stage2_checkpoint(
+    *,
+    path: str | Path,
+    payload: dict[str, object],
+    logger,
+    label: str,
+) -> None:
+    ckpt_path = Path(path)
+    ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, ckpt_path)
+    _log_info(logger, "Saved %s checkpoint: %s", label, ckpt_path)
+
+
+def _build_dual_quality_gate_last(
+    *,
+    color_error: float,
+    color_var: float,
+    geometry_score: float,
+    fail_active: bool,
+) -> dict[str, object]:
+    return {
+        "color_error": color_error,
+        "color_var": color_var,
+        "geometry_score": geometry_score,
+        "fail_active": fail_active,
+    }
+
+
 def train_gaussians_3d_learnable_camera(
+    g: Gaussian3D,
+    train_cfg: Stage2TrainLoopConfig,
+):
+    return _train_gaussians_3d_learnable_camera_impl(g=g, **train_cfg.to_train_kwargs())
+
+
+def _train_gaussians_3d_learnable_camera_impl(
     g: Gaussian3D,
     frames_dir: str | Path,
     frames_list: list[str],
@@ -649,6 +724,7 @@ def train_gaussians_3d_learnable_camera(
     stage2_mesh_runtime: Stage2MeshRuntime | None = None,
     training_mode: str = "full",
     save_inner_checkpoint_path: str | Path | None = None,
+    logger=None,
 ):
     """
     Stage2: optimize 3D Gaussians + (optional) per-frame learnable camera.
@@ -675,6 +751,7 @@ def train_gaussians_3d_learnable_camera(
     gt0 = read_image_rgb(frames_dir / frames_list[0]).to(device)
     _, H, W = gt0.shape
 
+    train_logger = logger if logger is not None else logging.getLogger(__name__)
     mesh_runtime = stage2_mesh_runtime
     mesh_context = None if mesh_runtime is None else mesh_runtime.context
     bind_mesh_indices: list[int] = [] if mesh_context is None or mesh_context.bind_mesh_indices is None else [
@@ -799,7 +876,7 @@ def train_gaussians_3d_learnable_camera(
         bind_rigid_align_cfg is not None and bool(bind_rigid_align_cfg.get("enabled", False))
     )
     if bind_rigid_align_enabled and not binding_enabled:
-        print("Warning: bind_rigid_align is enabled but binding is disabled; ignoring rigid align.")
+        _log_warning(train_logger, "bind_rigid_align is enabled but binding is disabled; ignoring rigid align.")
         bind_rigid_align_enabled = False
 
     training_mode = str(training_mode).strip().lower()
@@ -852,14 +929,8 @@ def train_gaussians_3d_learnable_camera(
         # Preload GT frames (ok for small clips; for long clips stream from disk)
         gts = [read_image_rgb(frames_dir / fn).to(device) for fn in frames_list]
 
-    # Helper to freeze/unfreeze cam params
-    def _set_cam_trainable(flag: bool):
-        if learn_cam:
-            cam_w.requires_grad_(flag)
-            cam_t.requires_grad_(flag)
-
     # Warmup: freeze camera first
-    _set_cam_trainable(False)
+    _set_camera_trainable(cam_w, cam_t, learn_cam=learn_cam, flag=False)
 
     # Optional: keypoint-based bbox mask
     kpt_boxes = None
@@ -1019,7 +1090,7 @@ def train_gaussians_3d_learnable_camera(
         frame_loss_weights=frame_loss_weights,
         frame_align_scores=frame_align_scores,
         out_ckpt_path=out_ckpt_path,
-        logger=_TrainLoopLogger(),
+        logger=train_logger,
     )
     person_masks_frames = supervision_state.person_masks_frames
     prepared_inner_masks_frames = supervision_state.prepared_inner_masks_frames
@@ -1088,9 +1159,10 @@ def train_gaussians_3d_learnable_camera(
             ]
         )
     if len(ignored_outer_bias_flags) > 0:
-        print(
-            "Warning: outer activation/spawn/prune ignores semantic bias settings: "
-            + ", ".join(sorted(set(ignored_outer_bias_flags)))
+        _log_warning(
+            train_logger,
+            "outer activation/spawn/prune ignores semantic bias settings: %s",
+            ", ".join(sorted(set(ignored_outer_bias_flags))),
         )
 
     rng = torch.Generator(device="cpu")
@@ -1129,7 +1201,7 @@ def train_gaussians_3d_learnable_camera(
         axis_angle_to_rotmat_fn=axis_angle_to_rotmat,
         cam_w=cam_w,
         cam_t=cam_t,
-        logger=_TrainLoopLogger(),
+        logger=train_logger,
     )
     mesh_normal_cache = binding_state.mesh_normal_cache
     smpl_mask_cache = binding_state.smpl_mask_cache
@@ -1246,12 +1318,10 @@ if (
         for fn in frames_list
     }
     outer_spawn_iter_records: list[dict[str, object]] = []
-    out_ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-    quality_log_path = out_ckpt_path.parent / "outer_quality_metrics.jsonl"
-    quality_report_path = out_ckpt_path.parent / "outer_quality_report.json"
-    outer_spawn_report_path = out_ckpt_path.with_name("outer_spawn_per_frame.json")
-    if quality_log_path.exists():
-        quality_log_path.unlink()
+    report_paths = prepare_stage2_report_paths(out_ckpt_path=out_ckpt_path, reset_quality_log=True)
+    quality_log_path = report_paths.quality_log_path
+    quality_report_path = report_paths.quality_report_path
+    outer_spawn_report_path = report_paths.outer_spawn_report_path
     quality_log_every = max(int(outer_quality_log_every), 1)
     progress_log_every = max(int(outer_progress_log_every), 1)
     outer_zero_stop_enable = bool(outer_zero_stop_enable) and bool(shell_enable)
@@ -1263,232 +1333,218 @@ if (
     last_quality_metrics: dict[str, float] | None = None
     inner_ckpt_saved = False
 
-    def _build_checkpoint_payload(*, quality_pass_now: bool) -> dict[str, object]:
-        return {
-            "gaussians": g.state_dict(),
-            "K": K.detach().cpu(),
-            "cam_w": cam_w.detach().cpu() if torch.is_tensor(cam_w) else torch.tensor(cam_w),
-            "cam_t": cam_t.detach().cpu() if torch.is_tensor(cam_t) else torch.tensor(cam_t),
-            "frames": frames_list,
-            "H": H,
-            "W": W,
-            "bg_rgb": bg_rgb,
-            "cam_warmup_iters": cam_warmup_iters,
-            "l1_weight": l1_weight,
-            "use_alpha_mask": use_alpha_mask,
-            "alpha_threshold": alpha_threshold,
-            "camera_mode": camera_mode,
-            "cam_t_prior": cam_t_prior,
-            "cam_reg_weight": cam_reg_weight,
-            "keypoints_json": str(keypoints_json) if keypoints_json is not None else None,
-            "kpt_conf_min": kpt_conf_min,
-            "kpt_box_pad": kpt_box_pad,
-            "use_kpt_bbox_mask": use_kpt_bbox_mask,
-            "frame_align_scores": frame_align_scores,
-            "face_weight": face_weight,
-            "face_conf_min": face_conf_min,
-            "face_box_pad": face_box_pad,
-            "face_use_ears": face_use_ears,
-            "hand_weight": hand_weight,
-            "hand_conf_min": hand_conf_min,
-            "hand_radius_scale": hand_radius_scale,
-            "hand_radius_min_px": hand_radius_min_px,
-            "hand_extension_scale": hand_extension_scale,
-            "outer_exclude_hands": outer_exclude_hands,
-            "outer_hand_expand_px": outer_hand_expand_px,
-            "phase_ratio_inner_only": phase_ratio_inner_only,
-            "phase_ratio_outer_only": phase_ratio_outer_only,
-            "phase_ratio_occlusion_simplify": phase_ratio_occlusion_simplify,
-            "phase_ratio_joint_finetune": phase_ratio_joint_finetune,
-            "outer_geom_fraction": outer_geom_fraction,
-            "shell_enable": shell_enable,
-            "shell_max_ratio": shell_max_ratio,
-            "shell_spawn_top_percent": shell_spawn_top_percent,
-            "shell_spawn_every": shell_spawn_every,
-            "shell_prune_every": shell_prune_every,
-            "shell_offset_max_n": shell_offset_max_n,
-            "shell_offset_max_t": shell_offset_max_t,
-            "inner_bind_mode_default": inner_bind_mode_default,
-            "outer_init_from_inner": outer_init_from_inner,
-            "outer_dormant_slot_ratio": outer_dormant_slot_ratio,
-            "outer_trigger_face_activate_enable": outer_trigger_face_activate_enable,
-            "outer_trigger_face_sample_dilate_px": outer_trigger_face_sample_dilate_px,
-            "outer_viewplane_init_enable": outer_viewplane_init_enable,
-            "outer_center_init_rule": outer_center_init_rule,
-            "outer_center_phase1_normal_tune_enable": outer_center_phase1_normal_tune_enable,
-            "outer_center_phase1_normal_tune_cap": outer_center_phase1_normal_tune_cap,
-            "outer_center_freeze_after_phase1": outer_center_freeze_after_phase1,
-            "outer_contact_alpha_edge_th": outer_contact_alpha_edge_th,
-            "outer_detached_support_boost": outer_detached_support_boost,
-            "outer_detached_vis_boost": outer_detached_vis_boost,
-            "outer_overlap_prune_offset_th": outer_overlap_prune_offset_th,
-            "outer_overlap_prune_detached_th": outer_overlap_prune_detached_th,
-            "outer_detached_support_th": outer_detached_support_th,
-            "outer_detached_opacity_floor": outer_detached_opacity_floor,
-            "outer_detached_log_scale_floor": outer_detached_log_scale_floor,
-            "outer_gap_search_px": outer_gap_search_px,
-            "outer_gap_step_px": outer_gap_step_px,
-            "outer_gap_probe_world": outer_gap_probe_world,
-            "outer_gap_target_support_th": outer_gap_target_support_th,
-            "outer_gap_target_weight": outer_gap_target_weight,
-            "outer_gap_scale_weight": outer_gap_scale_weight,
-            "outer_gap_tangent_scale_ratio": outer_gap_tangent_scale_ratio,
-            "outer_gap_tangent_scale_weight": outer_gap_tangent_scale_weight,
-            "outer_gap_hard_target_enable": outer_gap_hard_target_enable,
-            "outer_gap_hard_target_blend": outer_gap_hard_target_blend,
-            "outer_phase_residual_weight": outer_phase_residual_weight,
-            "frame_weights": frame_weights,
-            "frame_loss_weights": frame_loss_weights,
-            "temporal_ref_window": temporal_ref_window,
-            "temporal_ref_decay": temporal_ref_decay,
-            "temporal_ref_anchor": temporal_ref_anchor,
-            "bind_mesh_dir": str(mesh_context.bind_mesh_dir) if (binding_enabled and mesh_context is not None and mesh_context.bind_mesh_dir is not None) else None,
-            "bind_mesh_indices": bind_mesh_indices if binding_enabled else None,
-            "bind_sequence_npz": str(mesh_context.bind_seq_npz_path) if (binding_enabled and mesh_context is not None and mesh_context.bind_seq_npz_path is not None) else None,
-            "bind_vertices_npz": str(mesh_context.bind_vertices_npz_path) if (binding_enabled and mesh_context is not None and mesh_context.bind_vertices_npz_path is not None) else None,
-            "bind_deform_obj": str(mesh_context.bind_deform_obj_path) if (binding_enabled and mesh_context is not None and mesh_context.bind_deform_obj_path is not None) else None,
-            "bind_mesh_obj_space": bind_mesh_obj_space_mode,
-            "bind_align_quat_to_mesh_normals": bind_align_quat_to_mesh_normals,
-            "bind_quat_normal_blend": bind_quat_normal_blend,
-            "bind_surface_aniso_weight": bind_surface_aniso_weight,
-            "bind_surface_aniso_margin": bind_surface_aniso_margin,
-            "bind_rigid_align": bind_rigid_align_meta if binding_enabled else None,
-            "binding": export_binding_mode_config(binding_cfg),
-            "use_smpl_silhouette_mask": use_smpl_silhouette_mask,
-            "smpl_mask_dilate_px": smpl_mask_dilate_eff,
-            "smpl_mask_erode_px": smpl_mask_erode_eff,
-            "smpl_color_mask_erode_px": smpl_color_mask_erode_eff,
-            "inner_use_strict_smpl_mask": inner_use_strict_smpl_mask,
-            "smpl_alpha_leak_weight": smpl_alpha_leak_weight,
-            "smpl_mask_override_alpha": smpl_mask_override_alpha,
-            "smpl_mask_precompute": smpl_mask_precompute,
-            "smpl_mask_precompute_max_frames": smpl_mask_precompute_max_frames,
-            "person_masks_npz": str(person_masks_npz) if person_masks_npz is not None else None,
-            "use_person_mask": use_person_mask,
-            "person_mask_dilate_px": person_mask_dilate_px,
-            "person_mask_erode_px": person_mask_erode_px,
-            "person_mask_fuse_mode": person_mask_fuse_mode,
-            "person_mask_eval_clean": person_mask_eval_clean,
-            "person_mask_eval_refine_modnet": person_mask_eval_refine_modnet,
-            "person_mask_contour_width_px": person_mask_contour_width_px,
-            "person_mask_contour_leak_weight": person_mask_contour_leak_weight,
-            "outer_use_gt_contour": outer_use_gt_contour,
-            "outer_gt_contour_fuse_mode": outer_gt_contour_fuse_mode,
-            "outer_gt_contour_modnet_ref_size": outer_gt_contour_modnet_ref_size,
-            "outer_gt_contour_modnet_threshold": outer_gt_contour_modnet_threshold,
-            "modnet_ckpt_path": modnet_ckpt_path,
-            "outer_head_priority_enable": outer_head_priority_enable,
-            "outer_head_priority_weight": outer_head_priority_weight,
-            "outer_head_priority_face_pad": outer_head_priority_face_pad,
-            "outer_head_priority_up_scale": outer_head_priority_up_scale,
-            "outer_head_priority_down_scale": outer_head_priority_down_scale,
-            "outer_head_priority_person_top_ratio": outer_head_priority_person_top_ratio,
-            "outer_head_support_th": outer_head_support_th,
-            "outer_trigger_smpl_gap_px": outer_trigger_smpl_gap_px,
-            "outer_trigger_edge_th": outer_trigger_edge_th,
-            "outer_trigger_min_pixels": outer_trigger_min_pixels,
-            "outer_trigger_ring_width_px": outer_trigger_ring_width_px,
-            "outer_trigger_use_edge_gate": outer_trigger_use_edge_gate,
-            "outer_contour_inside_only": outer_contour_inside_only,
-            "outer_detached_solid_enable": outer_detached_solid_enable,
-            "outer_detached_solid_dilate_px": outer_detached_solid_dilate_px,
-            "outer_detached_solid_close_px": outer_detached_solid_close_px,
-            "outer_detached_solid_mix_start": outer_detached_solid_mix_start,
-            "outer_detached_solid_mix_end": outer_detached_solid_mix_end,
-            "outer_head_support_sample_dilate_px": outer_head_support_sample_dilate_px,
-            "outer_exclude_face": outer_exclude_face,
-            "outer_face_expand_px": outer_face_expand_px,
-            "outer_face_exclude_lower_ratio": outer_face_exclude_lower_ratio,
-            "outer_silhouette_weight": outer_silhouette_weight,
-            "outer_silhouette_band_px": outer_silhouette_band_px,
-            "outer_silhouette_band_weight": outer_silhouette_band_weight,
-            "detail_hf_weight": detail_hf_weight,
-            "detail_hf_exclude_face": detail_hf_exclude_face,
-            "outer_inside_support_th": outer_inside_support_th,
-            "outer_outside_support_th": outer_outside_support_th,
-            "outer_outside_opacity_cap": outer_outside_opacity_cap,
-            "outer_outside_offset_decay": outer_outside_offset_decay,
-            "outer_outside_opacity_weight": outer_outside_opacity_weight,
-            "outer_outside_offset_weight": outer_outside_offset_weight,
-            "outer_offset_suppress_low_support": outer_offset_suppress_low_support,
-            "outer_offset_suppress_support_th": outer_offset_suppress_support_th,
-            "outer_offset_suppress_decay": outer_offset_suppress_decay,
-            "outer_offset_suppress_opacity_cap": outer_offset_suppress_opacity_cap,
-            "separate_fg_bg_training": separate_fg_bg_training,
-            "fg_region_weight": fg_region_weight,
-            "bg_region_weight": bg_region_weight,
-            "bg_grad_scale": bg_grad_scale,
-            "bg_opacity_logit_max": bg_opacity_logit_max,
-            "bg_log_scale_min": bg_log_scale_min,
-            "bg_log_scale_max": bg_log_scale_max,
-            "fg_opacity_logit_max": fg_opacity_logit_max,
-            "fg_log_scale_min": fg_log_scale_min,
-            "fg_log_scale_max": fg_log_scale_max,
-            "outer_log_scale_min": outer_log_scale_min,
-            "outer_log_scale_max": outer_log_scale_max,
-            "outer_prune_support_th": outer_prune_support_th,
-            "outer_prune_dual_enable": outer_prune_dual_enable,
-            "outer_prune_dual_max_vis": outer_prune_dual_max_vis,
-            "outer_prune_dual_min_support": outer_prune_dual_min_support,
-            "early_stop_enable": early_stop_enable,
-            "early_stop_patience": early_stop_patience,
-            "early_stop_min_delta": early_stop_min_delta,
-            "early_stop_warmup_iters": early_stop_warmup_iters,
-            "outer_edge_trigger_enable": outer_edge_trigger_enable,
-            "outer_edge_trigger_weight": outer_edge_trigger_weight,
-            "outer_boundary_enforce": outer_boundary_enforce,
-            "outer_boundary_tol_px": outer_boundary_tol_px,
-            "outer_boundary_check_every": outer_boundary_check_every,
-            "outer_boundary_alpha_cap": outer_boundary_alpha_cap,
-            "outer_boundary_scale_decay": outer_boundary_scale_decay,
-            "outer_boundary_offset_decay": outer_boundary_offset_decay,
-            "outer_boundary_patience": outer_boundary_patience,
-            "outer_edge_prune_protect_quantile": outer_edge_prune_protect_quantile,
-            "outer_offset_unbounded": outer_offset_unbounded,
-            "outer_offset_auto_range_enable": outer_offset_auto_range_enable,
-            "outer_offset_auto_range_min_scale": outer_offset_auto_range_min_scale,
-            "outer_offset_auto_range_edge_mix": outer_offset_auto_range_edge_mix,
-            "outer_offset_edge_guided_reg": outer_offset_edge_guided_reg,
-            "outer_offset_reg_relax_support": outer_offset_reg_relax_support,
-            "outer_offset_min_active_weight": outer_offset_min_active_weight,
-            "outer_offset_min_target_scale": outer_offset_min_target_scale,
-            "outer_offset_min_support_th": outer_offset_min_support_th,
-            "inner_opacity_prior_target": inner_opacity_prior_target,
-            "outer_opacity_prior_target": outer_opacity_prior_target,
-            "shell_offset_reg_phase0_scale": shell_offset_reg_phase0_scale,
-            "shell_offset_freeze_phase0": shell_offset_freeze_phase0,
-            "outer_offset_grad_scale": outer_offset_grad_scale,
-            "outer_offset_edge_grad_scale": outer_offset_edge_grad_scale,
-            "outer_offset_grad_scale_max": outer_offset_grad_scale_max,
-            "outer_support_weight": outer_support_weight,
-            "outer_spawn_support_th": outer_spawn_support_th,
-            "outer_spawn_inside_only": outer_spawn_inside_only,
-            "outer_phase_inner_vis_scale": outer_phase_inner_vis_scale,
-            "outer_phase_inner_full_mask": outer_phase_inner_full_mask,
-            "outer_low_support_patience": outer_low_support_patience,
-            "outer_pruned_opacity_logit_max": outer_pruned_opacity_logit_max,
-            "outer_quality_log_every": outer_quality_log_every,
-            "outer_progress_log_every": outer_progress_log_every,
-            "outer_zero_stop_enable": outer_zero_stop_enable,
-            "outer_zero_stop_patience": outer_zero_stop_patience,
-            "outer_zero_stop_warmup_iters": outer_zero_stop_warmup_iters,
-            "outer_zero_stop_after_phase_inner": outer_zero_stop_after_phase_inner,
-            "bind_face_offset_straight_through": bind_face_offset_straight_through,
-            "dual_quality_gate": dual_quality_gate,
-            "dual_quality_gate_last": {
-                "color_error": dq_last_color_error,
-                "color_var": dq_last_color_var,
-                "geometry_score": dq_last_geom_score,
-                "fail_active": dq_fail_active,
-            },
-            "outer_quality_pass": quality_pass_now,
-            "outer_quality_report_path": str(quality_report_path),
-            "outer_spawn_report_path": str(outer_spawn_report_path),
-            "training_mode": training_mode,
-            "save_inner_checkpoint_path": (
-                None if save_inner_checkpoint_path is None else str(save_inner_checkpoint_path)
-            ),
-        }
+    checkpoint_metadata_base = {
+        "frames": frames_list,
+        "H": H,
+        "W": W,
+        "bg_rgb": bg_rgb,
+        "cam_warmup_iters": cam_warmup_iters,
+        "l1_weight": l1_weight,
+        "use_alpha_mask": use_alpha_mask,
+        "alpha_threshold": alpha_threshold,
+        "camera_mode": camera_mode,
+        "cam_t_prior": cam_t_prior,
+        "cam_reg_weight": cam_reg_weight,
+        "keypoints_json": str(keypoints_json) if keypoints_json is not None else None,
+        "kpt_conf_min": kpt_conf_min,
+        "kpt_box_pad": kpt_box_pad,
+        "use_kpt_bbox_mask": use_kpt_bbox_mask,
+        "frame_align_scores": frame_align_scores,
+        "face_weight": face_weight,
+        "face_conf_min": face_conf_min,
+        "face_box_pad": face_box_pad,
+        "face_use_ears": face_use_ears,
+        "hand_weight": hand_weight,
+        "hand_conf_min": hand_conf_min,
+        "hand_radius_scale": hand_radius_scale,
+        "hand_radius_min_px": hand_radius_min_px,
+        "hand_extension_scale": hand_extension_scale,
+        "outer_exclude_hands": outer_exclude_hands,
+        "outer_hand_expand_px": outer_hand_expand_px,
+        "phase_ratio_inner_only": phase_ratio_inner_only,
+        "phase_ratio_outer_only": phase_ratio_outer_only,
+        "phase_ratio_occlusion_simplify": phase_ratio_occlusion_simplify,
+        "phase_ratio_joint_finetune": phase_ratio_joint_finetune,
+        "outer_geom_fraction": outer_geom_fraction,
+        "shell_enable": shell_enable,
+        "shell_max_ratio": shell_max_ratio,
+        "shell_spawn_top_percent": shell_spawn_top_percent,
+        "shell_spawn_every": shell_spawn_every,
+        "shell_prune_every": shell_prune_every,
+        "shell_offset_max_n": shell_offset_max_n,
+        "shell_offset_max_t": shell_offset_max_t,
+        "inner_bind_mode_default": inner_bind_mode_default,
+        "outer_init_from_inner": outer_init_from_inner,
+        "outer_dormant_slot_ratio": outer_dormant_slot_ratio,
+        "outer_trigger_face_activate_enable": outer_trigger_face_activate_enable,
+        "outer_trigger_face_sample_dilate_px": outer_trigger_face_sample_dilate_px,
+        "outer_viewplane_init_enable": outer_viewplane_init_enable,
+        "outer_center_init_rule": outer_center_init_rule,
+        "outer_center_phase1_normal_tune_enable": outer_center_phase1_normal_tune_enable,
+        "outer_center_phase1_normal_tune_cap": outer_center_phase1_normal_tune_cap,
+        "outer_center_freeze_after_phase1": outer_center_freeze_after_phase1,
+        "outer_contact_alpha_edge_th": outer_contact_alpha_edge_th,
+        "outer_detached_support_boost": outer_detached_support_boost,
+        "outer_detached_vis_boost": outer_detached_vis_boost,
+        "outer_overlap_prune_offset_th": outer_overlap_prune_offset_th,
+        "outer_overlap_prune_detached_th": outer_overlap_prune_detached_th,
+        "outer_detached_support_th": outer_detached_support_th,
+        "outer_detached_opacity_floor": outer_detached_opacity_floor,
+        "outer_detached_log_scale_floor": outer_detached_log_scale_floor,
+        "outer_gap_search_px": outer_gap_search_px,
+        "outer_gap_step_px": outer_gap_step_px,
+        "outer_gap_probe_world": outer_gap_probe_world,
+        "outer_gap_target_support_th": outer_gap_target_support_th,
+        "outer_gap_target_weight": outer_gap_target_weight,
+        "outer_gap_scale_weight": outer_gap_scale_weight,
+        "outer_gap_tangent_scale_ratio": outer_gap_tangent_scale_ratio,
+        "outer_gap_tangent_scale_weight": outer_gap_tangent_scale_weight,
+        "outer_gap_hard_target_enable": outer_gap_hard_target_enable,
+        "outer_gap_hard_target_blend": outer_gap_hard_target_blend,
+        "outer_phase_residual_weight": outer_phase_residual_weight,
+        "frame_weights": frame_weights,
+        "frame_loss_weights": frame_loss_weights,
+        "temporal_ref_window": temporal_ref_window,
+        "temporal_ref_decay": temporal_ref_decay,
+        "temporal_ref_anchor": temporal_ref_anchor,
+        "bind_mesh_dir": str(mesh_context.bind_mesh_dir) if (binding_enabled and mesh_context is not None and mesh_context.bind_mesh_dir is not None) else None,
+        "bind_mesh_indices": bind_mesh_indices if binding_enabled else None,
+        "bind_sequence_npz": str(mesh_context.bind_seq_npz_path) if (binding_enabled and mesh_context is not None and mesh_context.bind_seq_npz_path is not None) else None,
+        "bind_vertices_npz": str(mesh_context.bind_vertices_npz_path) if (binding_enabled and mesh_context is not None and mesh_context.bind_vertices_npz_path is not None) else None,
+        "bind_deform_obj": str(mesh_context.bind_deform_obj_path) if (binding_enabled and mesh_context is not None and mesh_context.bind_deform_obj_path is not None) else None,
+        "bind_mesh_obj_space": bind_mesh_obj_space_mode,
+        "bind_align_quat_to_mesh_normals": bind_align_quat_to_mesh_normals,
+        "bind_quat_normal_blend": bind_quat_normal_blend,
+        "bind_surface_aniso_weight": bind_surface_aniso_weight,
+        "bind_surface_aniso_margin": bind_surface_aniso_margin,
+        "bind_rigid_align": bind_rigid_align_meta if binding_enabled else None,
+        "binding": export_binding_mode_config(binding_cfg),
+        "use_smpl_silhouette_mask": use_smpl_silhouette_mask,
+        "smpl_mask_dilate_px": smpl_mask_dilate_eff,
+        "smpl_mask_erode_px": smpl_mask_erode_eff,
+        "smpl_color_mask_erode_px": smpl_color_mask_erode_eff,
+        "inner_use_strict_smpl_mask": inner_use_strict_smpl_mask,
+        "smpl_alpha_leak_weight": smpl_alpha_leak_weight,
+        "smpl_mask_override_alpha": smpl_mask_override_alpha,
+        "smpl_mask_precompute": smpl_mask_precompute,
+        "smpl_mask_precompute_max_frames": smpl_mask_precompute_max_frames,
+        "person_masks_npz": str(person_masks_npz) if person_masks_npz is not None else None,
+        "use_person_mask": use_person_mask,
+        "person_mask_dilate_px": person_mask_dilate_px,
+        "person_mask_erode_px": person_mask_erode_px,
+        "person_mask_fuse_mode": person_mask_fuse_mode,
+        "person_mask_eval_clean": person_mask_eval_clean,
+        "person_mask_eval_refine_modnet": person_mask_eval_refine_modnet,
+        "person_mask_contour_width_px": person_mask_contour_width_px,
+        "person_mask_contour_leak_weight": person_mask_contour_leak_weight,
+        "outer_use_gt_contour": outer_use_gt_contour,
+        "outer_gt_contour_fuse_mode": outer_gt_contour_fuse_mode,
+        "outer_gt_contour_modnet_ref_size": outer_gt_contour_modnet_ref_size,
+        "outer_gt_contour_modnet_threshold": outer_gt_contour_modnet_threshold,
+        "modnet_ckpt_path": modnet_ckpt_path,
+        "outer_head_priority_enable": outer_head_priority_enable,
+        "outer_head_priority_weight": outer_head_priority_weight,
+        "outer_head_priority_face_pad": outer_head_priority_face_pad,
+        "outer_head_priority_up_scale": outer_head_priority_up_scale,
+        "outer_head_priority_down_scale": outer_head_priority_down_scale,
+        "outer_head_priority_person_top_ratio": outer_head_priority_person_top_ratio,
+        "outer_head_support_th": outer_head_support_th,
+        "outer_trigger_smpl_gap_px": outer_trigger_smpl_gap_px,
+        "outer_trigger_edge_th": outer_trigger_edge_th,
+        "outer_trigger_min_pixels": outer_trigger_min_pixels,
+        "outer_trigger_ring_width_px": outer_trigger_ring_width_px,
+        "outer_trigger_use_edge_gate": outer_trigger_use_edge_gate,
+        "outer_contour_inside_only": outer_contour_inside_only,
+        "outer_detached_solid_enable": outer_detached_solid_enable,
+        "outer_detached_solid_dilate_px": outer_detached_solid_dilate_px,
+        "outer_detached_solid_close_px": outer_detached_solid_close_px,
+        "outer_detached_solid_mix_start": outer_detached_solid_mix_start,
+        "outer_detached_solid_mix_end": outer_detached_solid_mix_end,
+        "outer_head_support_sample_dilate_px": outer_head_support_sample_dilate_px,
+        "outer_exclude_face": outer_exclude_face,
+        "outer_face_expand_px": outer_face_expand_px,
+        "outer_face_exclude_lower_ratio": outer_face_exclude_lower_ratio,
+        "outer_silhouette_weight": outer_silhouette_weight,
+        "outer_silhouette_band_px": outer_silhouette_band_px,
+        "outer_silhouette_band_weight": outer_silhouette_band_weight,
+        "detail_hf_weight": detail_hf_weight,
+        "detail_hf_exclude_face": detail_hf_exclude_face,
+        "outer_inside_support_th": outer_inside_support_th,
+        "outer_outside_support_th": outer_outside_support_th,
+        "outer_outside_opacity_cap": outer_outside_opacity_cap,
+        "outer_outside_offset_decay": outer_outside_offset_decay,
+        "outer_outside_opacity_weight": outer_outside_opacity_weight,
+        "outer_outside_offset_weight": outer_outside_offset_weight,
+        "outer_offset_suppress_low_support": outer_offset_suppress_low_support,
+        "outer_offset_suppress_support_th": outer_offset_suppress_support_th,
+        "outer_offset_suppress_decay": outer_offset_suppress_decay,
+        "outer_offset_suppress_opacity_cap": outer_offset_suppress_opacity_cap,
+        "separate_fg_bg_training": separate_fg_bg_training,
+        "fg_region_weight": fg_region_weight,
+        "bg_region_weight": bg_region_weight,
+        "bg_grad_scale": bg_grad_scale,
+        "bg_opacity_logit_max": bg_opacity_logit_max,
+        "bg_log_scale_min": bg_log_scale_min,
+        "bg_log_scale_max": bg_log_scale_max,
+        "fg_opacity_logit_max": fg_opacity_logit_max,
+        "fg_log_scale_min": fg_log_scale_min,
+        "fg_log_scale_max": fg_log_scale_max,
+        "outer_log_scale_min": outer_log_scale_min,
+        "outer_log_scale_max": outer_log_scale_max,
+        "outer_prune_support_th": outer_prune_support_th,
+        "outer_prune_dual_enable": outer_prune_dual_enable,
+        "outer_prune_dual_max_vis": outer_prune_dual_max_vis,
+        "outer_prune_dual_min_support": outer_prune_dual_min_support,
+        "early_stop_enable": early_stop_enable,
+        "early_stop_patience": early_stop_patience,
+        "early_stop_min_delta": early_stop_min_delta,
+        "early_stop_warmup_iters": early_stop_warmup_iters,
+        "outer_edge_trigger_enable": outer_edge_trigger_enable,
+        "outer_edge_trigger_weight": outer_edge_trigger_weight,
+        "outer_boundary_enforce": outer_boundary_enforce,
+        "outer_boundary_tol_px": outer_boundary_tol_px,
+        "outer_boundary_check_every": outer_boundary_check_every,
+        "outer_boundary_alpha_cap": outer_boundary_alpha_cap,
+        "outer_boundary_scale_decay": outer_boundary_scale_decay,
+        "outer_boundary_offset_decay": outer_boundary_offset_decay,
+        "outer_boundary_patience": outer_boundary_patience,
+        "outer_edge_prune_protect_quantile": outer_edge_prune_protect_quantile,
+        "outer_offset_unbounded": outer_offset_unbounded,
+        "outer_offset_auto_range_enable": outer_offset_auto_range_enable,
+        "outer_offset_auto_range_min_scale": outer_offset_auto_range_min_scale,
+        "outer_offset_auto_range_edge_mix": outer_offset_auto_range_edge_mix,
+        "outer_offset_edge_guided_reg": outer_offset_edge_guided_reg,
+        "outer_offset_reg_relax_support": outer_offset_reg_relax_support,
+        "outer_offset_min_active_weight": outer_offset_min_active_weight,
+        "outer_offset_min_target_scale": outer_offset_min_target_scale,
+        "outer_offset_min_support_th": outer_offset_min_support_th,
+        "inner_opacity_prior_target": inner_opacity_prior_target,
+        "outer_opacity_prior_target": outer_opacity_prior_target,
+        "shell_offset_reg_phase0_scale": shell_offset_reg_phase0_scale,
+        "shell_offset_freeze_phase0": shell_offset_freeze_phase0,
+        "outer_offset_grad_scale": outer_offset_grad_scale,
+        "outer_offset_edge_grad_scale": outer_offset_edge_grad_scale,
+        "outer_offset_grad_scale_max": outer_offset_grad_scale_max,
+        "outer_support_weight": outer_support_weight,
+        "outer_spawn_support_th": outer_spawn_support_th,
+        "outer_spawn_inside_only": outer_spawn_inside_only,
+        "outer_phase_inner_vis_scale": outer_phase_inner_vis_scale,
+        "outer_phase_inner_full_mask": outer_phase_inner_full_mask,
+        "outer_low_support_patience": outer_low_support_patience,
+        "outer_pruned_opacity_logit_max": outer_pruned_opacity_logit_max,
+        "outer_quality_log_every": outer_quality_log_every,
+        "outer_progress_log_every": outer_progress_log_every,
+        "outer_zero_stop_enable": outer_zero_stop_enable,
+        "outer_zero_stop_patience": outer_zero_stop_patience,
+        "outer_zero_stop_warmup_iters": outer_zero_stop_warmup_iters,
+        "outer_zero_stop_after_phase_inner": outer_zero_stop_after_phase_inner,
+        "bind_face_offset_straight_through": bind_face_offset_straight_through,
+        "dual_quality_gate": dual_quality_gate,
+        "outer_quality_report_path": str(quality_report_path),
+        "outer_spawn_report_path": str(outer_spawn_report_path),
+        "training_mode": training_mode,
+        "save_inner_checkpoint_path": None if save_inner_checkpoint_path is None else str(save_inner_checkpoint_path),
+    }
 
 
     dq_raw = dual_quality_gate if isinstance(dual_quality_gate, dict) else {}
@@ -1582,7 +1638,7 @@ if (
 
         # Enable camera learning after warmup
         if learn_cam and it == cam_warmup_iters:
-            _set_cam_trainable(True)
+            _set_camera_trainable(cam_w, cam_t, learn_cam=learn_cam, flag=True)
 
         # Select anchor frame (current frame to optimize).
         if ref_anchor == "last":
@@ -3438,10 +3494,15 @@ if (
                         outer=outer_active_iter,
                         outer_pruned=outer_pruned_iter,
                     )
-                    print(
-                        f"[Iter {it + 1}/{iters}] phase={phase_label} "
-                        f"inner_active={inner_active_iter} outer_active={outer_active_iter} "
-                        f"outer_pruned={outer_pruned_iter}"
+                    _log_info(
+                        train_logger,
+                        "[Iter %d/%d] phase=%s inner_active=%d outer_active=%d outer_pruned=%d",
+                        it + 1,
+                        iters,
+                        phase_label,
+                        inner_active_iter,
+                        outer_active_iter,
+                        outer_pruned_iter,
                     )
                 if outer_zero_stop_enable:
                     phase_ok = (not bool(outer_zero_stop_after_phase_inner)) or (phase_tag != "phase_inner")
@@ -3451,9 +3512,12 @@ if (
                         else:
                             outer_zero_consecutive = 0
                         if outer_zero_consecutive >= int(outer_zero_stop_patience):
-                            print(
-                                f"Early stop at iter {it + 1}/{iters}: "
-                                f"outer_active_count stayed 0 for {outer_zero_consecutive} consecutive iterations."
+                            _log_warning(
+                                train_logger,
+                                "Early stop at iter %d/%d: outer_active_count stayed 0 for %d consecutive iterations.",
+                                it + 1,
+                                iters,
+                                outer_zero_consecutive,
                             )
                             break
                     else:
@@ -3466,13 +3530,29 @@ if (
             and (it + 1) >= int(phase_inner_end)
             and training_mode in ("full", "inner_only")
         ):
-            save_inner_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(
-                _build_checkpoint_payload(quality_pass_now=False),
-                save_inner_checkpoint_path,
+            inner_checkpoint_payload = _build_stage2_checkpoint_payload(
+                g=g,
+                K=K,
+                cam_w=cam_w,
+                cam_t=cam_t,
+                checkpoint_metadata={
+                    **checkpoint_metadata_base,
+                    "dual_quality_gate_last": _build_dual_quality_gate_last(
+                        color_error=dq_last_color_error,
+                        color_var=dq_last_color_var,
+                        geometry_score=dq_last_geom_score,
+                        fail_active=dq_fail_active,
+                    ),
+                },
+                quality_pass_now=False,
+            )
+            _save_stage2_checkpoint(
+                path=save_inner_checkpoint_path,
+                payload=inner_checkpoint_payload,
+                logger=train_logger,
+                label="inner",
             )
             inner_ckpt_saved = True
-            print(f"Saved inner checkpoint: {save_inner_checkpoint_path}")
 
         if es_enable:
             if loss_value + es_min_delta < es_best:
@@ -3481,10 +3561,15 @@ if (
             elif it >= es_warmup:
                 es_bad += 1
                 if es_bad >= es_patience:
-                    print(
-                        f"Early stop at iter {it + 1}/{iters}: "
-                        f"best_loss={es_best:.6f}, last_loss={loss_value:.6f}, "
-                        f"patience={es_patience}, min_delta={es_min_delta}"
+                    _log_warning(
+                        train_logger,
+                        "Early stop at iter %d/%d: best_loss=%.6f, last_loss=%.6f, patience=%d, min_delta=%.6f",
+                        it + 1,
+                        iters,
+                        es_best,
+                        loss_value,
+                        es_patience,
+                        es_min_delta,
                     )
                     break
 
@@ -3502,13 +3587,29 @@ if (
         and save_inner_checkpoint_path is not None
         and training_mode in ("full", "inner_only")
     ):
-        save_inner_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            _build_checkpoint_payload(quality_pass_now=bool(quality_pass)),
-            save_inner_checkpoint_path,
+        inner_checkpoint_payload = _build_stage2_checkpoint_payload(
+            g=g,
+            K=K,
+            cam_w=cam_w,
+            cam_t=cam_t,
+            checkpoint_metadata={
+                **checkpoint_metadata_base,
+                "dual_quality_gate_last": _build_dual_quality_gate_last(
+                    color_error=dq_last_color_error,
+                    color_var=dq_last_color_var,
+                    geometry_score=dq_last_geom_score,
+                    fail_active=dq_fail_active,
+                ),
+            },
+            quality_pass_now=bool(quality_pass),
+        )
+        _save_stage2_checkpoint(
+            path=save_inner_checkpoint_path,
+            payload=inner_checkpoint_payload,
+            logger=train_logger,
+            label="inner",
         )
         inner_ckpt_saved = True
-        print(f"Saved inner checkpoint: {save_inner_checkpoint_path}")
 
     outer_face_records = build_outer_face_records(
         outer_face_weight_sum=outer_face_weight_sum,
@@ -3531,7 +3632,28 @@ if (
 
     # Save checkpoint
     out_ckpt = out_ckpt_path
-    torch.save(_build_checkpoint_payload(quality_pass_now=bool(quality_pass)), out_ckpt)
+    final_checkpoint_payload = _build_stage2_checkpoint_payload(
+        g=g,
+        K=K,
+        cam_w=cam_w,
+        cam_t=cam_t,
+        checkpoint_metadata={
+            **checkpoint_metadata_base,
+            "dual_quality_gate_last": _build_dual_quality_gate_last(
+                color_error=dq_last_color_error,
+                color_var=dq_last_color_var,
+                geometry_score=dq_last_geom_score,
+                fail_active=dq_fail_active,
+            ),
+        },
+        quality_pass_now=bool(quality_pass),
+    )
+    _save_stage2_checkpoint(
+        path=out_ckpt,
+        payload=final_checkpoint_payload,
+        logger=train_logger,
+        label="final",
+    )
 
 
 
