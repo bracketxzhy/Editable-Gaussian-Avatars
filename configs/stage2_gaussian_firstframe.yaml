@@ -1,0 +1,143 @@
+project_root: .
+seed: 42
+log_dir: outputs/logs
+
+data:
+  frames_dir: data/frames/input
+
+stage2:
+  stage1_dir: outputs/stage1_firstframe
+  out_dir: outputs/stage2_firstframe
+  training_mode: inner_only
+  init_ckpt: ""
+  inner_ckpt_path: outputs/stage2_firstframe/gaussians3d_inner.pt
+  init_mesh_obj: ""
+  enable_tf32: true
+  cudnn_benchmark: true
+
+  n_frames: 1
+  n_gaussians: 70000
+  sample_on_surface: true
+  n_gaussians_bg: 0
+  bg_extent: [4.0, 4.0, 1.0]
+  bg_center_z: 2.5
+  bg_log_scale: -3.5
+  bg_opacity_logit: -3.0
+  bg_exclude_bbox_pad: 0.2
+  bg_grad_scale: 1.0
+  bg_opacity_logit_max: -3.5
+  bg_log_scale_min: -3.5
+  bg_log_scale_max: -2.0
+  fg_opacity_logit_max: 3.2
+  fg_log_scale_min: -7.2
+  fg_log_scale_max: -5.9
+  outer_log_scale_min: -7.6
+  outer_log_scale_max: -5.3
+  outer_prune_support_th: 0.03
+  outer_prune_dual_enable: true
+  outer_prune_dual_max_vis: 0.06
+  outer_prune_dual_min_support: 0.001
+  outer_align_prune_protect_enable: true
+  outer_align_prune_protect_min_iou: 0.998
+  outer_align_prune_protect_min_vis: 0.006
+  outer_align_prune_protect_min_support: 0.006
+  iters: 3600
+
+  lr_gauss: 0.003
+  lr_cam: 0.0
+  camera_mode: fixed
+  cam_t_prior: [0.0, 0.0, 0.0]
+  cam_reg_weight: 0.0
+  cam_warmup_iters: 0
+  l1_weight: 0.6
+  use_alpha_mask: false
+  alpha_threshold: 0.03
+  keypoints_json: outputs/stage1_firstframe/keypoints.json
+  kpt_conf_min: 0.2
+  kpt_box_pad: 0.12
+  use_kpt_bbox_mask: false
+  face_weight: 1.0
+  face_conf_min: 0.35
+  face_box_pad: 0.10
+  face_use_ears: false
+  hand_weight: 1.0
+  hand_conf_min: 0.25
+  hand_radius_scale: 0.45
+  hand_radius_min_px: 10
+  hand_extension_scale: 0.35
+  outer_exclude_hands: false
+  outer_hand_expand_px: 0
+  bg_rgb: [1.0, 1.0, 1.0]
+  frame_select: stage1_sequence
+  stage1_align_filter_enable: false
+  stage1_align_filter_metric: camera_align_iou
+  stage1_align_filter_min: 0.995
+  temporal_ref_anchor: sample
+  temporal_ref_window: 0
+  temporal_ref_decay: 0.86
+
+  bind_to_mesh: true
+  bind_mesh_sequence_dir: outputs/stage1_firstframe
+  bind_cache_size: 32
+  bind_mesh_obj_space: auto
+  bind_align_quat_to_mesh_normals: true
+  bind_quat_normal_blend: 1.0
+  bind_surface_aniso_weight: 0.002
+  bind_surface_aniso_margin: 0.15
+  bind_mesh_to_camera: true
+  bind_inverse_export_upright: true
+  bind_mesh_offset: [0.0, 0.0, 0.0]
+  bind_rigid_align:
+    enable: true
+    auto: false
+    pre_stage2: false
+    require_pre_stage2: true
+    require_quality: false
+    min_iou_after: 0.70
+    max_outside_after: 0.20
+    init_from_bbox: true
+    use_best_if_quality_fail: true
+    person_masks_npz: outputs/stage1_firstframe/person_masks.npz
+    sample_frames: 1
+    eval_downsample: 0.35
+    outside_weight: 2.0
+    levels: 2
+    iters_per_level: 1
+    rot_step_deg: 3.0
+
+  smpl_mask_precompute_max_frames: 1
+  use_person_mask: true
+  person_masks_npz: outputs/stage1_firstframe/person_masks.npz
+  prepared_supervision_cache_path: outputs/stage2_firstframe/supervision_cache.npz
+  person_mask_dilate_px: 0
+  person_mask_erode_px: 0
+  gt_mask_mode: modnet
+  person_mask_fuse_mode: intersect
+  person_mask_eval_clean: false
+  person_mask_eval_refine_modnet: false
+  person_mask_contour_width_px: 2
+  person_mask_contour_leak_weight: 0.0
+  outer_use_gt_contour: true
+  outer_gt_contour_fuse_mode: gt_only
+  outer_gt_contour_modnet_ref_size: 640
+  outer_gt_contour_modnet_threshold: 0.5
+  modnet_ckpt_path: third_party/MODNet/pretrained/modnet_photographic_portrait_matting.ckpt
+
+  inner_phase_use_raw_gt_target: true
+  inner_phase_keep_bg_weight: true
+  inner_count_min: 90000
+  inner_count_max: 280000
+  densify_top_percent: 10.0
+  phase0_ratio: 0.08
+  phase2_ratio: 0.15
+  outer_progress_log_every: 200
+
+render:
+  out_dir: outputs/renders_firstframe
+  frame_select: last
+  max_frames: 1
+  clear_out_dir_pngs: true
+  six_views_enable: false
+  deform_smplx_use_standard_pose: true
+  bind_sequence_npz: outputs/stage1_firstframe/smpl_params_sequence.npz
+  bind_mesh_obj_space: auto

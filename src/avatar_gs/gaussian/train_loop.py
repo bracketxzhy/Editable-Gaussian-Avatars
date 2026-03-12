@@ -68,6 +68,7 @@ from avatar_gs.stage2 import (
     evaluate_stage2_quality,
     fuse_outer_contour_mask_np,
     initialize_stage2_training_binding_state,
+    prepare_stage2_report_paths,
     project_points_numpy as _project_points_numpy,
     project_points_torch as _project_points_torch,
     rasterize_mesh_mask as _rasterize_mesh_mask,
@@ -419,6 +420,7 @@ def _build_stage2_checkpoint_payload(
     *,
     g: Gaussian3D,
     K: torch.Tensor,
+    frame_Ks: list[torch.Tensor] | None,
     cam_w: torch.Tensor | object,
     cam_t: torch.Tensor | object,
     checkpoint_metadata: dict[str, object],
@@ -429,6 +431,7 @@ def _build_stage2_checkpoint_payload(
         "K": K.detach().cpu(),
         "cam_w": _checkpoint_cpu_tensor(cam_w),
         "cam_t": _checkpoint_cpu_tensor(cam_t),
+        "frame_Ks": None if frame_Ks is None else torch.stack([row.detach().cpu() for row in frame_Ks], dim=0),
     }
     payload.update(checkpoint_metadata)
     payload["outer_quality_pass"] = quality_pass_now
@@ -476,6 +479,7 @@ def _train_gaussians_3d_learnable_camera_impl(
     frames_list: list[str],
     K_list: list[float],
     out_ckpt: str | Path,
+    frame_Ks: list[list[float]] | None = None,
     iters: int = 1000,
     lr_gauss: float = 1e-2,
     lr_cam: float = 1e-3,
@@ -587,6 +591,8 @@ def _train_gaussians_3d_learnable_camera_impl(
     separate_fg_bg_training: bool = False,
     fg_region_weight: float = 1.0,
     bg_region_weight: float = 1.0,
+    inner_phase_use_raw_gt_target: bool = False,
+    inner_phase_keep_bg_weight: bool = False,
     bg_grad_scale: float = 1.0,
     bg_opacity_logit_max: float | None = None,
     bg_log_scale_min: float | None = None,
@@ -600,6 +606,10 @@ def _train_gaussians_3d_learnable_camera_impl(
     outer_prune_dual_enable: bool = False,
     outer_prune_dual_max_vis: float = 0.06,
     outer_prune_dual_min_support: float = 0.001,
+    outer_align_prune_protect_enable: bool = True,
+    outer_align_prune_protect_min_iou: float = 0.998,
+    outer_align_prune_protect_min_vis: float = 0.006,
+    outer_align_prune_protect_min_support: float = 0.006,
     early_stop_enable: bool = False,
     early_stop_patience: int = 0,
     early_stop_min_delta: float = 0.0,
@@ -746,6 +756,18 @@ def _train_gaussians_3d_learnable_camera_impl(
 
     # Intrinsics
     K = torch.tensor(K_list, dtype=torch.float32, device=device).view(3, 3)
+    K_np = K.detach().cpu().numpy().astype(np.float32)
+    frame_K_tensors: list[torch.Tensor] | None = None
+    frame_K_nps: list[np.ndarray] | None = None
+    if frame_Ks is not None:
+        if len(frame_Ks) != len(frames_list):
+            raise ValueError("frame_Ks length must match frames_list length.")
+        frame_K_tensors = []
+        frame_K_nps = []
+        for row in frame_Ks:
+            K_row = torch.tensor(row, dtype=torch.float32, device=device).view(3, 3)
+            frame_K_tensors.append(K_row)
+            frame_K_nps.append(K_row.detach().cpu().numpy().astype(np.float32))
 
     # Load first frame for H,W
     gt0 = read_image_rgb(frames_dir / frames_list[0]).to(device)
@@ -884,6 +906,28 @@ def _train_gaussians_3d_learnable_camera_impl(
         raise ValueError(f"training_mode must be full|inner_only|outer_only. Got: {training_mode}")
     if training_mode == "outer_only" and (not bool(shell_enable)):
         raise ValueError("training_mode=outer_only requires shell_enable=true.")
+    sep_fg_bg = bool(separate_fg_bg_training)
+    inner_phase_use_raw_gt_target = bool(inner_phase_use_raw_gt_target)
+    inner_phase_keep_bg_weight = bool(inner_phase_keep_bg_weight)
+    if training_mode == "inner_only":
+        if inner_phase_use_raw_gt_target:
+            _log_warning(
+                train_logger,
+                "training_mode=inner_only overrides inner_phase_use_raw_gt_target=false to avoid learning raw GT instead of prepared inner targets.",
+            )
+        if inner_phase_keep_bg_weight:
+            _log_warning(
+                train_logger,
+                "training_mode=inner_only overrides inner_phase_keep_bg_weight=false to avoid background spill during inner-only validation.",
+            )
+        inner_phase_use_raw_gt_target = False
+        inner_phase_keep_bg_weight = False
+    outer_align_prune_protect_enable = bool(outer_align_prune_protect_enable)
+    outer_align_prune_protect_min_iou = float(np.clip(float(outer_align_prune_protect_min_iou), 0.0, 1.0))
+    outer_align_prune_protect_min_vis = float(max(float(outer_align_prune_protect_min_vis), 0.0))
+    outer_align_prune_protect_min_support = float(max(float(outer_align_prune_protect_min_support), 0.0))
+    fg_w = float(fg_region_weight)
+    bg_w = float(bg_region_weight)
     save_inner_checkpoint_path = (
         None if save_inner_checkpoint_path is None else Path(save_inner_checkpoint_path)
     )
@@ -1108,6 +1152,28 @@ def _train_gaussians_3d_learnable_camera_impl(
     frame_align_scores_t = supervision_state.frame_align_scores_t
     person_fuse = supervision_state.person_fuse
     outer_contour_fuse = supervision_state.outer_contour_fuse
+    if mesh_runtime is not None and prepared_supervision is not None:
+        smpl_align_scales = prepared_supervision.get("smpl_align_scales", None)
+        smpl_align_tx_px = prepared_supervision.get("smpl_align_tx_px", None)
+        smpl_align_ty_px = prepared_supervision.get("smpl_align_ty_px", None)
+        smpl_align_accepted = prepared_supervision.get("smpl_align_accepted", None)
+        if (
+            smpl_align_scales is not None
+            and smpl_align_tx_px is not None
+            and smpl_align_ty_px is not None
+            and smpl_align_accepted is not None
+        ):
+            mesh_runtime.set_frame_smpl_align_from_arrays(
+                frame_names=[str(x) for x in prepared_supervision["frame_names"]],
+                scales=np.asarray(smpl_align_scales, dtype=np.float32),
+                tx_px=np.asarray(smpl_align_tx_px, dtype=np.float32),
+                ty_px=np.asarray(smpl_align_ty_px, dtype=np.float32),
+                accepted=np.asarray(smpl_align_accepted, dtype=np.uint8),
+            )
+            _log_info(
+                train_logger,
+                "Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.",
+            )
 
     ignored_outer_bias_flags: list[str] = []
     if bool(outer_head_priority_enable) or float(outer_head_priority_weight) > 0.0:
@@ -1197,6 +1263,7 @@ def _train_gaussians_3d_learnable_camera_impl(
         bind_rigid_align_cfg=bind_rigid_align_cfg,
         person_masks_npz=person_masks_npz,
         K_np=K_np,
+        frame_K_nps=frame_K_nps,
         image_hw=(H, W),
         axis_angle_to_rotmat_fn=axis_angle_to_rotmat,
         cam_w=cam_w,
@@ -1213,6 +1280,7 @@ def _train_gaussians_3d_learnable_camera_impl(
     bind_face_neighbor_idx_t = binding_state.bind_face_neighbor_idx_t
     bind_face_neighbor_w_t = binding_state.bind_face_neighbor_w_t
     outer_face_weight_sum = binding_state.outer_face_weight_sum
+    outer_face_align_peak = binding_state.outer_face_align_peak
     outer_face_gap_half_weighted_sum = binding_state.outer_face_gap_half_weighted_sum
     outer_face_gap_scale_weighted_sum = binding_state.outer_face_gap_scale_weighted_sum
     outer_face_spawned_mask = binding_state.outer_face_spawned_mask
@@ -1225,34 +1293,43 @@ def _train_gaussians_3d_learnable_camera_impl(
     _load_mesh_np_raw = binding_state.load_mesh_np_raw
     _load_mesh_verts = binding_state.load_mesh_verts
     _load_binding_frame = binding_state.load_binding_frame
+    bind_mask = (
+        (bind_idx_t >= 0)
+        if bind_idx_t is not None
+        else torch.zeros((int(g.xyz.shape[0]),), dtype=torch.bool, device=device)
+    )
 
-if (
-    bool(use_smpl_silhouette_mask)
-    and bind_faces_np is not None
-    and (not learn_cam)
-    and bool(smpl_mask_precompute)
-    and int(smpl_mask_precompute_max_frames) > 0
-    and len(bind_mesh_indices) <= int(smpl_mask_precompute_max_frames)
-):
-    cam_r0 = axis_angle_to_rotmat(cam_w[0]).detach().cpu().numpy().astype(np.float32)
-    cam_t0 = cam_t[0].detach().cpu().numpy().astype(np.float32)
-    unique_mesh = sorted(set(int(mi) for mi in bind_mesh_indices))
-    for mesh_idx_pc in unique_mesh:
-        verts_pc, _, _ = _load_mesh_verts(mesh_idx_pc)
-        mask_np = _rasterize_mesh_mask(
-            verts=verts_pc.detach().cpu().numpy(),
-            faces=bind_faces_np,
-            K=K_np,
-            R=cam_r0,
-            t=cam_t0,
-            H=H,
-            W=W,
-            dilate_px=int(smpl_mask_dilate_eff),
-            erode_px=int(smpl_mask_erode_eff),
-        )
-        smpl_mask_cache[mesh_idx_pc] = (
-            torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
-        )
+    if (
+        bool(use_smpl_silhouette_mask)
+        and bind_faces_np is not None
+        and (not learn_cam)
+        and bool(smpl_mask_precompute)
+        and int(smpl_mask_precompute_max_frames) > 0
+        and len(bind_mesh_indices) <= int(smpl_mask_precompute_max_frames)
+    ):
+        cam_r0 = axis_angle_to_rotmat(cam_w[0]).detach().cpu().numpy().astype(np.float32)
+        cam_t0 = cam_t[0].detach().cpu().numpy().astype(np.float32)
+        first_frame_by_mesh_idx: dict[int, int] = {}
+        for fj_pc, mesh_idx_pc in enumerate(bind_mesh_indices):
+            mesh_idx_key = int(mesh_idx_pc)
+            if mesh_idx_key not in first_frame_by_mesh_idx:
+                first_frame_by_mesh_idx[mesh_idx_key] = int(fj_pc)
+        for mesh_idx_pc, fj_pc in sorted(first_frame_by_mesh_idx.items()):
+            verts_pc, _, _ = _load_mesh_verts(fj_pc)
+            mask_np = _rasterize_mesh_mask(
+                verts=verts_pc.detach().cpu().numpy(),
+                faces=bind_faces_np,
+                K=K_np,
+                R=cam_r0,
+                t=cam_t0,
+                H=H,
+                W=W,
+                dilate_px=int(smpl_mask_dilate_eff),
+                erode_px=int(smpl_mask_erode_eff),
+            )
+            smpl_mask_cache[mesh_idx_pc] = (
+                torch.from_numpy(mask_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+            )
 
     # ---- Adaptive training helpers ----
     phase_ratios_raw = np.asarray(
@@ -1306,6 +1383,7 @@ if (
     edge_strength_cache: dict[int, torch.Tensor] = {}
     outer_gt_mask_hint_cache: dict[int, torch.Tensor] = {}
     outer_face_gap_cache: dict[int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+    prev_vertex_dirs: torch.Tensor | None = None
 
     inner_soft_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     inner_hard_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
@@ -1482,6 +1560,8 @@ if (
         "separate_fg_bg_training": separate_fg_bg_training,
         "fg_region_weight": fg_region_weight,
         "bg_region_weight": bg_region_weight,
+        "inner_phase_use_raw_gt_target": inner_phase_use_raw_gt_target,
+        "inner_phase_keep_bg_weight": inner_phase_keep_bg_weight,
         "bg_grad_scale": bg_grad_scale,
         "bg_opacity_logit_max": bg_opacity_logit_max,
         "bg_log_scale_min": bg_log_scale_min,
@@ -1495,6 +1575,10 @@ if (
         "outer_prune_dual_enable": outer_prune_dual_enable,
         "outer_prune_dual_max_vis": outer_prune_dual_max_vis,
         "outer_prune_dual_min_support": outer_prune_dual_min_support,
+        "outer_align_prune_protect_enable": outer_align_prune_protect_enable,
+        "outer_align_prune_protect_min_iou": outer_align_prune_protect_min_iou,
+        "outer_align_prune_protect_min_vis": outer_align_prune_protect_min_vis,
+        "outer_align_prune_protect_min_support": outer_align_prune_protect_min_support,
         "early_stop_enable": early_stop_enable,
         "early_stop_patience": early_stop_patience,
         "early_stop_min_delta": early_stop_min_delta,
@@ -1696,6 +1780,7 @@ if (
             # Camera pose for this reference frame
             R = axis_angle_to_rotmat(cam_w[fj])
             t = cam_t[fj]
+            K_curr = frame_K_tensors[fj] if frame_K_tensors is not None else K
 
             # Update bound xyz for this reference frame (dynamic binding)
             mesh_idx = None
@@ -1705,7 +1790,7 @@ if (
             frame_data = None
             if binding_enabled:
                 mesh_idx = int(bind_mesh_indices[fj])
-                verts_t, normals_t, mesh_idx_use = _load_mesh_verts(mesh_idx)
+                verts_t, normals_t, mesh_idx_use = _load_mesh_verts(int(fj))
                 if bind_mask.any():
                     if str(binding_cfg.mode).lower() == "legacy":
                         bind_idx_use = bind_idx_t[bind_mask]
@@ -1723,7 +1808,7 @@ if (
                                     q_mix = (1.0 - bind_quat_normal_blend) * q_old + bind_quat_normal_blend * q_target
                                     g.quat[bind_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
                     else:
-                        frame_data = _load_binding_frame(mesh_idx_use)
+                        frame_data = _load_binding_frame(int(fj))
                         if trigger_frame_data is None or int(fj) == int(fi):
                             trigger_frame_data = frame_data
 
@@ -1960,7 +2045,7 @@ if (
                         verts_t=frame_data.verts_t,
                         faces_t=frame_data.faces_t,
                         face_n_t=frame_data.face_n_t,
-                        K=K,
+                        K=K_curr,
                         R=R,
                         t=t,
                         image_h=H,
@@ -2004,7 +2089,7 @@ if (
                     trigger_ring_mask=outer_supervision_mask,
                     verts_t=frame_data.verts_t,
                     faces_t=frame_data.faces_t,
-                    K=K,
+                        K=K_curr,
                     R=R,
                     t=t,
                     image_h=H,
@@ -2075,6 +2160,13 @@ if (
                                         device=device,
                                     ),
                                 )
+                                if outer_face_align_peak is not None:
+                                    peak_now = outer_face_align_peak.index_select(0, hit_faces)
+                                    peak_new = torch.maximum(
+                                        peak_now,
+                                        torch.full_like(peak_now, float(align_weight)),
+                                    )
+                                    outer_face_align_peak.index_copy_(0, hit_faces, peak_new)
                                 outer_face_gap_half_weighted_sum.index_add_(
                                     0,
                                     hit_faces,
@@ -2104,8 +2196,8 @@ if (
             if sep_fg_bg:
                 region_mask = inner_supervision_mask
                 bg_w_eff = bg_w
-                if phase_tag == "phase_inner":
-                    # During pure inner training, supervise only inside the SMPL support region.
+                if phase_tag == "phase_inner" and (not bool(inner_phase_keep_bg_weight)):
+                    # Aggressive mode: ignore background during inner-only phase.
                     bg_w_eff = 0.0
                 if region_mask is None:
                     region_mask = person_mask_curr if person_mask_curr is not None else outer_supervision_mask
@@ -2160,7 +2252,7 @@ if (
 
             # Pass-1 render: estimate visibility and frame residual.
             pred_rgb_p1, pred_a_p1, meta_p1 = render_gaussians_3d(
-                g_render, K, R, t, H, W, bg=bg_rgb, return_alpha=True, return_meta=True
+                g_render, K_curr, R, t, H, W, bg=bg_rgb, return_alpha=True, return_meta=True
             )
             diff_p1 = pred_rgb_p1 - gt
             residual_scalar = float(diff_p1.abs().mean().detach().cpu())
@@ -2172,7 +2264,7 @@ if (
                 person_mask_for_vis = None
             visibility = compute_gaussian_visibility(
                 xyz=xyz_render.detach(),
-                K=K,
+                K=K_curr,
                 R=R,
                 t=t,
                 image_h=H,
@@ -2187,7 +2279,7 @@ if (
             v_proj = None
             valid_proj = None
             if bool(shell_enable) and (inner_supervision_mask is not None or outer_supervision_mask is not None):
-                u_proj, v_proj, valid_proj = _project_points_torch(xyz_render.detach(), K, R, t)
+                u_proj, v_proj, valid_proj = _project_points_torch(xyz_render.detach(), K_curr, R, t)
                 inside_proj = valid_proj & (u_proj >= 0) & (u_proj <= float(W - 1)) & (v_proj >= 0) & (v_proj <= float(H - 1))
                 layer_vis = torch.ones((n_gauss,), dtype=torch.float32, device=device)
                 inner_sel = (g.shell_layer == 0)
@@ -2316,7 +2408,7 @@ if (
                     pm_np = (person_mask_curr[0].detach().cpu().numpy() > 0.5).astype(np.uint8)
                     border_att_cache[fj] = build_border_attenuation(pm_np, int(border_attenuation_width))
                 if u_proj is None or v_proj is None or valid_proj is None:
-                    u_proj, v_proj, valid_proj = _project_points_torch(xyz_render.detach(), K, R, t)
+                    u_proj, v_proj, valid_proj = _project_points_torch(xyz_render.detach(), K_curr, R, t)
                 uv_proj = torch.stack([u_proj, v_proj], dim=1)
                 border_w = sample_border_weight(border_att_cache[fj], uv_proj, valid_proj)
                 visibility = visibility * border_w
@@ -2347,7 +2439,7 @@ if (
 
             # Pass-2 render with per-gaussian visibility weighting.
             pred_rgb, pred_a = render_gaussians_3d(
-                g_render, K, R, t, H, W, bg=bg_rgb, return_alpha=True, gaussian_weights=visibility.detach()
+                g_render, K_curr, R, t, H, W, bg=bg_rgb, return_alpha=True, gaussian_weights=visibility.detach()
             )
             outer_residual_term = pred_rgb.new_tensor(0.0)
             if (
@@ -2364,7 +2456,7 @@ if (
                 black_bg = gt.new_zeros((3,))
                 inner_rgb_black, _ = render_gaussians_3d(
                     g_render,
-                    K,
+                    K_curr,
                     R,
                     t,
                     H,
@@ -2375,7 +2467,7 @@ if (
                 )
                 outer_rgb_black, _ = render_gaussians_3d(
                     g_render,
-                    K,
+                    K_curr,
                     R,
                     t,
                     H,
@@ -2391,7 +2483,7 @@ if (
                 outer_residual_term = (outer_residual_term * roi3).sum() / (roi3.sum() + 1e-6)
 
             if phase_tag == "phase_inner":
-                gt_phase_target = gt_inner_target
+                gt_phase_target = gt if bool(inner_phase_use_raw_gt_target) else gt_inner_target
             elif phase_tag == "phase_outer":
                 gt_phase_target = gt_outer_target
             else:
@@ -2611,6 +2703,34 @@ if (
         outer_inside_support_mean = outer_inside_support_mean.view(-1)
         outer_person_support_mean = outer_person_support_mean.view(-1)
         outer_hand_support_mean = outer_hand_support_mean.view(-1)
+        outer_align_peak_mean = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
+        outer_align_protect_mask = torch.zeros((n_gauss,), dtype=torch.bool, device=device)
+        if (
+            bool(shell_enable)
+            and bool(outer_align_prune_protect_enable)
+            and g.bind_face_idx is not None
+            and outer_face_align_peak is not None
+        ):
+            face_idx_all = g.bind_face_idx.to(device=device, dtype=torch.long).view(-1)
+            face_valid = (
+                (face_idx_all >= 0)
+                & (face_idx_all < int(outer_face_align_peak.shape[0]))
+            )
+            if bool(face_valid.any()):
+                outer_align_peak_mean[face_valid] = outer_face_align_peak.index_select(
+                    0,
+                    face_idx_all[face_valid],
+                )
+            align_candidate = (
+                (g.shell_layer == 1)
+                & (g.prune_state != 2)
+                & (outer_align_peak_mean >= float(outer_align_prune_protect_min_iou))
+            )
+            severe_bad = (
+                (vis_mean.detach() <= float(outer_align_prune_protect_min_vis))
+                & (outer_drive_support_mean.detach() <= float(outer_align_prune_protect_min_support))
+            )
+            outer_align_protect_mask = align_candidate & (~severe_bad)
 
         if dq_enable:
             eval_due = ((it + 1) >= int(dq_warmup_iters)) and (((it + 1) % int(dq_eval_every)) == 0)
@@ -2725,6 +2845,12 @@ if (
                 prune_low_vis_th = min(1.0, prune_low_vis_th * float(dq_prune_boost_if_fail))
                 prune_low_score_percent = min(100.0, prune_low_score_percent * float(dq_prune_boost_if_fail))
 
+            def _filter_align_protected_outer(idx: torch.Tensor) -> torch.Tensor:
+                if int(idx.numel()) <= 0 or (not bool(outer_align_prune_protect_enable)):
+                    return idx
+                keep_idx = ~outer_align_protect_mask.index_select(0, idx)
+                return idx[keep_idx]
+
             if (
                 is_outer_geom_phase
                 and int(shell_prune_every) > 0
@@ -2737,12 +2863,14 @@ if (
                     low_vis_th=prune_low_vis_th,
                     low_score_percent=prune_low_score_percent,
                 )
+                to_prune_outer = _filter_align_protected_outer(to_prune_outer)
                 if float(outer_prune_support_th) > 0.0 and (it + 1) > int(phase_inner_end):
                     sup_th = float(max(float(outer_prune_support_th), float(outer_prune_dual_min_support)))
                     low_sup = outer_mask & active_mask & (outer_drive_support_mean.detach() < sup_th)
                     if bool(outer_prune_dual_enable):
                         low_sup = low_sup & (vis_mean.detach() <= float(max(outer_prune_dual_max_vis, 0.0)))
                     low_sup_idx = torch.nonzero(low_sup, as_tuple=False).view(-1)
+                    low_sup_idx = _filter_align_protected_outer(low_sup_idx)
                     if int(low_sup_idx.numel()) > 0:
                         if int(to_prune_outer.numel()) > 0:
                             to_prune_outer = torch.unique(torch.cat([to_prune_outer, low_sup_idx], dim=0))
@@ -2760,6 +2888,7 @@ if (
                             & (vis_mean.detach() <= float(max(outer_prune_dual_max_vis, 0.0)))
                         )
                     force_low_idx = torch.nonzero(force_low, as_tuple=False).view(-1)
+                    force_low_idx = _filter_align_protected_outer(force_low_idx)
                     if int(force_low_idx.numel()) > 0:
                         if int(to_prune_outer.numel()) > 0:
                             to_prune_outer = torch.unique(torch.cat([to_prune_outer, force_low_idx], dim=0))
@@ -2775,6 +2904,7 @@ if (
                         & (outer_detached_support_mean.detach() < overlap_detached_th)
                     )
                     overlap_idx = torch.nonzero(overlap_mask, as_tuple=False).view(-1)
+                    overlap_idx = _filter_align_protected_outer(overlap_idx)
                     if int(overlap_idx.numel()) > 0:
                         if int(to_prune_outer.numel()) > 0:
                             to_prune_outer = torch.unique(torch.cat([to_prune_outer, overlap_idx], dim=0))
@@ -3448,6 +3578,7 @@ if (
                 hand_leak_q = outer_active_q & (outer_hand_support_mean.detach() > 0.5)
                 arm_nontrigger_q = hand_leak_q & (outer_inside_support_mean.detach() < inside_support_th)
                 head_ref_q = outer_head_support_mean.detach() >= float(max(outer_head_support_th, inside_support_th))
+                align_protected_q = outer_active_q & outer_align_protect_mask
                 head_cov_num = float((outer_active_q & head_ref_q).sum().item())
                 head_cov_den = float(max(int(head_ref_q.sum().item()), 1))
                 head_detached_coverage = head_cov_num / head_cov_den
@@ -3484,6 +3615,7 @@ if (
                     "outer_arm_nontrigger_activation_ratio": float(arm_nontrigger_ratio),
                     "outer_head_ring_coverage": float(head_detached_coverage),
                     "outer_boundary_hard_clamp_count": int(outer_boundary_hard_clamp_count),
+                    "outer_align_protected_count": int(align_protected_q.sum().item()),
                 }
                 if ((it + 1) % quality_log_every) == 0 or (it == 0) or ((it + 1) == int(iters)):
                     write_stage2_quality_log(quality_log_path, last_quality_metrics)
@@ -3533,6 +3665,7 @@ if (
             inner_checkpoint_payload = _build_stage2_checkpoint_payload(
                 g=g,
                 K=K,
+                frame_Ks=frame_K_tensors,
                 cam_w=cam_w,
                 cam_t=cam_t,
                 checkpoint_metadata={
@@ -3590,6 +3723,7 @@ if (
         inner_checkpoint_payload = _build_stage2_checkpoint_payload(
             g=g,
             K=K,
+            frame_Ks=frame_K_tensors,
             cam_w=cam_w,
             cam_t=cam_t,
             checkpoint_metadata={
@@ -3635,6 +3769,7 @@ if (
     final_checkpoint_payload = _build_stage2_checkpoint_payload(
         g=g,
         K=K,
+        frame_Ks=frame_K_tensors,
         cam_w=cam_w,
         cam_t=cam_t,
         checkpoint_metadata={

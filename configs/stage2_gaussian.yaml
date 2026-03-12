@@ -8,16 +8,16 @@ data:
 stage2:
   stage1_dir: outputs/stage1
   out_dir: outputs/stage2
-  training_mode: full
+  training_mode: inner_only
   init_ckpt: ""
   inner_ckpt_path: outputs/stage2/gaussians3d_inner.pt
   init_mesh_obj: ""
   enable_tf32: true
   cudnn_benchmark: true
 
-  # ---------- Stage2 training schedule (Stage A: stabilize) ----------
-  n_frames: 76
-  n_gaussians: 50000
+  # ---------- Stage2 training schedule (Fast alignment validation) ----------
+  n_frames: 20
+  n_gaussians: 36000
   sample_on_surface: true
   # Extra background gaussians (unbound)
   n_gaussians_bg: 0
@@ -42,7 +42,11 @@ stage2:
   outer_prune_dual_enable: true
   outer_prune_dual_max_vis: 0.06
   outer_prune_dual_min_support: 0.001
-  iters: 1800
+  outer_align_prune_protect_enable: true
+  outer_align_prune_protect_min_iou: 0.998
+  outer_align_prune_protect_min_vis: 0.006
+  outer_align_prune_protect_min_support: 0.006
+  iters: 1200
 
   # Learning rates
   lr_gauss: 0.003
@@ -144,16 +148,19 @@ stage2:
   smpl_mask_dilate_px: 0
   smpl_mask_erode_px: 0
   smpl_color_mask_erode_px: 0
+  inner_rgb_from_combined_rgb: true
   inner_use_strict_smpl_mask: true
   smpl_alpha_leak_weight: 0.12
   smpl_mask_override_alpha: false
   smpl_mask_precompute: true
-  smpl_mask_precompute_max_frames: 24
+  smpl_mask_precompute_max_frames: 20
   # Dataset-agnostic person/background separation (not tied to green-screen assumptions).
   use_person_mask: true
   person_masks_npz: outputs/stage1/person_masks.npz
+  prepared_supervision_cache_path: outputs/stage2/supervision_cache.npz
   person_mask_dilate_px: 0
   person_mask_erode_px: 0
+  gt_mask_mode: modnet
   person_mask_fuse_mode: intersect
   person_mask_eval_clean: false
   person_mask_eval_refine_modnet: false
@@ -162,7 +169,7 @@ stage2:
   # Outer layer supervision from per-frame GT contour (not SMPL silhouette).
   outer_use_gt_contour: true
   outer_gt_contour_fuse_mode: gt_only
-  outer_gt_contour_modnet_ref_size: 512
+  outer_gt_contour_modnet_ref_size: 640
   outer_gt_contour_modnet_threshold: 0.5
   modnet_ckpt_path: third_party/MODNet/pretrained/modnet_photographic_portrait_matting.ckpt
   outer_head_priority_enable: false
@@ -201,6 +208,8 @@ stage2:
   separate_fg_bg_training: true
   fg_region_weight: 1.6
   bg_region_weight: 0.8
+  inner_phase_use_raw_gt_target: false
+  inner_phase_keep_bg_weight: false
   # Speed-up with safety: stop when loss plateaus.
   early_stop_enable: false
   early_stop_patience: 0
@@ -211,8 +220,8 @@ stage2:
   inner_count_auto: true
   inner_count_kV: 1.2
   inner_count_kF: 0.35
-  inner_count_min: 70000
-  inner_count_max: 180000
+  inner_count_min: 36000
+  inner_count_max: 120000
 
   tau_vis: 0.15
   frame_weight_k: 1.5
@@ -227,8 +236,10 @@ stage2:
   use_border_attenuation: true
   border_attenuation_width: 4
   V_min: 8
-  densify_top_percent: 10.0
+  densify_top_percent: 8.0
 
+  phase0_ratio: 0.05
+  phase2_ratio: 0.10
   phase_ratio_inner_only: 0.12
   phase_ratio_outer_only: 0.38
   phase_ratio_occlusion_simplify: 0.25
@@ -242,8 +253,8 @@ stage2:
   outer_face_anchor_rule: centroid
   shell_max_ratio: 0.0
   shell_spawn_top_percent: 20.0
-  shell_spawn_every: 1
-  shell_prune_every: 1400
+  shell_spawn_every: 80
+  shell_prune_every: 2000
   shell_offset_max_n: 0.12
   shell_offset_max_t: 0.02
   outer_offset_unbounded: false
@@ -265,6 +276,7 @@ stage2:
   inner_bind_mode_default: vertex
   outer_trigger_face_activate_enable: true
   outer_trigger_face_sample_dilate_px: 0
+  outer_spawn_from_trigger_ring_only: false
   outer_viewplane_init_enable: true
   outer_center_init_rule: segment_midpoint
   outer_center_phase1_normal_tune_enable: true
@@ -286,35 +298,35 @@ stage2:
   outer_gap_scale_weight: 0.12
   outer_gap_tangent_scale_ratio: 0.50
   outer_gap_tangent_scale_weight: 0.10
-  outer_gap_hard_target_enable: true
+  outer_gap_hard_target_enable: false
   outer_gap_hard_target_blend: 1.0
-  outer_gap_refine_steps: 5
+  outer_gap_refine_steps: 4
   outer_gap_fallback_enable: true
   outer_gap_fallback_support_th: 0.03
   outer_gap_fallback_half_min_n: 0.010
   outer_gap_fallback_half_max_n: 0.045
-  outer_geom_fraction: 0.62
-  outer_phase_residual_weight: 0.18
+  outer_geom_fraction: 0.65
+  outer_phase_residual_weight: 0.15
   outer_trigger_face_topk: 0
-  outer_trigger_face_ema_decay: 0.88
-  outer_trigger_face_ema_weight: 0.65
-  outer_trigger_face_topk_min_support: 0.0
-  outer_airspace_penalty_weight: 0.05
-  outer_airspace_main_support_scale: 1.6
-  outer_airspace_sharp_allow_dot: 0.10
+  outer_trigger_face_ema_decay: 0.85
+  outer_trigger_face_ema_weight: 0.60
+  outer_trigger_face_topk_min_support: 0.02
+  outer_airspace_penalty_weight: 0.04
+  outer_airspace_main_support_scale: 1.5
+  outer_airspace_sharp_allow_dot: 0.15
   outer_airspace_neighbor_rings: 1
   outer_offset_grad_scale: 3.0
   outer_offset_edge_grad_scale: 2.0
   outer_offset_grad_scale_max: 8.0
   outer_support_weight: 1.1
-  outer_spawn_support_th: 0.0
+  outer_spawn_support_th: 0.05
   outer_spawn_inside_only: true
   outer_phase_inner_vis_scale: 0.00
   outer_phase_inner_full_mask: true
   outer_low_support_patience: 6
   outer_pruned_opacity_logit_max: -12.0
   outer_quality_log_every: 300
-  outer_progress_log_every: 20
+  outer_progress_log_every: 200
   outer_zero_stop_enable: true
   outer_zero_stop_patience: 120
   outer_zero_stop_warmup_iters: 200
@@ -400,11 +412,11 @@ render:
   deform_render_bound_only: true
   deform_smplx_use_standard_pose: true
   bound_alpha_threshold: 0.0
-  bound_opacity_min: 0.0
+  bound_opacity_min: 0.02
   fg_mask_mode: none
   fg_mask_dilate_px: 0
   fg_mask_erode_px: 0
-  fg_only_alpha_threshold: 0.0
+  fg_only_alpha_threshold: 0.02
   fg_only_alpha_gamma: 1.0
   fg_only_alpha_gain_max: 1.0
   deform_alpha_threshold: 0.0

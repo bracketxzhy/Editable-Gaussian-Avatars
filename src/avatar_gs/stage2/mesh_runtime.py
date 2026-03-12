@@ -11,6 +11,7 @@ import torch
 from avatar_gs.data.sequence_mesh import SequenceMeshProvider
 from avatar_gs.gaussian.binding import BindingFrameData, build_binding_frame_data, build_vertex_adjacency, parse_binding_mode_config
 from avatar_gs.gaussian.init_from_smpl import load_obj_mesh, load_obj_vertices
+from avatar_gs.alignment import apply_similarity_to_camera_points
 from avatar_gs.gaussian.rigid_align import apply_rigid_transform_np
 from .rigid_align import normalize_rigid_align_config, run_stage2_rigid_align_search
 
@@ -191,6 +192,7 @@ def compute_face_neighbor_weights(
     return neigh_w
 @dataclass(slots=True)
 class Stage2MeshContext:
+    frame_names: list[str]
     bind_mesh_dir: Path | None
     bind_seq_npz_path: Path | None
     bind_vertices_npz_path: Path | None
@@ -216,6 +218,10 @@ class Stage2MeshContext:
     verts_seq_ids_set: set[int]
     verts_seq_fallback_idx: int
     mesh_path_map: dict[int, Path]
+    frame_smpl_align_scales: np.ndarray
+    frame_smpl_align_tx_px: np.ndarray
+    frame_smpl_align_ty_px: np.ndarray
+    frame_smpl_align_accepted: np.ndarray
 
 
 class Stage2MeshRuntime:
@@ -227,6 +233,10 @@ class Stage2MeshRuntime:
         self.mesh_binding_cache: dict[int, BindingFrameData] = {}
         self.mesh_raw_cache: dict[int, np.ndarray] = {}
         self.mesh_cache_order: list[int] = []
+        self.frame_mesh_cache: dict[int, torch.Tensor] = {}
+        self.frame_mesh_np_cache: dict[int, np.ndarray] = {}
+        self.frame_binding_cache: dict[int, BindingFrameData] = {}
+        self.frame_cache_order: list[int] = []
         self.bind_adjacency: list[np.ndarray] | None = None
 
     @classmethod
@@ -358,6 +368,7 @@ class Stage2MeshRuntime:
                 else:
                     verts_seq_np = None
         context = Stage2MeshContext(
+            frame_names=[str(x) for x in frames],
             bind_mesh_dir=bind_mesh_dir,
             bind_seq_npz_path=bind_seq_npz_path,
             bind_vertices_npz_path=bind_vertices_npz_path,
@@ -383,6 +394,10 @@ class Stage2MeshRuntime:
             verts_seq_ids_set=verts_seq_ids_set,
             verts_seq_fallback_idx=verts_seq_fallback_idx,
             mesh_path_map=mesh_path_map,
+            frame_smpl_align_scales=np.ones((len(frames),), dtype=np.float32),
+            frame_smpl_align_tx_px=np.zeros((len(frames),), dtype=np.float32),
+            frame_smpl_align_ty_px=np.zeros((len(frames),), dtype=np.float32),
+            frame_smpl_align_accepted=np.zeros((len(frames),), dtype=np.uint8),
         )
         return cls(context=context, device=device)
 
@@ -392,6 +407,10 @@ class Stage2MeshRuntime:
         self.mesh_binding_cache.clear()
         self.mesh_raw_cache.clear()
         self.mesh_cache_order.clear()
+        self.frame_mesh_cache.clear()
+        self.frame_mesh_np_cache.clear()
+        self.frame_binding_cache.clear()
+        self.frame_cache_order.clear()
         self.bind_adjacency = None
 
     def set_effective_rigid_align_config(self, rigid_align_cfg: dict | None) -> None:
@@ -413,6 +432,24 @@ class Stage2MeshRuntime:
 
     def set_rigid_apply_config(self, rigid_apply_cfg: dict | None) -> None:
         self.context.bind_rigid_apply_cfg = None if rigid_apply_cfg is None else dict(rigid_apply_cfg)
+        self.clear_caches()
+
+    def set_frame_smpl_align_from_arrays(
+        self,
+        *,
+        frame_names: list[str],
+        scales: np.ndarray,
+        tx_px: np.ndarray,
+        ty_px: np.ndarray,
+        accepted: np.ndarray,
+    ) -> None:
+        if [str(x) for x in frame_names] != list(self.context.frame_names):
+            raise ValueError("frame_names must exactly match mesh runtime frame order.")
+        n = len(self.context.frame_names)
+        self.context.frame_smpl_align_scales = np.asarray(scales, dtype=np.float32).reshape(n)
+        self.context.frame_smpl_align_tx_px = np.asarray(tx_px, dtype=np.float32).reshape(n)
+        self.context.frame_smpl_align_ty_px = np.asarray(ty_px, dtype=np.float32).reshape(n)
+        self.context.frame_smpl_align_accepted = np.asarray(accepted, dtype=np.uint8).reshape(n)
         self.clear_caches()
 
     def resolve_mesh_idx(self, mesh_idx: int) -> int:
@@ -456,6 +493,27 @@ class Stage2MeshRuntime:
             v = apply_rigid_transform_np(v, self.context.bind_rigid_apply_cfg)
         return np.asarray(v + self.context.bind_mesh_offset_np, dtype=np.float32)
 
+    def apply_frame_similarity_np(self, verts_np: np.ndarray, *, frame_idx: int, K_np: np.ndarray | None) -> np.ndarray:
+        if K_np is None:
+            return np.asarray(verts_np, dtype=np.float32)
+        if frame_idx < 0 or frame_idx >= len(self.context.frame_names):
+            return np.asarray(verts_np, dtype=np.float32)
+        if int(self.context.frame_smpl_align_accepted[frame_idx]) <= 0:
+            return np.asarray(verts_np, dtype=np.float32)
+        return np.asarray(
+            apply_similarity_to_camera_points(
+                np.asarray(verts_np, dtype=np.float32),
+                fx=float(K_np[0, 0]),
+                fy=float(K_np[1, 1]),
+                cx=float(K_np[0, 2]),
+                cy=float(K_np[1, 2]),
+                scale=float(self.context.frame_smpl_align_scales[frame_idx]),
+                tx_px=float(self.context.frame_smpl_align_tx_px[frame_idx]),
+                ty_px=float(self.context.frame_smpl_align_ty_px[frame_idx]),
+            ),
+            dtype=np.float32,
+        )
+
     def load_mesh_verts(self, mesh_idx: int, *, bind_cache_size: int = 8) -> tuple[torch.Tensor, int]:
         mesh_idx_use = self.resolve_mesh_idx(mesh_idx)
         if mesh_idx_use in self.mesh_cache:
@@ -472,6 +530,34 @@ class Stage2MeshRuntime:
             self.mesh_np_cache.pop(old, None)
             self.mesh_binding_cache.pop(old, None)
             self.mesh_raw_cache.pop(old, None)
+        return verts_t, mesh_idx_use
+
+    def load_frame_mesh_verts(
+        self,
+        frame_idx: int,
+        *,
+        K_np: np.ndarray | None,
+        bind_cache_size: int = 8,
+    ) -> tuple[torch.Tensor, int]:
+        frame_idx = int(frame_idx)
+        if frame_idx in self.frame_mesh_cache:
+            mesh_idx_use = int(self.resolve_mesh_idx(self.context.bind_mesh_indices[frame_idx])) if self.context.bind_mesh_indices is not None else frame_idx
+            return self.frame_mesh_cache[frame_idx], mesh_idx_use
+        if self.context.bind_mesh_indices is None or frame_idx < 0 or frame_idx >= len(self.context.bind_mesh_indices):
+            raise IndexError(f"frame_idx out of range for frame-bound mesh load: {frame_idx}")
+        mesh_idx_use = int(self.resolve_mesh_idx(self.context.bind_mesh_indices[frame_idx]))
+        verts_raw_np, mesh_idx_use = self.load_mesh_np_raw(mesh_idx_use)
+        verts_np = self.apply_mesh_transforms_np(verts_raw_np)
+        verts_np = self.apply_frame_similarity_np(verts_np, frame_idx=frame_idx, K_np=K_np)
+        verts_t = torch.from_numpy(verts_np).to(device=self.device, dtype=torch.float32)
+        self.frame_mesh_cache[frame_idx] = verts_t
+        self.frame_mesh_np_cache[frame_idx] = np.asarray(verts_np, dtype=np.float32)
+        self.frame_cache_order.append(frame_idx)
+        if len(self.frame_cache_order) > int(bind_cache_size):
+            old = int(self.frame_cache_order.pop(0))
+            self.frame_mesh_cache.pop(old, None)
+            self.frame_mesh_np_cache.pop(old, None)
+            self.frame_binding_cache.pop(old, None)
         return verts_t, mesh_idx_use
 
     def load_binding_frame(self, mesh_idx: int, *, binding_cfg_dict: dict | None, bind_cache_size: int = 8) -> BindingFrameData:
@@ -494,6 +580,33 @@ class Stage2MeshRuntime:
         self.mesh_binding_cache[mesh_idx_use] = frame
         return frame
 
+    def load_frame_binding_frame(
+        self,
+        frame_idx: int,
+        *,
+        K_np: np.ndarray | None,
+        binding_cfg_dict: dict | None,
+        bind_cache_size: int = 8,
+    ) -> BindingFrameData:
+        frame_idx = int(frame_idx)
+        if frame_idx in self.frame_binding_cache:
+            return self.frame_binding_cache[frame_idx]
+        if frame_idx not in self.frame_mesh_np_cache:
+            self.load_frame_mesh_verts(frame_idx, K_np=K_np, bind_cache_size=bind_cache_size)
+        verts_np = np.asarray(self.frame_mesh_np_cache[frame_idx], dtype=np.float32)
+        if self.bind_adjacency is None or len(self.bind_adjacency) != int(verts_np.shape[0]):
+            self.bind_adjacency = build_vertex_adjacency(int(verts_np.shape[0]), self.context.bind_faces_np)
+        binding_cfg = parse_binding_mode_config(binding_cfg_dict, default_mode="games_face")
+        frame = build_binding_frame_data(
+            verts_np=verts_np,
+            faces_np=self.context.bind_faces_np,
+            adjacency=self.bind_adjacency,
+            cfg=binding_cfg,
+            device=self.device,
+        )
+        self.frame_binding_cache[frame_idx] = frame
+        return frame
+
 
 @dataclass(slots=True)
 class Stage2TrainingBindingState:
@@ -507,6 +620,7 @@ class Stage2TrainingBindingState:
     bind_face_neighbor_idx_t: torch.Tensor | None
     bind_face_neighbor_w_t: torch.Tensor | None
     outer_face_weight_sum: torch.Tensor | None
+    outer_face_align_peak: torch.Tensor | None
     outer_face_gap_half_weighted_sum: torch.Tensor | None
     outer_face_gap_scale_weighted_sum: torch.Tensor | None
     outer_face_spawned_mask: torch.Tensor | None
@@ -543,6 +657,7 @@ def initialize_stage2_training_binding_state(
     bind_rigid_align_cfg: dict | None,
     person_masks_npz: str | Path | None,
     K_np: np.ndarray,
+    frame_K_nps: list[np.ndarray] | None,
     image_hw: tuple[int, int],
     axis_angle_to_rotmat_fn: Callable[[torch.Tensor], torch.Tensor],
     cam_w: torch.Tensor,
@@ -559,6 +674,7 @@ def initialize_stage2_training_binding_state(
     bind_face_neighbor_idx_t: torch.Tensor | None = None
     bind_face_neighbor_w_t: torch.Tensor | None = None
     outer_face_weight_sum: torch.Tensor | None = None
+    outer_face_align_peak: torch.Tensor | None = None
     outer_face_gap_half_weighted_sum: torch.Tensor | None = None
     outer_face_gap_scale_weighted_sum: torch.Tensor | None = None
     outer_face_spawned_mask: torch.Tensor | None = None
@@ -574,26 +690,33 @@ def initialize_stage2_training_binding_state(
             raise RuntimeError('binding mesh runtime is not available')
         return mesh_runtime.load_mesh_np_raw(mesh_idx)
 
-    def _load_mesh_verts(mesh_idx: int) -> tuple[torch.Tensor, torch.Tensor | None, int]:
+    def _load_mesh_verts(frame_idx: int) -> tuple[torch.Tensor, torch.Tensor | None, int]:
         if mesh_runtime is None:
             raise RuntimeError('binding mesh runtime is not available')
-        verts_t, mesh_idx_use = mesh_runtime.load_mesh_verts(mesh_idx, bind_cache_size=bind_cache_size)
+        K_curr_np = frame_K_nps[int(frame_idx)] if frame_K_nps is not None else K_np
+        verts_t, mesh_idx_use = mesh_runtime.load_frame_mesh_verts(
+            int(frame_idx),
+            K_np=K_curr_np,
+            bind_cache_size=bind_cache_size,
+        )
         normals_t = mesh_normal_cache.get(mesh_idx_use, None)
         if normals_t is None and bool(bind_align_quat_to_mesh_normals) and bind_faces_np is not None:
-            verts_np = mesh_runtime.mesh_np_cache.get(mesh_idx_use, None)
+            verts_np = mesh_runtime.frame_mesh_np_cache.get(int(frame_idx), None)
             if verts_np is None:
                 verts_np = verts_t.detach().cpu().numpy().astype(np.float32)
-                mesh_runtime.mesh_np_cache[mesh_idx_use] = verts_np
+                mesh_runtime.frame_mesh_np_cache[int(frame_idx)] = verts_np
             normals_np = compute_vertex_normals_np(verts_np, bind_faces_np)
             normals_t = torch.from_numpy(normals_np).to(device=device, dtype=torch.float32)
             mesh_normal_cache[mesh_idx_use] = normals_t
         return verts_t, normals_t, mesh_idx_use
 
-    def _load_binding_frame(mesh_idx_use: int) -> BindingFrameData:
+    def _load_binding_frame(frame_idx: int) -> BindingFrameData:
         if mesh_runtime is None:
             raise RuntimeError('binding mesh runtime is not available')
-        return mesh_runtime.load_binding_frame(
-            mesh_idx_use,
+        K_curr_np = frame_K_nps[int(frame_idx)] if frame_K_nps is not None else K_np
+        return mesh_runtime.load_frame_binding_frame(
+            int(frame_idx),
+            K_np=K_curr_np,
             binding_cfg_dict=binding_cfg_dict,
             bind_cache_size=bind_cache_size,
         )
@@ -656,6 +779,7 @@ def initialize_stage2_training_binding_state(
             bind_face_neighbor_w_t = torch.as_tensor(face_neigh_w_np, device=device, dtype=torch.float32)
             n_bind_faces = int(bind_faces_np.shape[0])
             outer_face_weight_sum = torch.zeros((n_bind_faces,), dtype=torch.float32, device=device)
+            outer_face_align_peak = torch.zeros((n_bind_faces,), dtype=torch.float32, device=device)
             outer_face_gap_half_weighted_sum = torch.zeros((n_bind_faces,), dtype=torch.float32, device=device)
             outer_face_gap_scale_weighted_sum = torch.zeros((n_bind_faces,), dtype=torch.float32, device=device)
             outer_face_spawned_mask = torch.zeros((n_bind_faces,), dtype=torch.bool, device=device)
@@ -732,6 +856,7 @@ def initialize_stage2_training_binding_state(
         bind_face_neighbor_idx_t=bind_face_neighbor_idx_t,
         bind_face_neighbor_w_t=bind_face_neighbor_w_t,
         outer_face_weight_sum=outer_face_weight_sum,
+        outer_face_align_peak=outer_face_align_peak,
         outer_face_gap_half_weighted_sum=outer_face_gap_half_weighted_sum,
         outer_face_gap_scale_weighted_sum=outer_face_gap_scale_weighted_sum,
         outer_face_spawned_mask=outer_face_spawned_mask,

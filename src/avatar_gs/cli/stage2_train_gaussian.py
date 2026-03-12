@@ -13,6 +13,7 @@ from avatar_gs.utils.seed import seed_everything
 from avatar_gs.gaussian.init_from_smpl import init_gaussians_from_mesh_3d
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
 from avatar_gs.gaussian.train_loop import train_gaussians_3d_learnable_camera
+from avatar_gs.data.sequence_mesh import SequenceMeshProvider
 from avatar_gs.stage2 import (
     Stage2TrainConfig,
     Stage2TrainLoopConfig,
@@ -32,7 +33,10 @@ except Exception:
 def _resolve_project_path(project_root: Path, path_like: str | Path | None) -> Path | None:
     if path_like is None:
         return None
-    p = Path(str(path_like))
+    path_str = str(path_like).strip()
+    if len(path_str) <= 0:
+        return None
+    p = Path(path_str)
     if not p.is_absolute():
         p = project_root / p
     return p
@@ -132,6 +136,66 @@ def _load_stage1_align_scores(
     return align_scores
 
 
+def _load_stage1_frame_Ks(
+    *,
+    project_root: Path,
+    stage1_dir: Path,
+    stage2_cfg: dict,
+    frames: list[str],
+    logger,
+) -> list[list[float]] | None:
+    if len(frames) <= 0:
+        return None
+    seq_npz_path = _resolve_project_path(
+        project_root,
+        stage2_cfg.get("bind_sequence_npz", str(stage1_dir / "smpl_params_sequence.npz")),
+    )
+    if seq_npz_path is None or (not seq_npz_path.exists()):
+        logger.warning(
+            "Stage1 frame intrinsics unavailable: missing smpl_params_sequence.npz at %s; "
+            "stage2 will fall back to cameras.json K.",
+            seq_npz_path,
+        )
+        return None
+    seq = np.load(seq_npz_path, allow_pickle=True)
+    required = ("frame_names", "camera_focal_xy", "camera_princpt_xy")
+    if any(key not in seq.files for key in required):
+        logger.warning(
+            "Stage1 frame intrinsics unavailable: missing one of %s in %s; "
+            "stage2 will fall back to cameras.json K.",
+            required,
+            seq_npz_path,
+        )
+        return None
+    seq_names = [str(x) for x in np.asarray(seq["frame_names"]).reshape(-1).tolist()]
+    focal_xy = np.asarray(seq["camera_focal_xy"], dtype=np.float32).reshape(-1, 2)
+    princpt_xy = np.asarray(seq["camera_princpt_xy"], dtype=np.float32).reshape(-1, 2)
+    n = min(len(seq_names), int(focal_xy.shape[0]), int(princpt_xy.shape[0]))
+    K_map: dict[str, list[float]] = {}
+    for i in range(n):
+        fx = float(focal_xy[i, 0])
+        fy = float(focal_xy[i, 1])
+        cx = float(princpt_xy[i, 0])
+        cy = float(princpt_xy[i, 1])
+        K_map[seq_names[i]] = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
+    missing = [str(fn) for fn in frames if str(fn) not in K_map]
+    if len(missing) > 0:
+        logger.warning(
+            "Stage1 frame intrinsics missing for %d selected frame(s); "
+            "stage2 will fall back to cameras.json K for those frames. Example: %s",
+            len(missing),
+            missing[:3],
+        )
+        return None
+    frame_Ks = [list(K_map[str(fn)]) for fn in frames]
+    logger.info(
+        "Loaded %d stage1 frame intrinsic matrix/matrices from %s for stage2 frame-wise rendering.",
+        len(frame_Ks),
+        seq_npz_path,
+    )
+    return frame_Ks
+
+
 def _align_checkpoint_camera_tensor(
     *,
     tensor: torch.Tensor | np.ndarray | list | None,
@@ -187,6 +251,8 @@ def _load_stage2_init_checkpoint(
     frames: list[str],
     logger,
 ) -> tuple[Gaussian3D | None, torch.Tensor | None, torch.Tensor | None, Path | None]:
+    if init_ckpt_cfg is None or len(str(init_ckpt_cfg).strip()) <= 0:
+        return None, None, None, None
     init_ckpt_path = _resolve_project_path(project_root, init_ckpt_cfg)
     if init_ckpt_path is None:
         return None, None, None, None
@@ -431,11 +497,19 @@ def main():
         frames=frames,
         logger=logger,
     )
+    frame_Ks = _load_stage1_frame_Ks(
+        project_root=project_root,
+        stage1_dir=stage1_dir,
+        stage2_cfg=stage2_cfg,
+        frames=frames,
+        logger=logger,
+    )
 
     logger.info(f"Mesh: {mesh_obj}")
     logger.info(f"Frames: {len(frames)} used for training")
     logger.info(f"Out dir: {out_dir}")
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     camera_mode = str(cfg["stage2"].get("camera_mode", "learnable"))
     lr_cam = float(cfg["stage2"].get("lr_cam", 1e-3))
     cam_reg_weight = float(cfg["stage2"].get("cam_reg_weight", 0.0))
@@ -447,6 +521,11 @@ def main():
     if training_mode not in ("full", "inner_only", "outer_only"):
         raise ValueError(f"Unsupported training_mode: {training_mode}")
     init_ckpt_cfg = args.init_ckpt if args.init_ckpt is not None else cfg["stage2"].get("init_ckpt", None)
+    init_ckpt_cfg_str = None if init_ckpt_cfg is None else str(init_ckpt_cfg).strip()
+    if init_ckpt_cfg_str in ("", ".", "./", ".\\"):
+        init_ckpt_cfg = None
+    else:
+        init_ckpt_cfg = init_ckpt_cfg_str
     inner_ckpt_cfg = cfg["stage2"].get("inner_ckpt_path", None)
     inner_ckpt_path = _resolve_project_path(project_root, inner_ckpt_cfg)
     if inner_ckpt_path is None:
@@ -649,6 +728,7 @@ def main():
             bind_mesh_indices=bind_mesh_indices,
             bind_vertices_npz_path=bind_vertices_npz_path,
             mesh_faces_np=mesh_runtime.context.bind_faces_np,
+            mesh_runtime=mesh_runtime,
             logger=logger,
         )
         save_yaml(cfg, log_dir / "stage2_train_gaussian_resolved.yaml")
@@ -692,6 +772,7 @@ def main():
             "frame_weights": frame_weights,
             "frame_loss_weights": frame_loss_weights,
             "frame_align_scores": frame_align_scores,
+            "frame_Ks": frame_Ks,
             "bind_vertex_indices": g.bind_idx,
             "prepared_supervision": prepared_supervision_cache,
             "stage2_frame_assets": stage2_frame_assets,

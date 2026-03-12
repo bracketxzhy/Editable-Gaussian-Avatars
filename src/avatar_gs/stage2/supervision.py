@@ -9,9 +9,17 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from avatar_gs.alignment import estimate_mask_similarity_transform
-from avatar_gs.segmentation import estimate_person_mask_modnet
+from avatar_gs.alignment.mask_sources import (
+    clean_person_mask_eval_style_np as _shared_clean_person_mask_eval_style_np,
+    estimate_person_mask_modnet_eval_style_np as _shared_estimate_person_mask_modnet_eval_style_np,
+    rasterize_mesh_mask as _shared_rasterize_mesh_mask,
+    rasterize_uv_mask as _shared_rasterize_uv_mask,
+    read_stage1_frame_camera_K as _shared_read_stage1_frame_camera_K,
+    resolve_person_mask_source_np as _shared_resolve_person_mask_source_np,
+)
 from avatar_gs.training.inner_layer_training import resolve_inner_supervision_mask
 from avatar_gs.utils.io import ensure_dir
 
@@ -65,67 +73,17 @@ def rasterize_mesh_mask(
     dilate_px: int = 0,
     erode_px: int = 0,
 ) -> np.ndarray:
-    mask = np.zeros((H, W), dtype=np.uint8)
-    if faces is None or len(faces) == 0 or verts.shape[0] == 0:
-        return mask
-    u, v, valid = project_points_numpy(verts, K, R, t)
-    if not np.any(valid):
-        return mask
-    uvi = np.stack([u, v], axis=1).astype(np.float32)
-    for tri in faces:
-        i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
-        if i0 < 0 or i1 < 0 or i2 < 0:
-            continue
-        if i0 >= len(valid) or i1 >= len(valid) or i2 >= len(valid):
-            continue
-        if not (valid[i0] and valid[i1] and valid[i2]):
-            continue
-        pts = uvi[[i0, i1, i2]]
-        if (
-            (pts[:, 0] < -2).all()
-            or (pts[:, 0] > W + 1).all()
-            or (pts[:, 1] < -2).all()
-            or (pts[:, 1] > H + 1).all()
-        ):
-            continue
-        poly = np.round(pts).astype(np.int32).reshape(-1, 1, 2)
-        cv2.fillConvexPoly(mask, poly, 1)
-    if int(dilate_px) > 0:
-        k = np.ones((2 * int(dilate_px) + 1, 2 * int(dilate_px) + 1), dtype=np.uint8)
-        mask = cv2.dilate(mask, k, iterations=1)
-    if int(erode_px) > 0:
-        k = np.ones((2 * int(erode_px) + 1, 2 * int(erode_px) + 1), dtype=np.uint8)
-        mask = cv2.erode(mask, k, iterations=1)
-    return mask
-
-
-def _largest_component_by_overlap_np(mask_u8: np.ndarray, ref_mask_u8: np.ndarray | None, min_area: int = 128) -> np.ndarray:
-    m = (mask_u8 > 0).astype(np.uint8)
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
-    if n <= 1:
-        return (m * 255).astype(np.uint8)
-    best_i = -1
-    best_score = -1.0
-    ref = None if ref_mask_u8 is None else (ref_mask_u8 > 0)
-    for i in range(1, n):
-        area = int(stats[i, cv2.CC_STAT_AREA])
-        if area < int(max(1, min_area)):
-            continue
-        comp = labels == i
-        if ref is not None:
-            inter = float(np.logical_and(comp, ref).sum())
-            cover = inter / float(max(area, 1))
-            score = inter + 0.2 * cover
-        else:
-            score = float(area)
-        if score > best_score:
-            best_score = score
-            best_i = i
-    if best_i < 0:
-        return np.zeros_like(mask_u8, dtype=np.uint8)
-    out = np.zeros_like(mask_u8, dtype=np.uint8)
-    out[labels == best_i] = 255
-    return out
+    if verts.shape[0] == 0 or faces is None or len(faces) == 0:
+        return np.zeros((H, W), dtype=np.uint8)
+    verts_cam = (np.asarray(verts, dtype=np.float32) @ np.asarray(R, dtype=np.float32).T) + np.asarray(t, dtype=np.float32).reshape(1, 3)
+    return _shared_rasterize_mesh_mask(
+        verts_cam=verts_cam,
+        faces=np.asarray(faces, dtype=np.int32),
+        K=np.asarray(K, dtype=np.float32),
+        image_hw=(H, W),
+        dilate_px=dilate_px,
+        erode_px=erode_px,
+    )
 
 
 def mask_border_touch_ratio_np(mask_u8: np.ndarray) -> float:
@@ -144,11 +102,7 @@ def mask_border_touch_ratio_np(mask_u8: np.ndarray) -> float:
 
 
 def clean_person_mask_eval_style_np(mask_u8: np.ndarray, ref_mask_u8: np.ndarray | None = None) -> np.ndarray:
-    m = (mask_u8 > 0).astype(np.uint8) * 255
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, k, iterations=1)
-    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k, iterations=2)
-    return _largest_component_by_overlap_np(m, ref_mask_u8, min_area=128)
+    return (_shared_clean_person_mask_eval_style_np(mask_u8, ref_mask_u8=ref_mask_u8) > 0).astype(np.uint8) * 255
 
 
 def _modnet_person_mask_eval_style_np(
@@ -159,14 +113,16 @@ def _modnet_person_mask_eval_style_np(
     modnet_threshold: float = 0.5,
     modnet_ckpt_path: str | None = None,
 ) -> np.ndarray:
-    fg = estimate_person_mask_modnet(
-        image_bgr,
-        hint_mask_u8=hint_mask_u8,
-        ref_size=int(modnet_ref_size),
-        threshold=float(modnet_threshold),
-        ckpt_path=modnet_ckpt_path,
-    )
-    return clean_person_mask_eval_style_np(fg, ref_mask_u8=hint_mask_u8)
+    return (
+        _shared_estimate_person_mask_modnet_eval_style_np(
+            image_bgr,
+            hint_mask_u8=hint_mask_u8,
+            modnet_ref_size=int(modnet_ref_size),
+            modnet_threshold=float(modnet_threshold),
+            modnet_ckpt_path=modnet_ckpt_path,
+        )
+        > 0
+    ).astype(np.uint8) * 255
 
 
 def estimate_gt_person_contour_mask_np(
@@ -285,58 +241,16 @@ def _read_stage1_frame_camera_K(
     frame_name: str,
     fallback_K: np.ndarray,
 ) -> np.ndarray:
-    params_npz = stage1_dir / "smpl_params_sequence.npz"
-    if params_npz.exists():
-        try:
-            z = np.load(str(params_npz), allow_pickle=True)
-            if "camera_focal_xy" in z.files and "camera_princpt_xy" in z.files:
-                foc = np.asarray(z["camera_focal_xy"], dtype=np.float32)
-                pp = np.asarray(z["camera_princpt_xy"], dtype=np.float32)
-                names = [str(x) for x in z["frame_names"].tolist()] if "frame_names" in z.files else []
-                row = int(frame_index)
-                if len(names) == int(foc.shape[0]) and frame_name in names:
-                    row = int(names.index(frame_name))
-                if 0 <= row < int(foc.shape[0]) and 0 <= row < int(pp.shape[0]):
-                    fx, fy = float(foc[row, 0]), float(foc[row, 1])
-                    cx, cy = float(pp[row, 0]), float(pp[row, 1])
-                    return np.asarray([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float32)
-        except Exception:
-            pass
-    meta_dir = stage1_dir / "smplerx" / "selected_frames" / "meta"
-    meta_path = meta_dir / f"{int(frame_index) + 1:05d}_0.json"
-    if meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            focal = np.asarray(meta.get("focal", []), dtype=np.float32).reshape(-1)
-            princpt = np.asarray(meta.get("princpt", []), dtype=np.float32).reshape(-1)
-            if focal.size >= 2 and princpt.size >= 2:
-                return np.asarray(
-                    [[float(focal[0]), 0.0, float(princpt[0])], [0.0, float(focal[1]), float(princpt[1])], [0.0, 0.0, 1.0]],
-                    dtype=np.float32,
-                )
-        except Exception:
-            pass
-    return np.asarray(fallback_K, dtype=np.float32).reshape(3, 3)
+    return _shared_read_stage1_frame_camera_K(
+        stage1_dir=stage1_dir,
+        frame_index=frame_index,
+        frame_name=frame_name,
+        fallback_K=fallback_K,
+    )
 
 
 def _rasterize_uv_mask(uv: np.ndarray, valid_v: np.ndarray, faces: np.ndarray, image_hw: tuple[int, int]) -> np.ndarray:
-    h, w = int(image_hw[0]), int(image_hw[1])
-    mask = np.zeros((h, w), dtype=np.uint8)
-    for tri in faces:
-        a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
-        if a >= len(valid_v) or b >= len(valid_v) or c >= len(valid_v):
-            continue
-        if (not valid_v[a]) or (not valid_v[b]) or (not valid_v[c]):
-            continue
-        pts = np.round(uv[[a, b, c], :]).astype(np.int32)
-        xmin = int(np.min(pts[:, 0]))
-        xmax = int(np.max(pts[:, 0]))
-        ymin = int(np.min(pts[:, 1]))
-        ymax = int(np.max(pts[:, 1]))
-        if xmax < 0 or ymax < 0 or xmin >= w or ymin >= h:
-            continue
-        cv2.fillConvexPoly(mask, pts, color=1, lineType=cv2.LINE_8)
-    return mask
+    return _shared_rasterize_uv_mask(uv=uv, valid_v=valid_v, faces=faces, image_hw=image_hw)
 
 
 @dataclass(slots=True)
@@ -398,6 +312,26 @@ def load_stage2_supervision_cache(*, cache_path: Path, frames: list[str], logger
         "outer_masks": np.asarray(z["outer_masks"], dtype=np.uint8),
         "smpl_masks": np.asarray(z["smpl_masks"], dtype=np.uint8),
         "gt_train_contour_masks": np.asarray(z["gt_train_contour_masks"], dtype=np.uint8),
+        "smpl_align_scales": (
+            np.asarray(z["smpl_align_scales"], dtype=np.float32)
+            if "smpl_align_scales" in z.files
+            else np.ones((len(cache_frames),), dtype=np.float32)
+        ),
+        "smpl_align_tx_px": (
+            np.asarray(z["smpl_align_tx_px"], dtype=np.float32)
+            if "smpl_align_tx_px" in z.files
+            else np.zeros((len(cache_frames),), dtype=np.float32)
+        ),
+        "smpl_align_ty_px": (
+            np.asarray(z["smpl_align_ty_px"], dtype=np.float32)
+            if "smpl_align_ty_px" in z.files
+            else np.zeros((len(cache_frames),), dtype=np.float32)
+        ),
+        "smpl_align_accepted": (
+            np.asarray(z["smpl_align_accepted"], dtype=np.uint8)
+            if "smpl_align_accepted" in z.files
+            else np.zeros((len(cache_frames),), dtype=np.uint8)
+        ),
         "inner_rgb_targets": np.asarray(z["inner_rgb_targets"], dtype=np.uint8),
         "outer_rgb_targets": np.asarray(z["outer_rgb_targets"], dtype=np.uint8),
         "combined_rgb_targets": np.asarray(z["combined_rgb_targets"], dtype=np.uint8),
@@ -644,7 +578,14 @@ def build_stage2_training_supervision_state(
                     logger.warning(f"Warning: failed to load GT contour cache ({cache_path}): {e}")
             if not cache_loaded:
                 cache_masks = np.zeros((nF, H, W), dtype=np.uint8)
-                for i in range(nF):
+                contour_iter = tqdm(
+                    range(nF),
+                    total=nF,
+                    desc="Stage2 GT contours",
+                    dynamic_ncols=True,
+                    leave=False,
+                )
+                for i in contour_iter:
                     gt_mask_np = estimate_gt_person_contour_mask_np(
                         gts[i],
                         modnet_ref_size=int(max(32, outer_gt_contour_modnet_ref_size)),
@@ -664,6 +605,7 @@ def build_stage2_training_supervision_state(
                             torch.from_numpy(final_mask_np.astype(np.float32)).to(device=device).unsqueeze(0)
                         )
                         cache_masks[i] = final_mask_np
+                    contour_iter.set_postfix_str(str(frames_list[i]), refresh=False)
                 try:
                     cache_dir.mkdir(parents=True, exist_ok=True)
                     np.savez_compressed(
@@ -787,6 +729,7 @@ def prepare_stage2_supervision_artifacts(
     bind_mesh_indices: list[int] | None,
     bind_vertices_npz_path: Path | None,
     mesh_faces_np: np.ndarray | None,
+    mesh_runtime=None,
     logger,
 ) -> Path:
     if len(frames) <= 0:
@@ -827,6 +770,7 @@ def prepare_stage2_supervision_artifacts(
     person_mask_dilate_px = int(stage2_cfg.get("person_mask_dilate_px", 0))
     person_mask_erode_px = int(stage2_cfg.get("person_mask_erode_px", 0))
     outer_contour_fuse = str(stage2_cfg.get("outer_gt_contour_fuse_mode", "union")).strip().lower()
+    gt_mask_mode = str(stage2_cfg.get("gt_mask_mode", "auto")).strip().lower()
     outer_gt_contour_modnet_ref_size = int(stage2_cfg.get("outer_gt_contour_modnet_ref_size", 512))
     outer_gt_contour_modnet_threshold = float(stage2_cfg.get("outer_gt_contour_modnet_threshold", 0.5))
     modnet_ckpt_path = stage2_cfg.get("modnet_ckpt_path", None)
@@ -834,6 +778,7 @@ def prepare_stage2_supervision_artifacts(
     smpl_mask_erode_px = int(stage2_cfg.get("smpl_mask_erode_px", 0))
     strict_inner_mask = bool(stage2_cfg.get("inner_use_strict_smpl_mask", True))
     smpl_color_mask_erode_px = int(stage2_cfg.get("smpl_color_mask_erode_px", 0))
+    inner_rgb_from_combined_rgb = bool(stage2_cfg.get("inner_rgb_from_combined_rgb", True))
     inner_matches_smpl = bool(strict_inner_mask) and int(smpl_color_mask_erode_px) <= 0
     inner_mask_dir = smpl_mask_dir if inner_matches_smpl else ensure_dir(preview_root / "inner_mask")
 
@@ -870,12 +815,22 @@ def prepare_stage2_supervision_artifacts(
     smpl_masks = np.zeros((len(frames), H, W), dtype=np.uint8)
     gt_contour_masks = np.zeros((len(frames), H, W), dtype=np.uint8)
     gt_train_contour_masks = np.zeros((len(frames), H, W), dtype=np.uint8)
+    smpl_align_scales = np.ones((len(frames),), dtype=np.float32)
+    smpl_align_tx_px = np.zeros((len(frames),), dtype=np.float32)
+    smpl_align_ty_px = np.zeros((len(frames),), dtype=np.float32)
+    smpl_align_accepted = np.zeros((len(frames),), dtype=np.uint8)
     inner_rgb_targets = np.full((len(frames), H, W, 3), 255, dtype=np.uint8)
     outer_rgb_targets = np.full((len(frames), H, W, 3), 255, dtype=np.uint8)
     combined_rgb_targets = np.full((len(frames), H, W, 3), 255, dtype=np.uint8)
     summary_rows: list[dict] = []
 
-    for i, fn in enumerate(frames):
+    supervision_iter = tqdm(
+        enumerate(frames),
+        total=len(frames),
+        desc="Stage2 supervision",
+        dynamic_ncols=True,
+    )
+    for i, fn in supervision_iter:
         img_bgr = cv2.imread(str(frames_dir / fn), cv2.IMREAD_COLOR)
         if img_bgr is None:
             raise FileNotFoundError(f"Cannot read selected frame: {frames_dir / fn}")
@@ -884,8 +839,16 @@ def prepare_stage2_supervision_artifacts(
         mesh_idx = int(bind_mesh_indices[i])
         if mesh_idx < 0 or mesh_idx >= int(verts_seq_np.shape[0]):
             raise IndexError(f"bind mesh index out of range for supervision export: {mesh_idx}")
-        verts_np = np.asarray(verts_seq_np[mesh_idx], dtype=np.float32)
         K_np = _read_stage1_frame_camera_K(stage1_dir=stage1_dir, frame_index=int(mesh_idx), frame_name=str(fn), fallback_K=K_fallback_np)
+        if mesh_runtime is not None:
+            verts_t, _ = mesh_runtime.load_frame_mesh_verts(
+                int(i),
+                K_np=K_np,
+                bind_cache_size=16,
+            )
+            verts_np = np.asarray(verts_t.detach().cpu().numpy(), dtype=np.float32)
+        else:
+            verts_np = np.asarray(verts_seq_np[mesh_idx], dtype=np.float32)
         u_raw, v_raw, valid_v = project_points_numpy(verts_np, K_np, R_np, t_np)
         uv_raw = np.stack([u_raw, v_raw], axis=1).astype(np.float32)
         smpl_mask_np = rasterize_mesh_mask(
@@ -917,27 +880,31 @@ def prepare_stage2_supervision_artifacts(
             ).unsqueeze(0)
         person_mask_np = person_mask_map.get(str(fn), None)
         person_mask_t = None if person_mask_np is None else torch.from_numpy(person_mask_np.astype(np.float32)).unsqueeze(0)
-        gt_train_mask_np = estimate_gt_person_contour_mask_np(
-            gt_t,
-            hint_mask_u8=(smpl_mask_np * 255).astype(np.uint8),
+        gt_eval_mask_np, gt_mask_source = _shared_resolve_person_mask_source_np(
+            gt_mask_mode=gt_mask_mode,
+            pm_npz=person_masks_npz_path if bool(use_person_mask) else None,
+            frame_name=str(fn),
+            image_hw=(H, W),
+            img_bgr=img_bgr,
+            smpl_mask_raw=smpl_mask_np,
             modnet_ref_size=int(max(32, outer_gt_contour_modnet_ref_size)),
             modnet_threshold=float(np.clip(float(outer_gt_contour_modnet_threshold), 0.0, 1.0)),
             modnet_ckpt_path=modnet_ckpt_path,
-        ).astype(np.uint8)
+            npz_dilate_px=person_mask_dilate_px,
+            npz_erode_px=person_mask_erode_px,
+        )
+        gt_eval_mask_np = (np.asarray(gt_eval_mask_np, dtype=np.uint8) > 0).astype(np.uint8)
+        gt_train_mask_np = gt_eval_mask_np.copy()
         if person_mask_np is not None:
-            if outer_contour_fuse == "replace":
-                gt_train_mask_np = person_mask_np
-            elif outer_contour_fuse == "union":
-                gt_train_mask_np = np.maximum(gt_train_mask_np, person_mask_np)
-            elif outer_contour_fuse == "intersect":
-                inter = (gt_train_mask_np * person_mask_np).astype(np.uint8)
-                gt_area = int(np.sum(gt_train_mask_np > 0))
-                inter_area = int(np.sum(inter > 0))
-                keep_ratio = (float(inter_area) / float(max(gt_area, 1))) if gt_area > 0 else 0.0
-                if keep_ratio >= 0.995:
-                    gt_train_mask_np = inter
-        gt_eval_mask_np = gt_train_mask_np.copy()
+            fused_train_mask_np = fuse_outer_contour_mask_np(
+                gt_eval_mask_np,
+                person_mask_np,
+                fuse_mode=outer_contour_fuse,
+            )
+            if fused_train_mask_np is not None:
+                gt_train_mask_np = fused_train_mask_np.astype(np.uint8)
         smpl_mask_eval_np = smpl_mask_np
+        align_report: dict[str, float | bool | str] = {"accepted": False}
         if int(np.sum(gt_eval_mask_np > 0)) > 0 and int(np.sum(smpl_mask_np > 0)) > 0:
             uv_aligned, align_report = estimate_mask_similarity_transform(
                 uv=uv_raw,
@@ -949,6 +916,10 @@ def prepare_stage2_supervision_artifacts(
             )
             if bool(align_report.get("accepted", False)):
                 smpl_mask_eval_np = _rasterize_uv_mask(uv=uv_aligned, valid_v=valid_v, faces=mesh_faces_np, image_hw=(H, W)).astype(np.uint8)
+                smpl_align_accepted[i] = np.uint8(1)
+                smpl_align_scales[i] = np.float32(float(align_report.get("scale", 1.0)))
+                smpl_align_tx_px[i] = np.float32(float(align_report.get("tx_px", 0.0)))
+                smpl_align_ty_px[i] = np.float32(float(align_report.get("ty_px", 0.0)))
         smpl_mask_eval_t = torch.from_numpy(smpl_mask_eval_np.astype(np.float32)).unsqueeze(0)
         smpl_mask_eval_for_color = smpl_mask_eval_t
         if smpl_color_mask_erode_px > 0:
@@ -969,9 +940,11 @@ def prepare_stage2_supervision_artifacts(
         smpl_masks[i] = smpl_mask_eval_np
         gt_contour_masks[i] = gt_eval_mask_np
         gt_train_contour_masks[i] = gt_train_mask_np
-        inner_rgb_targets[i] = _masked_rgb_u8(rgb_u8, inner_mask_np)
+        combined_rgb_u8 = _masked_rgb_u8(rgb_u8, gt_eval_mask_np)
+        inner_rgb_source_u8 = combined_rgb_u8 if bool(inner_rgb_from_combined_rgb) else rgb_u8
+        inner_rgb_targets[i] = _masked_rgb_u8(inner_rgb_source_u8, inner_mask_np)
         outer_rgb_targets[i] = _masked_rgb_u8(rgb_u8, outer_mask_np)
-        combined_rgb_targets[i] = _masked_rgb_u8(rgb_u8, gt_eval_mask_np)
+        combined_rgb_targets[i] = combined_rgb_u8
         stem = Path(fn).stem
         if not inner_matches_smpl:
             cv2.imwrite(str(inner_mask_dir / f"{stem}.png"), inner_mask_np * 255)
@@ -991,8 +964,15 @@ def prepare_stage2_supervision_artifacts(
                 "smpl_pixels": int(smpl_mask_eval_np.sum()),
                 "gt_contour_pixels": int(gt_eval_mask_np.sum()),
                 "gt_train_contour_pixels": int(gt_train_mask_np.sum()),
+                "gt_mask_source": str(gt_mask_source),
+                "inner_rgb_from_combined_rgb": bool(inner_rgb_from_combined_rgb),
+                "smpl_align_accepted": bool(align_report.get("accepted", False)),
+                "smpl_align_scale": float(align_report.get("scale", 1.0)),
+                "smpl_align_tx_px": float(align_report.get("tx_px", 0.0)),
+                "smpl_align_ty_px": float(align_report.get("ty_px", 0.0)),
             }
         )
+        supervision_iter.set_postfix_str(str(fn), refresh=False)
 
     np.savez_compressed(
         cache_path,
@@ -1002,6 +982,10 @@ def prepare_stage2_supervision_artifacts(
         smpl_masks=smpl_masks,
         gt_contour_masks=gt_contour_masks,
         gt_train_contour_masks=gt_train_contour_masks,
+        smpl_align_scales=smpl_align_scales,
+        smpl_align_tx_px=smpl_align_tx_px,
+        smpl_align_ty_px=smpl_align_ty_px,
+        smpl_align_accepted=smpl_align_accepted,
         inner_rgb_targets=inner_rgb_targets,
         outer_rgb_targets=outer_rgb_targets,
         combined_rgb_targets=combined_rgb_targets,
@@ -1013,6 +997,7 @@ def prepare_stage2_supervision_artifacts(
                 "cache_path": str(cache_path),
                 "preview_dir": str(preview_root),
                 "inner_mask_alias_to_smpl_mask": bool(inner_matches_smpl),
+                "inner_rgb_from_combined_rgb": bool(inner_rgb_from_combined_rgb),
                 "frames": summary_rows,
             },
             f,

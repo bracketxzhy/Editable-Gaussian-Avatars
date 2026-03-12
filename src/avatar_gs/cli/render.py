@@ -115,6 +115,109 @@ def _build_pose_drive_indices(
     return out
 
 
+def _load_stage2_smpl_align_subset(
+    *,
+    cache_path: Path,
+    frames: list[str],
+    logger,
+) -> dict[str, np.ndarray] | None:
+    if not cache_path.exists():
+        return None
+    try:
+        z = np.load(str(cache_path), allow_pickle=True)
+    except Exception as e:
+        logger.warning("Failed to read stage2 supervision cache for render-time SMPL alignment (%s): %s", cache_path, e)
+        return None
+    required = ("frame_names", "smpl_align_scales", "smpl_align_tx_px", "smpl_align_ty_px", "smpl_align_accepted")
+    missing = [k for k in required if k not in z.files]
+    if missing:
+        return None
+    cache_frames = [str(x) for x in np.asarray(z["frame_names"]).reshape(-1).tolist()]
+    name_to_idx = {n: i for i, n in enumerate(cache_frames)}
+    scales = np.ones((len(frames),), dtype=np.float32)
+    tx_px = np.zeros((len(frames),), dtype=np.float32)
+    ty_px = np.zeros((len(frames),), dtype=np.float32)
+    accepted = np.zeros((len(frames),), dtype=np.uint8)
+    src_scales = np.asarray(z["smpl_align_scales"], dtype=np.float32).reshape(-1)
+    src_tx = np.asarray(z["smpl_align_tx_px"], dtype=np.float32).reshape(-1)
+    src_ty = np.asarray(z["smpl_align_ty_px"], dtype=np.float32).reshape(-1)
+    src_accepted = np.asarray(z["smpl_align_accepted"], dtype=np.uint8).reshape(-1)
+    matched = 0
+    for i, fn in enumerate(frames):
+        j = name_to_idx.get(str(fn), None)
+        if j is None:
+            continue
+        scales[i] = float(src_scales[j])
+        tx_px[i] = float(src_tx[j])
+        ty_px[i] = float(src_ty[j])
+        accepted[i] = np.uint8(src_accepted[j])
+        matched += 1
+    if matched <= 0:
+        return None
+    logger.info(
+        "Loaded frame-wise SMPL alignment for render: matched %d/%d frame(s) from %s",
+        int(matched),
+        int(len(frames)),
+        str(cache_path),
+    )
+    return {
+        "frame_names": np.asarray([str(x) for x in frames]),
+        "smpl_align_scales": scales,
+        "smpl_align_tx_px": tx_px,
+        "smpl_align_ty_px": ty_px,
+        "smpl_align_accepted": accepted,
+    }
+
+
+def _load_stage1_frame_K_subset(
+    *,
+    stage1_dir: Path,
+    frames: list[str],
+    logger,
+) -> list[np.ndarray] | None:
+    seq_npz_path = stage1_dir / "smpl_params_sequence.npz"
+    if not seq_npz_path.exists():
+        return None
+    try:
+        z = np.load(str(seq_npz_path), allow_pickle=True)
+    except Exception as e:
+        logger.warning("Failed to read stage1 frame intrinsics for render (%s): %s", seq_npz_path, e)
+        return None
+    required = ("frame_names", "camera_focal_xy", "camera_princpt_xy")
+    if any(key not in z.files for key in required):
+        return None
+    src_frames = [str(x) for x in np.asarray(z["frame_names"]).reshape(-1).tolist()]
+    focal_xy = np.asarray(z["camera_focal_xy"], dtype=np.float32).reshape(-1, 2)
+    princpt_xy = np.asarray(z["camera_princpt_xy"], dtype=np.float32).reshape(-1, 2)
+    n = min(len(src_frames), int(focal_xy.shape[0]), int(princpt_xy.shape[0]))
+    name_to_idx = {src_frames[i]: i for i in range(n)}
+    frame_Ks: list[np.ndarray] = []
+    matched = 0
+    for fn in frames:
+        j = name_to_idx.get(str(fn), None)
+        if j is None:
+            return None
+        K_np = np.asarray(
+            [
+                [float(focal_xy[j, 0]), 0.0, float(princpt_xy[j, 0])],
+                [0.0, float(focal_xy[j, 1]), float(princpt_xy[j, 1])],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
+        frame_Ks.append(K_np)
+        matched += 1
+    if matched <= 0:
+        return None
+    logger.info(
+        "Loaded frame-wise intrinsics for render: matched %d/%d frame(s) from %s",
+        matched,
+        len(frames),
+        seq_npz_path,
+    )
+    return frame_Ks
+
+
 def read_image_rgb(path: str | Path) -> torch.Tensor:
     """Read image to (3,H,W) float in [0,1]."""
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
@@ -275,11 +378,25 @@ def _move_or_replace(src: Path, dst: Path) -> None:
 LAYER_KEYS: tuple[str, str, str] = ("outer", "inner", "combined")
 
 
-def _make_layer_output_dirs(base_dir: Path) -> dict[str, Path]:
+def _resolve_layer_keys(layer_keys_cfg) -> tuple[str, ...]:
+    if layer_keys_cfg is None:
+        return LAYER_KEYS
+    if isinstance(layer_keys_cfg, str):
+        raw = [x.strip().lower() for x in layer_keys_cfg.split(",")]
+    elif isinstance(layer_keys_cfg, (list, tuple)):
+        raw = [str(x).strip().lower() for x in layer_keys_cfg]
+    else:
+        raise ValueError("render.layer_keys must be null, a comma-separated string, or a list.")
+    keys = tuple(x for x in raw if x in LAYER_KEYS)
+    if len(keys) <= 0:
+        raise ValueError(f"render.layer_keys resolved to empty set. Allowed: {list(LAYER_KEYS)}")
+    return keys
+
+
+def _make_layer_output_dirs(base_dir: Path, *, layer_keys: tuple[str, ...]) -> dict[str, Path]:
     return {
-        "outer": ensure_dir(base_dir / "outer"),
-        "inner": ensure_dir(base_dir / "inner"),
-        "combined": ensure_dir(base_dir / "combined"),
+        layer_key: ensure_dir(base_dir / layer_key)
+        for layer_key in layer_keys
     }
 
 
@@ -1006,6 +1123,9 @@ def main():
 
     render_cfg = cfg["render"]
     stage2_dir = project_root / Path(render_cfg.get("stage2_dir", "outputs/stage2"))
+    stage2_cfg = cfg.get("stage2", {}) if isinstance(cfg.get("stage2", {}), dict) else {}
+    stage1_dir_cfg = render_cfg.get("stage1_dir", stage2_cfg.get("stage1_dir", "outputs/stage1"))
+    stage1_dir = project_root / Path(stage1_dir_cfg)
     out_dir = ensure_dir(project_root / Path(render_cfg.get("out_dir", "outputs/renders")))
     save_main_image = bool(render_cfg.get("save_main_image", False))
     save_real_image = bool(render_cfg.get("save_real_image", True))
@@ -1028,6 +1148,7 @@ def main():
     fg_nobg_out_subdir = str(render_cfg.get("fg_nobg_out_subdir", "fg_only")).strip()
     deform_out_subdir = str(render_cfg.get("deform_out_subdir", "deform")).strip()
     layer_split_output = bool(render_cfg.get("layer_split_output", True))
+    active_layer_keys = _resolve_layer_keys(render_cfg.get("layer_keys", None)) if layer_split_output else tuple()
 
     # In single-mode rendering, default to writing directly into out_dir (no nested subfolders).
     if render_mode in ("fg", "fg_only") and fg_nobg_out_subdir == "fg_only":
@@ -1035,8 +1156,8 @@ def main():
 
     real_out_dir = ensure_dir(out_dir / Path(real_out_subdir)) if save_real_image else out_dir
     fg_nobg_out_dir = ensure_dir(out_dir / Path(fg_nobg_out_subdir)) if save_fg_nobg_skeleton else out_dir
-    real_layer_dirs = _make_layer_output_dirs(real_out_dir) if (save_real_image and layer_split_output) else {}
-    fg_layer_dirs = _make_layer_output_dirs(fg_nobg_out_dir) if (save_fg_nobg_skeleton and layer_split_output) else {}
+    real_layer_dirs = _make_layer_output_dirs(real_out_dir, layer_keys=active_layer_keys) if (save_real_image and layer_split_output) else {}
+    fg_layer_dirs = _make_layer_output_dirs(fg_nobg_out_dir, layer_keys=active_layer_keys) if (save_fg_nobg_skeleton and layer_split_output) else {}
 
     deform_out_cfg = render_cfg.get("deform_out_dir", None)
     if render_deform_image:
@@ -1049,7 +1170,7 @@ def main():
             deform_out_dir = ensure_dir(deform_out_dir)
     else:
         deform_out_dir = out_dir
-    deform_layer_dirs = _make_layer_output_dirs(deform_out_dir) if (render_deform_image and layer_split_output) else {}
+    deform_layer_dirs = _make_layer_output_dirs(deform_out_dir, layer_keys=active_layer_keys) if (render_deform_image and layer_split_output) else {}
     view_yaw_deg = float(render_cfg.get("view_yaw_deg", 0.0))
     view_pitch_deg = float(render_cfg.get("view_pitch_deg", 0.0))
     view_roll_deg = float(render_cfg.get("view_roll_deg", 0.0))
@@ -1113,12 +1234,12 @@ def main():
                 cmd += ["--override", *merged_overrides]
             logger.info("Six-view render [%d/%d]: %s", vi + 1, len(view_specs), view_name)
             subprocess.run(cmd, check=True)
-            if emit_deform:
+            if emit_deform and ((not layer_split_output) or ("combined" in deform_layer_dirs)):
                 deform_combined_dir = deform_layer_dirs.get("combined", deform_out_dir)
                 src = _pick_suffix_png(deform_combined_dir, view_suffix)
                 dst = deform_combined_dir / f"{view_name}.png"
                 _move_or_replace(src, dst)
-            if emit_real:
+            if emit_real and ((not layer_split_output) or ("combined" in real_layer_dirs)):
                 real_combined_dir = real_layer_dirs.get("combined", real_out_dir)
                 src = _pick_suffix_png(real_combined_dir, view_suffix)
                 dst = real_combined_dir / "front.png"
@@ -1190,6 +1311,7 @@ def main():
 
     # Intrinsics
     K = torch.as_tensor(ckpt["K"], dtype=torch.float32, device=device).view(3, 3)
+    K_base_np = K.detach().cpu().numpy().astype(np.float32)
 
     # Cameras and frames
     frames = ckpt.get("frames", None)
@@ -1250,6 +1372,34 @@ def main():
     if cam_t is not None:
         cam_t = cam_t[selected_idx]
     to_render = len(frames)
+    frame_K_nps = None
+    ckpt_frame_Ks = ckpt.get("frame_Ks", None)
+    if ckpt_frame_Ks is not None:
+        ckpt_frame_Ks_np = np.asarray(ckpt_frame_Ks, dtype=np.float32).reshape(-1, 3, 3)
+        if int(ckpt_frame_Ks_np.shape[0]) == int(total_frames):
+            frame_K_nps = [np.asarray(ckpt_frame_Ks_np[i], dtype=np.float32) for i in selected_idx]
+            logger.info(
+                "Loaded frame-wise intrinsics for render from checkpoint: matched %d/%d frame(s)",
+                int(len(frame_K_nps)),
+                int(len(frames)),
+            )
+    if frame_K_nps is None:
+        frame_K_nps = _load_stage1_frame_K_subset(
+            stage1_dir=stage1_dir,
+            frames=[str(x) for x in frames],
+            logger=logger,
+        )
+    frame_K_tensors = None if frame_K_nps is None else [
+        torch.from_numpy(np.asarray(K_np_i, dtype=np.float32)).to(device=device, dtype=torch.float32)
+        for K_np_i in frame_K_nps
+    ]
+    prepared_supervision_cache_cfg = render_cfg.get(
+        "prepared_supervision_cache_path",
+        stage2_cfg.get("prepared_supervision_cache_path", str(stage2_dir / "supervision_cache.npz")),
+    )
+    prepared_supervision_cache_path = Path(resolve_path(str(prepared_supervision_cache_cfg)))
+    if not prepared_supervision_cache_path.is_absolute():
+        prepared_supervision_cache_path = project_root / prepared_supervision_cache_path
 
     # Background (default white)
     bg = render_cfg.get("bg", [1.0, 1.0, 1.0])
@@ -1558,6 +1708,19 @@ def main():
         auto_from_stage2_report=bind_rigid_align_auto_from_stage2,
         stage2_dir_for_report=stage2_dir,
     )
+    prepared_smpl_align = _load_stage2_smpl_align_subset(
+        cache_path=prepared_supervision_cache_path,
+        frames=[str(x) for x in frames],
+        logger=logger,
+    )
+    if prepared_smpl_align is not None:
+        mesh_runtime.set_frame_smpl_align_from_arrays(
+            frame_names=[str(x) for x in prepared_smpl_align["frame_names"].tolist()],
+            scales=np.asarray(prepared_smpl_align["smpl_align_scales"], dtype=np.float32),
+            tx_px=np.asarray(prepared_smpl_align["smpl_align_tx_px"], dtype=np.float32),
+            ty_px=np.asarray(prepared_smpl_align["smpl_align_ty_px"], dtype=np.float32),
+            accepted=np.asarray(prepared_smpl_align["smpl_align_accepted"], dtype=np.uint8),
+        )
     mesh_context = mesh_runtime.context
     bind_seq_npz = mesh_context.bind_seq_npz_path
     bind_vertices_npz = mesh_context.bind_vertices_npz_path
@@ -1696,25 +1859,36 @@ def main():
             logger.warning(msg + " Non-strict mode will skip face-dependent operations.")
             return False
 
-        def _load_mesh_verts(mesh_idx: int) -> tuple[torch.Tensor, torch.Tensor | None, int]:
-            verts_t, mesh_idx_use = mesh_runtime.load_mesh_verts(mesh_idx, bind_cache_size=int(render_cfg.get("bind_cache_size", 8)))
+        def _load_mesh_verts(frame_idx: int) -> tuple[torch.Tensor, torch.Tensor | None, int]:
+            K_curr_np = frame_K_nps[int(frame_idx)] if frame_K_nps is not None else K_base_np
+            verts_t, mesh_idx_use = mesh_runtime.load_frame_mesh_verts(
+                int(frame_idx),
+                K_np=K_curr_np,
+                bind_cache_size=int(render_cfg.get("bind_cache_size", 8)),
+            )
             normals_t = mesh_normal_cache.get(mesh_idx_use, None)
             if normals_t is None and bool(bind_align_quat_to_mesh_normals) and bind_faces_np is not None:
-                verts_np = np.asarray(mesh_runtime.mesh_np_cache[mesh_idx_use], dtype=np.float32)
+                verts_np = np.asarray(mesh_runtime.frame_mesh_np_cache[int(frame_idx)], dtype=np.float32)
                 if _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}"):
                     normals_np = _compute_vertex_normals_np(verts_np, bind_faces_np)
                     normals_t = torch.from_numpy(normals_np).to(device=device, dtype=torch.float32)
                     mesh_normal_cache[mesh_idx_use] = normals_t
             return verts_t, normals_t, mesh_idx_use
 
-        def _load_binding_frame(mesh_idx_use: int) -> BindingFrameData:
-            if mesh_idx_use in mesh_runtime.mesh_binding_cache:
-                return mesh_runtime.mesh_binding_cache[mesh_idx_use]
-            if mesh_idx_use not in mesh_runtime.mesh_np_cache:
-                mesh_runtime.load_mesh_verts(mesh_idx_use, bind_cache_size=int(render_cfg.get("bind_cache_size", 8)))
-            verts_np = np.asarray(mesh_runtime.mesh_np_cache[mesh_idx_use], dtype=np.float32)
+        def _load_binding_frame(frame_idx: int) -> BindingFrameData:
+            frame_idx = int(frame_idx)
+            if frame_idx in mesh_runtime.frame_binding_cache:
+                return mesh_runtime.frame_binding_cache[frame_idx]
+            if frame_idx not in mesh_runtime.frame_mesh_np_cache:
+                K_curr_np = frame_K_nps[int(frame_idx)] if frame_K_nps is not None else K_base_np
+                mesh_runtime.load_frame_mesh_verts(
+                    frame_idx,
+                    K_np=K_curr_np,
+                    bind_cache_size=int(render_cfg.get("bind_cache_size", 8)),
+                )
+            verts_np = np.asarray(mesh_runtime.frame_mesh_np_cache[frame_idx], dtype=np.float32)
             faces_use = bind_faces_np
-            if faces_use is not None and (not _faces_compatible_with_verts(verts_np, f"binding frame {mesh_idx_use}")):
+            if faces_use is not None and (not _faces_compatible_with_verts(verts_np, f"binding frame {frame_idx}")):
                 if str(binding_cfg.mode).lower() in ("games_face", "hybrid"):
                     raise RuntimeError(
                         "binding.mode requires mesh faces, but current verts/faces topology is inconsistent."
@@ -1732,7 +1906,7 @@ def main():
                 cfg=binding_cfg,
                 device=device,
             )
-            mesh_runtime.mesh_binding_cache[mesh_idx_use] = frame
+            mesh_runtime.frame_binding_cache[frame_idx] = frame
             return frame
 
     deform_pick_mode = str(render_cfg.get("deform_frame_source", "last")).strip().lower()
@@ -1767,6 +1941,7 @@ def main():
         else:
             R = axis_angle_to_rotmat(cam_w[i])
             t = cam_t[i]
+        K_curr = frame_K_tensors[i] if frame_K_tensors is not None else K
 
         view_orbit_enabled = (abs(view_yaw_deg) > 1e-8) or (abs(view_pitch_deg) > 1e-8) or (abs(view_roll_deg) > 1e-8)
         R_delta_view = None
@@ -1786,7 +1961,7 @@ def main():
         # Update bound xyz for this frame (dynamic binding)
         if binding_enabled:
             mesh_idx = int(bind_mesh_indices[i])
-            verts_t, normals_t, mesh_idx_use = _load_mesh_verts(mesh_idx)
+            verts_t, normals_t, mesh_idx_use = _load_mesh_verts(i)
             if bind_mask.any():
                 if str(binding_cfg.mode).lower() == "legacy":
                     bind_idx_use = bind_idx_t[bind_mask]
@@ -1845,7 +2020,7 @@ def main():
                                     q_mix = (1.0 - bind_quat_normal_blend) * q_old + bind_quat_normal_blend * q_target
                                     g.quat[valid_mask] = F.normalize(q_mix, dim=1, eps=1e-8)
                 else:
-                    frame_data = _load_binding_frame(mesh_idx_use)
+                    frame_data = _load_binding_frame(i)
                     prev_vertex_dirs, valid_inner = apply_inner_binding_per_frame(
                         g=g,
                         frame=frame_data,
@@ -1957,7 +2132,7 @@ def main():
             )
 
         # Scale intrinsics for wider/narrower FOV if requested
-        K_use = _scale_intrinsics(K, k_scale)
+        K_use = _scale_intrinsics(K_curr, k_scale)
 
 
         # Keep subject centered in image to avoid out-of-frame blank renders.
@@ -2176,7 +2351,7 @@ def main():
         if save_real_image:
             if layer_split_output:
                 real_layers = _split_gaussians_by_shell_layer(g_fg)
-                for layer_key in LAYER_KEYS:
+                for layer_key in active_layer_keys:
                     if layer_key == "combined":
                         pred_layer = pred_real
                     else:
@@ -2275,7 +2450,7 @@ def main():
                 )
             if layer_split_output:
                 fg_layers = _split_gaussians_by_shell_layer(g_fg_only)
-                for layer_key in LAYER_KEYS:
+                for layer_key in active_layer_keys:
                     if layer_key == "combined":
                         pred_layer = pred_fg_only
                     else:
@@ -2626,7 +2801,7 @@ def main():
             deform_name = f"{Path(str(deform_ctx['frame_name'])).stem}{file_suffix}.png"
             if layer_split_output:
                 deform_layers = _split_gaussians_by_shell_layer(g_def_render)
-                for layer_key in LAYER_KEYS:
+                for layer_key in active_layer_keys:
                     if layer_key == "combined":
                         pred_layer = pred_deform
                     else:

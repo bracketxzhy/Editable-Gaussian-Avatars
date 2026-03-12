@@ -171,6 +171,7 @@ class Stage2TrainLoopConfig:
     frames_dir: Path
     frames_list: list[str]
     K_list: list[float]
+    frame_Ks: list[list[float]] | None
     out_ckpt: Path
     options: dict[str, Any] = field(default_factory=dict)
 
@@ -190,6 +191,11 @@ class Stage2TrainLoopConfig:
             frames_dir=train_config.frames_dir,
             frames_list=[str(x) for x in frames],
             K_list=[float(x) for x in cam["K"]],
+            frame_Ks=(
+                None
+                if runtime.get("frame_Ks", None) is None
+                else [[float(v) for v in row] for row in runtime.get("frame_Ks")]
+            ),
             out_ckpt=Path(out_ckpt),
             options={
                 "iters": int(stage2_cfg.get("iters", 2000)),
@@ -297,6 +303,8 @@ class Stage2TrainLoopConfig:
                 "separate_fg_bg_training": bool(stage2_cfg.get("separate_fg_bg_training", False)),
                 "fg_region_weight": float(stage2_cfg.get("fg_region_weight", 1.0)),
                 "bg_region_weight": float(stage2_cfg.get("bg_region_weight", 1.0)),
+                "inner_phase_use_raw_gt_target": bool(stage2_cfg.get("inner_phase_use_raw_gt_target", False)),
+                "inner_phase_keep_bg_weight": bool(stage2_cfg.get("inner_phase_keep_bg_weight", False)),
                 "bg_grad_scale": float(stage2_cfg.get("bg_grad_scale", 1.0)),
                 "bg_opacity_logit_max": stage2_cfg.get("bg_opacity_logit_max", None),
                 "bg_log_scale_min": stage2_cfg.get("bg_log_scale_min", None),
@@ -310,6 +318,10 @@ class Stage2TrainLoopConfig:
                 "outer_prune_dual_enable": bool(stage2_cfg.get("outer_prune_dual_enable", False)),
                 "outer_prune_dual_max_vis": float(stage2_cfg.get("outer_prune_dual_max_vis", 0.06)),
                 "outer_prune_dual_min_support": float(stage2_cfg.get("outer_prune_dual_min_support", 0.001)),
+                "outer_align_prune_protect_enable": bool(stage2_cfg.get("outer_align_prune_protect_enable", True)),
+                "outer_align_prune_protect_min_iou": float(stage2_cfg.get("outer_align_prune_protect_min_iou", 0.998)),
+                "outer_align_prune_protect_min_vis": float(stage2_cfg.get("outer_align_prune_protect_min_vis", 0.006)),
+                "outer_align_prune_protect_min_support": float(stage2_cfg.get("outer_align_prune_protect_min_support", 0.006)),
                 "early_stop_enable": bool(stage2_cfg.get("early_stop_enable", False)),
                 "early_stop_patience": int(stage2_cfg.get("early_stop_patience", 0)),
                 "early_stop_min_delta": float(stage2_cfg.get("early_stop_min_delta", 0.0)),
@@ -451,6 +463,7 @@ class Stage2TrainLoopConfig:
                 "frames_dir": self.frames_dir,
                 "frames_list": list(self.frames_list),
                 "K_list": list(self.K_list),
+                "frame_Ks": None if self.frame_Ks is None else [list(row) for row in self.frame_Ks],
                 "out_ckpt": self.out_ckpt,
             }
         )
