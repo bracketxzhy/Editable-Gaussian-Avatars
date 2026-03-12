@@ -15,9 +15,9 @@ stage2:
   enable_tf32: true
   cudnn_benchmark: true
 
-  # ---------- Stage2 training schedule (Fast alignment validation) ----------
-  n_frames: 20
-  n_gaussians: 36000
+  # ---------- Stage2 training schedule (Inner quality validation) ----------
+  n_frames: 48
+  n_gaussians: 90000
   sample_on_surface: true
   # Extra background gaussians (unbound)
   n_gaussians_bg: 0
@@ -46,7 +46,7 @@ stage2:
   outer_align_prune_protect_min_iou: 0.998
   outer_align_prune_protect_min_vis: 0.006
   outer_align_prune_protect_min_support: 0.006
-  iters: 1200
+  iters: 4200
 
   # Learning rates
   lr_gauss: 0.003
@@ -153,7 +153,7 @@ stage2:
   smpl_alpha_leak_weight: 0.12
   smpl_mask_override_alpha: false
   smpl_mask_precompute: true
-  smpl_mask_precompute_max_frames: 20
+  smpl_mask_precompute_max_frames: 48
   # Dataset-agnostic person/background separation (not tied to green-screen assumptions).
   use_person_mask: true
   person_masks_npz: outputs/stage1/person_masks.npz
@@ -220,8 +220,8 @@ stage2:
   inner_count_auto: true
   inner_count_kV: 1.2
   inner_count_kF: 0.35
-  inner_count_min: 36000
-  inner_count_max: 120000
+  inner_count_min: 90000
+  inner_count_max: 220000
 
   tau_vis: 0.15
   frame_weight_k: 1.5
@@ -236,7 +236,7 @@ stage2:
   use_border_attenuation: true
   border_attenuation_width: 4
   V_min: 8
-  densify_top_percent: 8.0
+  densify_top_percent: 12.0
 
   phase0_ratio: 0.05
   phase2_ratio: 0.10

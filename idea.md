@@ -1,153 +1,41 @@
-﻿# idea.md
+# idea
 
-## 仓库当前真相
+## Scope
 
-- 这个仓库不是“一个干净统一的从视频到可编辑 Avatar 的产品化实现”，而是一个还在演化中的工程拼装体。
-- 真正需要负责人理解和维护的是手写源码、配置、脚本、评估入口，大约 90 个文件级别；`third_party/`、`outputs/`、`data/` 里大量文件是外部依赖、缓存、产物、可视化，不适合伪装成“逐文件同权维护对象”。
-- 如果你把第三方整仓和逐帧产物也按同等粒度讲解，那不是负责，是失去优先级。
+This file records the uncomfortable truth about the repository: what it is actually doing, where the pipeline branches, and where the current naming or defaults are misleading.
 
-## 主执行链
+Document split:
+- `README.md`: external story, setup, reproduction, usage.
+- `PROJECT_MAP.md`: file responsibilities, interfaces, and data flow.
+- `idea.md`: reality check, branch points, risks, and maintenance priorities.
 
-1. `src/avatar_gs/cli/preprocess_video.py`
-   从 `data/videos/input.mp4` 抽帧，写入 `data/frames/input/*.jpg` 和 `metadata.json`。
-2. `src/avatar_gs/cli/stage1_fit_smplerx.py`
-   调 SMPLer-X 做逐帧人体参数估计，并整理成 stage2 可消费资产。
-3. `src/avatar_gs/cli/stage2_train_gaussian.py`
-   读取 stage1 资产，初始化高斯，建立监督与绑定，进入训练循环。
-4. `src/avatar_gs/cli/render.py`
-   从 stage2 checkpoint 生成 `real / fg_only / deform` 渲染结果。
-5. 可选：`evaluation/stage1_eval/run_stage1_eval.py`
-   对 stage1 的 silhouette 对齐质量做单帧或多帧评估。
+If these three files disagree, trust the code first and fix the docs second.
 
-## 必须写明白的分叉点
+## What This Repository Really Is
 
-### 分叉 1：Stage1 的真实身份和你以为的身份不一样
+- This is not a standalone human reconstruction stack.
+- It is a pipeline that wraps and organizes external systems: `SMPLer-X`, `MODNet`, `gsplat`, SMPL/SMPL-X body models, and external checkpoints.
+- The intended product is an editable Gaussian avatar bound to a per-frame SMPL mesh sequence.
+- The effective execution chain is:
+  1. `src/avatar_gs/cli/preprocess_video.py`
+  2. `src/avatar_gs/cli/stage1_fit_smplerx.py`
+  3. `src/avatar_gs/cli/stage2_train_gaussian.py`
+  4. `src/avatar_gs/cli/render.py`
+  5. optional evaluation: `evaluation/stage1_eval/run_stage1_eval.py`
 
-- 名字像“SMPL 拟合阶段”，真实角色更接近“SMPLer-X 结果整理与导出阶段”。
-- 代码并没有把主要精力放在自研优化器上，而是：
-  - 准备 SMPLer-X 权重和运行目录。
-  - 调 `cli/_run_smplerx_refine_frames.py` 跑外部推理。
-  - 从 SMPLer-X 的 JSON/NPZ 重建 `verts_cam`、`joints_cam`、相机内参。
-  - 估计/融合人物 mask。
-  - 输出 stage2 所需的 `cameras.json`、`keypoints.json`、`person_masks.npz`、`smpl_params_sequence.npz`、`smpl_vertices_sequence.npz`、`sequence/frame_*.obj`。
-- 结论：stage1 的成败高度依赖 `third_party/SMPLer-X` 和外部 checkpoint，不是本仓库独立完成的人体拟合。
+## The Main Pipeline
 
-### 分叉 2：人物 mask 有多路来源，不是一条真理链
+### Step 1: preprocess
 
-人物监督不是单一来源，而是多路分支后再汇合：
+- Input: `data/videos/input.mp4`
+- Output: `data/frames/input/*.jpg`, `data/frames/input/metadata.json`
+- Real role: frame extraction plus metadata capture. Nothing smart happens here.
 
-- stage1 路线：
-  - `chromakey` 绿色背景抠图。
-  - `MODNet` 人像 matting。
-  - SMPL 投影得到的 mesh hint mask 作为参考。
-- stage2 路线：
-  - 直接读 `outputs/stage1/person_masks.npz`。
-  - 按配置重跑 MODNet。
-  - `person_mask_fuse_mode` 决定是 `intersect`、`union` 还是偏向某一路。
-- eval 路线：
-  - `evaluation/stage1_eval/person_contour.py` 重新读 mask / 跑 MODNet / 提 contour。
+### Step 2: stage1
 
-这意味着一个残酷事实：很多你以为的“几何错误”，其实是 mask 来源分叉后监督质量不一致导致的。
-
-### 分叉 3：Stage2 绑定源也有分叉
-
-高斯不是静态漂在空间里，它们要绑定到每一帧 mesh。但 mesh 来源也有分叉：
-
-- `outputs/stage1/sequence/frame_*.obj`
-- `outputs/stage1/smpl_vertices_sequence.npz`
-- render 阶段还可以走 deform mesh 重建路径
-
-`stage2/mesh_runtime.py` 负责把这些来源统一成运行时 mesh 上下文，再喂给 binding 更新逻辑。
-
-### 分叉 4：内层和外层不是同一种东西
-
-- inner gaussians：贴体、稳定、保守，优先还原主体本体。
-- outer gaussians：补偿头发、衣物边缘、离体残差。
-- inner 与 outer 绑定策略不同：
-  - inner 偏 vertex 主导，必要时 face fallback。
-  - outer 偏 face 主导，并带 `bind_face_offset_local` 的局部偏移。
-- 这不是“一个高斯模型调几个参数”，而是已经分成两套行为系统。
-
-### 分叉 5：outer 监督机制已经换代
-
-- 旧的 residual-only 叙事已经过时。
-- 当前 outer 监督入口是 `training/outer_layer_training.py::build_outer_trigger_mask`。
-- 逻辑是：
-  - 从 GT/person contour 得到 `outer_base_mask`
-  - 用 `dilate(SMPL)` 排除贴体区域
-  - 形成 trigger ring
-  - 视配置叠加 edge gate
-  - 像素太少时 relaxed fallback
-  - 可附加 detached solid 区域
-  - 再映射到 mesh face，得到外层 face 级激活与 gap target
-
-也就是说，当前 outer 是“由 contour-trigger 驱动的 face 级局部壳层训练”，不是老版本那种泛化的 residual 噪声池。
-
-### 分叉 6：代码能力和默认运行模式已经分叉
-
-这是现在最重要、也最容易被忽视的一点。
-
-- `configs/stage2_gaussian.yaml` 当前默认写的是 `training_mode: inner_only`。
-- 但仓库的大量代码、术语、参数设计都在强调 dual-layer / outer shell。
-- 结果是：
-  - 代码结构在讲“完整双层系统”。
-  - 默认命令却只跑 inner phase。
-  - `scripts/auto_full_pipeline.ps1` 名字像 full pipeline，实际上默认也会调这份 `inner_only` 主配置。
-
-这不是小瑕疵，这是认知分叉。你如果不正面承认，就会一直误判自己到底验证了什么。
-
-### 分叉 7：监督可以在线算，也可以离线缓存
-
-`stage2/supervision.py` 现在存在两条路径：
-
-- 在线构建监督：训练前或训练时现算各种 mask / contour / RGB target。
-- 离线缓存监督：先跑 `--prepare_supervision_only`，生成 `outputs/stage2/supervision_cache.npz`，之后训练直接加载。
-
-这意味着监督逻辑和训练逻辑已经部分解耦。好处是可复现，坏处是缓存一旦过期或和配置不一致，就会制造“看起来训练稳定，实际在吃旧监督”的假象。
-
-### 分叉 8：rigid align 已经前置化和运行时化
-
-- `stage2/rigid_align.py` 负责搜索刚体修正配置。
-- `gaussian/rigid_align.py` 提供几何计算。
-- `stage2/mesh_runtime.py` 和 render 阶段继续应用该刚体修正。
-
-这直接说明作者已经接受一个事实：stage1 导出的 mesh 与真实图像并不天然对齐，必须承认并补偿。
-
-### 分叉 9：render 已经不是纯展示层，而是第二执行器
-
-`cli/render.py` 现在承担的职责包括：
-
-- 选择 frame / pose-drive 索引
-- 读取 deform SMPL-X 参数或 mesh
-- 构造标准姿态或指定帧 mesh
-- 渲染 `real / fg_only / deform`
-- six-view 输出
-- inner / outer / combined 分层输出
-- skeleton / keypoint / debug overlay
-- 可见性 override 与 bound-only 筛选
-
-说白了，render 已经长成一个第二执行器，而不是一个薄壳 viewer。
-
-### 分叉 10：仓库里存在占位文件和历史兼容壳
-
-以下文件不是主逻辑，而是会误导读者的占位/兼容残留：
-
-- `src/avatar_gs/__init__.py`
-- `src/avatar_gs/data/camera_utils.py`
-- `src/avatar_gs/data/mask_utils.py`
-- `src/avatar_gs/renderer/camera.py`
-- `src/avatar_gs/smpl/lbs.py`
-- `src/avatar_gs/smpl/smpl_model.py`
-
-前四个基本空壳，后两个是 dummy 实现。它们的危险不在于会运行，而在于会制造错误预期。
-
-## 现在这套代码真正怎么运转
-
-### Stage1 数据流
-
-- 输入：`data/frames/input/*.jpg`
-- 经过：SMPLer-X 推理、mask 估计、参数重建、OBJ 导出
-- 输出：
+- Entry: `src/avatar_gs/cli/stage1_fit_smplerx.py`
+- Input: extracted frames, SMPLer-X repo, body-model assets, checkpoints, optional MODNet
+- Output:
   - `outputs/stage1/cameras.json`
   - `outputs/stage1/keypoints.json`
   - `outputs/stage1/person_masks.npz`
@@ -156,57 +44,224 @@
   - `outputs/stage1/smpl_joints_sequence.npz`
   - `outputs/stage1/smpl_skeleton_sequence.npz`
   - `outputs/stage1/sequence/frame_*.obj`
+  - `outputs/stage1/final/run_summary.json`
+- Real role: not a homegrown body fitter; it is a SMPLer-X runner, result rebuilder, mask generator, and stage2 asset exporter.
 
-### Stage2 数据流
+### Step 3: stage2
 
-- 读取 stage1 资产与主配置
-- 解析帧选择、刚体对齐、mesh 绑定来源
-- 从初始 mesh 采样生成 `Gaussian3D`
-- 建立 `Stage2TrainingSupervisionState`
-- 每轮迭代：
-  - 取当前帧 mesh context
-  - inner/outer 分别做 binding 更新
-  - 渲染预测
-  - 计算 photo / robust / regularizer / silhouette / outer penalty
-  - 更新 densify 统计与 shell policy
-  - 写质量日志和 checkpoint
+- Entry: `src/avatar_gs/cli/stage2_train_gaussian.py`
+- Input: stage1 assets, stage2 config, optional init checkpoint
+- Output:
+  - `outputs/stage2/gaussians3d.pt`
+  - `outputs/stage2/gaussians3d_inner.pt`
+  - `outputs/stage2/supervision_cache.npz`
+  - `outputs/stage2/supervision_summary.json`
+  - `outputs/stage2/outer_quality_metrics.jsonl`
+  - `outputs/stage2/outer_quality_report.json`
+  - `outputs/stage2/outer_spawn_per_frame.json`
+  - `outputs/stage2/supervision_preview/**`
+- Real role: build and train Gaussian layers that are attached to the SMPL sequence.
 
-### Render 数据流
+### Step 4: render
 
-- 输入：`outputs/stage2/gaussians3d.pt` + stage1 mesh / params / images
-- 经过：frame 选择、可选 deform mesh 重建、分层高斯选择、渲染、overlay
-- 输出：`outputs/renders/real|fg_only|deform/...`
+- Entry: `src/avatar_gs/cli/render.py`
+- Input: stage2 checkpoint, stage1 mesh or params, frame images
+- Output: `outputs/renders/real|fg_only|deform/{combined,inner,outer}/*.png`
+- Real role: not a passive viewer. It is another executor that chooses pose source, mesh source, shell split, overlays, and output modes.
 
-## 风险排序
+## Where the Logic Branches
 
-1. 默认配置和代码叙事分裂
-   你以为自己在测完整系统，实际上常常只在测 inner-only。
+### Branch 1: stage1 name versus stage1 reality
 
-2. mask 质量决定很多后续指标
-   对齐、trigger ring、spawn/prune、评估都被 mask 绑架。
+The file name suggests a local SMPL fitting stage. That is not what the code is centered on.
 
-3. `train_loop.py` 与 `render.py` 过重
-   继续堆规则，迟早会变成“任何改动都高风险”的沼泽。
+What it really does:
+- prepare SMPLer-X runtime and checkpoints
+- call `src/avatar_gs/cli/_run_smplerx_refine_frames.py`
+- rebuild camera, joints, and vertices from SMPLer-X outputs
+- estimate and fuse person masks
+- export the assets required by stage2
 
-4. 监督缓存与配置可能漂移
-   不校验缓存来源，就可能在吃旧数据还自以为结果稳定。
+Conclusion:
+- stage1 quality is dominated by `third_party/SMPLer-X` and external assets
+- pretending it is a self-contained in-repo optimizer is fiction
 
-5. 空壳文件和 dummy 文件制造错误认知
-   新维护者会被这些名字骗进去，以为那里真的有实现。
+### Branch 2: person-mask supervision has multiple sources
 
-## 负责人应该立刻做的事
+Mask supervision is not a single truth source.
 
-1. 明确仓库默认目标。
-   如果产品目标是 dual-layer avatar，就把默认训练模式修正为 `full` 或显式拆成 `stage2_inner_cache.yaml` 与 `stage2_full.yaml`。
+Stage1 can use:
+- chroma-key mask estimation
+- MODNet matting
+- SMPL projection as a geometric hint
 
-2. 拆 `train_loop.py`。
-   至少按 supervision / binding / loss / shell policy / checkpointing 拆层。继续把所有规则塞在一个文件里，是在给未来埋雷。
+Stage2 can use:
+- stored `outputs/stage1/person_masks.npz`
+- a fresh MODNet pass, depending on config
+- fusion logic controlled by config
 
-3. 统一 mask 真相。
-   把 stage1、stage2、eval 的 mask 来源优先级写成单一文档与统一配置，不要让三套路径各说各话。
+Evaluation can use:
+- stored masks
+- fresh contour extraction
+- fresh MODNet-based evaluation paths
 
-4. 清理空壳和 dummy。
-   保留就明确标注 placeholder；不保留就删除。别让文件名继续撒谎。
+Consequence:
+- many failures that look geometric are actually supervision-source mismatches
+- if mask provenance is not controlled, metrics are not trustworthy
 
-5. 把 `auto_full_pipeline.ps1` 改名或改实。
-   名字叫 full，就该真的 full；否则它只是自动化地传播误解。
+### Branch 3: mesh source also branches
+
+Stage2 and render can pull mesh data from different places:
+- `outputs/stage1/sequence/frame_*.obj`
+- `outputs/stage1/smpl_vertices_sequence.npz`
+- deform-time mesh reconstruction in render
+
+`src/avatar_gs/stage2/mesh_runtime.py` exists largely to normalize those sources into a consistent runtime mesh context.
+
+### Branch 4: inner and outer are already two systems
+
+Inner and outer Gaussians are not the same thing with one extra switch.
+
+Inner:
+- body-attached
+- stable
+- conservative
+- mostly vertex-driven binding
+
+Outer:
+- shell or residue compensation
+- hair, clothing edge, detached contour behavior
+- mostly face-anchor driven binding with local offsets
+
+Calling this a single Gaussian model is inaccurate. It is two behavior systems sharing a training loop.
+
+### Branch 5: outer supervision is now trigger-ring driven
+
+The old residual-only story is obsolete.
+
+Current outer supervision centers on `src/avatar_gs/training/outer_layer_training.py`, especially trigger-ring logic:
+- derive `outer_base_mask` from GT/person contour signals
+- subtract a dilated SMPL region
+- build a trigger ring
+- optionally gate by edges
+- fall back when the support area is too small
+- map image-space signals to face-level activation and gap targets
+
+That means the correct description is:
+- contour-driven local shell supervision
+- not generic free-floating residual cleanup
+
+### Branch 6: code capability versus default execution mode
+
+This is the biggest current disconnect.
+
+- The codebase, naming, and parameter surface clearly describe a dual-layer system.
+- But `configs/stage2_gaussian.yaml` still defaults to `training_mode: inner_only`.
+- `scripts/auto_full_pipeline.ps1` sounds like a full pipeline, yet it still routes through that default config.
+
+So the default run is not a full dual-layer training pass.
+It is an inner-only path.
+
+If documentation or scripts still imply otherwise, they are lying.
+
+### Branch 7: supervision can be online or cached
+
+`src/avatar_gs/stage2/supervision.py` supports two modes:
+- compute supervision online
+- precompute with `--prepare_supervision_only` and load `supervision_cache.npz`
+
+This is useful, but it introduces cache drift risk.
+A stale cache can make training look stable while consuming outdated supervision.
+
+### Branch 8: rigid alignment is not optional cleanup anymore
+
+- `src/avatar_gs/stage2/rigid_align.py` searches rigid transforms
+- `src/avatar_gs/gaussian/rigid_align.py` provides the geometry utilities
+- `src/avatar_gs/stage2/mesh_runtime.py` and `src/avatar_gs/cli/render.py` continue to apply the result
+
+The repository has already admitted the truth:
+- stage1 meshes are not reliably aligned to the real frames
+- rigid correction is part of the pipeline, not cosmetic cleanup
+
+### Branch 9: render has grown into a second executor
+
+`src/avatar_gs/cli/render.py` now handles:
+- frame or pose-drive selection
+- deform mesh fallback logic
+- layer splitting
+- six-view rendering
+- skeleton and keypoint overlays
+- debug visibility and bound-only modes
+
+That matters because render choices affect how users interpret model quality.
+It is not a neutral output stage.
+
+### Branch 10: placeholder and dummy files still exist
+
+These files create false expectations:
+- `src/avatar_gs/__init__.py`
+- `src/avatar_gs/data/camera_utils.py`
+- `src/avatar_gs/data/mask_utils.py`
+- `src/avatar_gs/renderer/camera.py`
+- `src/avatar_gs/smpl/lbs.py`
+- `src/avatar_gs/smpl/smpl_model.py`
+
+The first group is mostly empty shell code.
+The second group is dummy implementation.
+
+They are dangerous because the file names look official while the contents are not.
+
+## Reproduction Reality
+
+The project is not reproducible by `pip install -r requirements.txt` alone.
+
+A real reproduction requires:
+- a CUDA/PyTorch-matched install of `torch` and `torchvision`
+- `requirements.txt`
+- separate install of `mmcv-full==1.7.1`
+- editable install of `third_party/SMPLer-X/main/transformer_utils`
+- SMPLer-X checkpoints
+- MODNet checkpoints
+- SMPL / SMPL-X body-model assets
+
+That is why the docs must keep Python dependencies separate from external assets and model files.
+Mixing them together is lazy and misleading.
+
+## Current Risks
+
+1. The default config and the repository narrative do not match.
+   The code advertises dual-layer behavior, but the default run remains `inner_only`.
+
+2. Mask provenance dominates downstream quality.
+   Alignment, trigger-ring activation, spawn/prune logic, and evaluation all depend on it.
+
+3. `src/avatar_gs/gaussian/train_loop.py` and `src/avatar_gs/cli/render.py` are too heavy.
+   They are turning into change-hazard files.
+
+4. Supervision caches can drift away from the config that produced them.
+   Without explicit validation, cached supervision is an integrity risk.
+
+5. Placeholder and dummy modules keep polluting reader expectations.
+
+6. Documentation can split again.
+   `README.md`, `PROJECT_MAP.md`, and `idea.md` must be updated together when defaults, data contracts, or reproduction steps change.
+
+## What the Owner Should Do Next
+
+1. Decide what the default product really is.
+   If the goal is a true dual-layer avatar, stop shipping `inner_only` as the quiet default.
+
+2. Split `src/avatar_gs/gaussian/train_loop.py`.
+   At minimum separate supervision, binding, losses, shell policy, and checkpoint/reporting logic.
+
+3. Unify mask policy.
+   Stage1, stage2, and evaluation should not each tell a different story about mask precedence.
+
+4. Rename or remove placeholder and dummy files.
+   Keep them only if they are clearly labeled as placeholders.
+
+5. Fix `scripts/auto_full_pipeline.ps1`.
+   Either make it truly full or rename it so it stops spreading a false claim.
+
+6. Keep the three docs synchronized.
+   Any change to defaults, output layout, or reproduction steps should update `README.md`, `PROJECT_MAP.md`, and `idea.md` in the same change.

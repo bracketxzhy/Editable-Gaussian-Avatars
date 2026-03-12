@@ -400,6 +400,13 @@ def _make_layer_output_dirs(base_dir: Path, *, layer_keys: tuple[str, ...]) -> d
     }
 
 
+def _resolve_deform_output_name(*, file_suffix: str) -> str:
+    suffix = file_suffix[1:] if file_suffix.startswith("_") else file_suffix
+    if suffix:
+        return f"{suffix}.png"
+    return "deform.png"
+
+
 def _split_gaussians_by_shell_layer(g: Gaussian3D) -> dict[str, Gaussian3D | None]:
     if g.xyz.shape[0] == 0:
         return {"outer": None, "inner": None, "combined": None}
@@ -1212,7 +1219,7 @@ def main():
                 "render.render_bound_only=true",
                 "render.fg_only_render_bound_only=true",
                 "render.deform_render_bound_only=true",
-                "render.deform_smplx_use_standard_pose=true",
+                f"render.deform_smplx_use_standard_pose={'true' if deform_smplx_use_standard_pose else 'false'}",
                 "render.overlay_smpl_skeleton=false",
                 "render.debug_overlay_keypoints=false",
                 "render.debug_bind_to_google_skeleton=false",
@@ -1511,7 +1518,7 @@ def main():
     deform_smplx_model_type = str(render_cfg.get("deform_smplx_model_type", "smplx")).strip().lower()
     deform_smplx_gender = str(render_cfg.get("deform_smplx_gender", "neutral")).strip().lower()
     deform_smplx_model_root = str(render_cfg.get("deform_smplx_model_root", "")).strip()
-    deform_smplx_use_standard_pose = bool(render_cfg.get("deform_smplx_use_standard_pose", True))
+    deform_smplx_use_standard_pose = bool(render_cfg.get("deform_smplx_use_standard_pose", False))
 
     deform_source = deform_source_raw
     if deform_source != "smplx_params":
@@ -2798,7 +2805,7 @@ def main():
                     thickness=smpl_line_thickness,
                     radius=smpl_joint_radius,
                 )
-            deform_name = f"{Path(str(deform_ctx['frame_name'])).stem}{file_suffix}.png"
+            deform_name = _resolve_deform_output_name(file_suffix=file_suffix)
             if layer_split_output:
                 deform_layers = _split_gaussians_by_shell_layer(g_def_render)
                 for layer_key in active_layer_keys:

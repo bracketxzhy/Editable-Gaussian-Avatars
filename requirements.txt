@@ -1,14 +1,45 @@
-pyyaml
+numpy<2
+scipy
+PyYAML
 opencv-python
-numpy
-torch
-torchvision
 tqdm
 
-scipy
-
+# Core training/runtime
+torch
+torchvision
+smplx==0.1.28
 mediapipe==0.10.14
-smplx
+gsplat
 
-# for 3DGS renderer (you will install from source)
-# diff-gaussian-rasterization
+# Utilities used by local code and vendored motion-prior helpers
+scikit-image
+Pillow
+
+# Stage1 / SMPLer-X integration dependencies
+scikit-learn
+yacs
+numba
+tensorboardX
+filterpy
+cython
+chumpy
+trimesh
+pyrender
+matplotlib
+json_tricks
+torchgeometry
+einops
+joblib
+boto3
+requests
+easydict
+pycocotools
+plyfile
+timm
+pyglet
+mmdet==2.26.0
+
+# Notes:
+# 1. Install mmcv-full==1.7.1 separately with a CUDA/PyTorch-matched wheel.
+# 2. Install third_party/SMPLer-X/main/transformer_utils in editable mode:
+#    pip install -v -e third_party/SMPLer-X/main/transformer_utils
