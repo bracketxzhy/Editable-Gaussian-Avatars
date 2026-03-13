@@ -10,9 +10,10 @@
   },
   "head_detached_coverage_baseline": 0.0,
   "final": {
-    "iter": 1200,
+    "iter": 4200,
     "active_outer_count": 0,
     "hard_pruned_outer_count": 20908,
+    "hard_pruned_inner_sparse_count": 0,
     "outer_active_outside_contour_ratio": 0.0,
     "outer_active_outside_person_ratio": 0.0,
     "outer_active_outside_alpha_gt_0.05_ratio": 0.0,
@@ -22,7 +23,7 @@
     "outer_projection_outside_anyframe_ratio": 0.0,
     "outer_arm_nontrigger_activation_ratio": 0.0,
     "outer_head_ring_coverage": 0.0,
-    "outer_boundary_hard_clamp_count": 34617,
+    "outer_boundary_hard_clamp_count": 119636,
     "outer_align_protected_count": 0
   },
   "pass": true

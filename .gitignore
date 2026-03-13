@@ -62,6 +62,7 @@ third_party/PyMAF-X/data/smpl/SMPLX_NEUTRAL_2020.npz
 *.pt
 *.pth.tar
 *.pkl
+*.whl
 
 # Local recoverable deletions
 

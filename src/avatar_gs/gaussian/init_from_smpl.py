@@ -195,6 +195,62 @@ def _estimate_vertex_curvature_np(
     return np.clip(curv, 0.0, 1.0).astype(np.float32)
 
 
+def _estimate_vertex_local_scale_np(
+    verts: np.ndarray,
+    faces: np.ndarray | None,
+) -> np.ndarray:
+    v = np.asarray(verts, dtype=np.float32)
+    n_verts = int(v.shape[0])
+    if n_verts <= 0:
+        return np.zeros((0,), dtype=np.float32)
+    if faces is None or len(faces) == 0:
+        return np.full((n_verts,), 0.01, dtype=np.float32)
+
+    f = np.asarray(faces, dtype=np.int64)
+    nbrs: list[set[int]] = [set() for _ in range(n_verts)]
+    for tri in f:
+        i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
+        if min(i0, i1, i2) < 0 or max(i0, i1, i2) >= n_verts:
+            continue
+        nbrs[i0].add(i1); nbrs[i0].add(i2)
+        nbrs[i1].add(i0); nbrs[i1].add(i2)
+        nbrs[i2].add(i0); nbrs[i2].add(i1)
+    scale_ref = np.zeros((n_verts,), dtype=np.float32)
+    for vi in range(n_verts):
+        if len(nbrs[vi]) <= 0:
+            continue
+        nb = np.asarray(sorted(list(nbrs[vi])), dtype=np.int64)
+        d = np.linalg.norm(v[nb] - v[vi], axis=1).astype(np.float32)
+        if d.size > 0:
+            scale_ref[vi] = float(np.mean(d))
+    valid = scale_ref > 1e-8
+    fill = float(np.median(scale_ref[valid])) if np.any(valid) else 0.01
+    scale_ref[~valid] = fill
+    return np.clip(scale_ref, 1e-4, None).astype(np.float32)
+
+
+def _compute_face_half_scales_np(
+    verts: np.ndarray,
+    faces: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    if faces is None or len(faces) == 0:
+        return np.zeros((0,), dtype=np.float32), np.zeros((0,), dtype=np.float32)
+    v = np.asarray(verts, dtype=np.float32)
+    f = np.asarray(faces, dtype=np.int64)
+    tri = v[f]
+    e1 = tri[:, 1, :] - tri[:, 0, :]
+    e2 = tri[:, 2, :] - tri[:, 0, :]
+    n = np.cross(e1, e2).astype(np.float32)
+    n_norm = np.linalg.norm(n, axis=1, keepdims=True)
+    n = n / np.clip(n_norm, 1e-8, None)
+    t1 = e1 / np.clip(np.linalg.norm(e1, axis=1, keepdims=True), 1e-8, None)
+    t2 = np.cross(n, t1).astype(np.float32)
+    t2 = t2 / np.clip(np.linalg.norm(t2, axis=1, keepdims=True), 1e-8, None)
+    s1 = np.maximum(0.5 * np.linalg.norm(e1, axis=1), 1e-4).astype(np.float32)
+    s2 = np.maximum(0.5 * np.abs(np.sum(e2 * t2, axis=1)), 1e-4).astype(np.float32)
+    return s1, s2
+
+
 def init_gaussians_from_mesh_3d(
     mesh_obj: str | Path,
     n_keep: int = 3000,
@@ -219,6 +275,12 @@ def init_gaussians_from_mesh_3d(
     inner_face_candidate_ratio: float = 0.35,
     inner_vertex_candidate_ratio: float = 0.65,
     inner_bind_mode_default: str = "vertex",
+    inner_local_scale_init_enable: bool = True,
+    inner_local_scale_init_vertex_ratio: float = 0.40,
+    inner_local_scale_init_face_ratio: float = 0.75,
+    inner_local_scale_init_normal_ratio: float = 0.45,
+    inner_local_scale_init_min: float = 8e-4,
+    inner_local_scale_init_max: float = 1.2e-2,
     outer_init_from_inner: bool = False,
     outer_dormant_slot_ratio: float = 0.30,
     outer_dormant_face_ratio: float = 0.0,
@@ -351,7 +413,7 @@ def init_gaussians_from_mesh_3d(
 
     V = V_fg
     idx = idx_fg
-    bind_offset = off_fg
+    bind_offset = np.zeros_like(off_fg, dtype=np.float32)
     bind_face_idx = face_fg
     bind_bary = bary_fg
 
@@ -486,6 +548,54 @@ def init_gaussians_from_mesh_3d(
     bind_bary_t = torch.from_numpy(np.asarray(bind_bary, dtype=np.float32))
 
     log_scales = torch.full((N, 3), float(np.log(0.01)), dtype=torch.float32)
+    if bool(inner_local_scale_init_enable) and int(N) > 0:
+        inner_mask_np = np.asarray(shell_layer == 0, dtype=bool)
+        if bool(np.any(inner_mask_np)):
+            v_scale_ref = _estimate_vertex_local_scale_np(V_all, F_all)
+            f_s1_ref, f_s2_ref = _compute_face_half_scales_np(V_all, F_all)
+            local_scales = np.full((N, 3), 0.01, dtype=np.float32)
+
+            inner_ids = np.nonzero(inner_mask_np)[0].astype(np.int64)
+            anchor_idx_inner = np.asarray(idx, dtype=np.int64)[inner_ids]
+            anchor_idx_safe = np.clip(anchor_idx_inner, 0, max(int(v_scale_ref.shape[0]) - 1, 0))
+            base_vertex = v_scale_ref[anchor_idx_safe]
+            s_t_vertex = np.clip(
+                float(inner_local_scale_init_vertex_ratio) * base_vertex,
+                float(inner_local_scale_init_min),
+                float(inner_local_scale_init_max),
+            ).astype(np.float32)
+            local_scales[inner_ids, 0] = s_t_vertex
+            local_scales[inner_ids, 1] = s_t_vertex
+            local_scales[inner_ids, 2] = np.clip(
+                float(inner_local_scale_init_normal_ratio) * s_t_vertex,
+                float(inner_local_scale_init_min),
+                float(inner_local_scale_init_max),
+            ).astype(np.float32)
+
+            face_idx_inner = np.asarray(bind_face_idx, dtype=np.int64)[inner_ids]
+            valid_face = (face_idx_inner >= 0) & (face_idx_inner < int(f_s1_ref.shape[0]))
+            if bool(np.any(valid_face)):
+                inner_face_ids = inner_ids[valid_face]
+                face_sel = face_idx_inner[valid_face]
+                s1 = np.clip(
+                    float(inner_local_scale_init_face_ratio) * f_s1_ref[face_sel],
+                    float(inner_local_scale_init_min),
+                    float(inner_local_scale_init_max),
+                ).astype(np.float32)
+                s2 = np.clip(
+                    float(inner_local_scale_init_face_ratio) * f_s2_ref[face_sel],
+                    float(inner_local_scale_init_min),
+                    float(inner_local_scale_init_max),
+                ).astype(np.float32)
+                s_n = np.clip(
+                    float(inner_local_scale_init_normal_ratio) * np.minimum(s1, s2),
+                    float(inner_local_scale_init_min),
+                    float(inner_local_scale_init_max),
+                ).astype(np.float32)
+                local_scales[inner_face_ids, 0] = s1
+                local_scales[inner_face_ids, 1] = s2
+                local_scales[inner_face_ids, 2] = s_n
+            log_scales = torch.log(torch.from_numpy(np.clip(local_scales, 1e-6, None)).to(dtype=torch.float32))
     if int(n_bg) > 0:
         log_scales[-int(n_bg):, :] = float(bg_log_scale)
     quat = torch.zeros((N, 4), dtype=torch.float32)

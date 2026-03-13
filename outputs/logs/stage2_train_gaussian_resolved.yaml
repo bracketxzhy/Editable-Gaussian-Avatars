@@ -12,8 +12,8 @@ stage2:
   init_mesh_obj: ''
   enable_tf32: true
   cudnn_benchmark: true
-  n_frames: 20
-  n_gaussians: 36000
+  n_frames: 48
+  n_gaussians: 120000
   sample_on_surface: true
   n_gaussians_bg: 0
   bg_extent:
@@ -30,7 +30,7 @@ stage2:
   bg_log_scale_max: -2.0
   fg_opacity_logit_max: 3.2
   fg_log_scale_min: -7.2
-  fg_log_scale_max: -5.9
+  fg_log_scale_max: -5.1
   outer_log_scale_min: -7.6
   outer_log_scale_max: -5.3
   outer_prune_support_th: 0.03
@@ -41,7 +41,7 @@ stage2:
   outer_align_prune_protect_min_iou: 0.998
   outer_align_prune_protect_min_vis: 0.006
   outer_align_prune_protect_min_support: 0.006
-  iters: 1200
+  iters: 4200
   lr_gauss: 0.003
   lr_cam: 0.0
   camera_mode: fixed
@@ -86,8 +86,11 @@ stage2:
   bind_mesh_obj_space: auto
   bind_align_quat_to_mesh_normals: true
   bind_quat_normal_blend: 1.0
-  bind_surface_aniso_weight: 0.002
-  bind_surface_aniso_margin: 0.15
+  bind_surface_aniso_weight: 0.0001
+  bind_surface_aniso_margin: 0.1
+  inner_local_scale_cap_weight: 0.03
+  inner_local_scale_cap_ratio: 1.2
+  inner_local_scale_cap_normal_ratio: 0.75
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset:
@@ -151,7 +154,7 @@ stage2:
   smpl_alpha_leak_weight: 0.12
   smpl_mask_override_alpha: false
   smpl_mask_precompute: true
-  smpl_mask_precompute_max_frames: 20
+  smpl_mask_precompute_max_frames: 48
   use_person_mask: true
   person_masks_npz: outputs/stage1/person_masks.npz
   prepared_supervision_cache_path: outputs/stage2/supervision_cache.npz
@@ -213,8 +216,8 @@ stage2:
   inner_count_auto: true
   inner_count_kV: 1.2
   inner_count_kF: 0.35
-  inner_count_min: 36000
-  inner_count_max: 120000
+  inner_count_min: 120000
+  inner_count_max: 260000
   tau_vis: 0.15
   frame_weight_k: 1.5
   use_robust_loss: true
@@ -228,7 +231,7 @@ stage2:
   use_border_attenuation: true
   border_attenuation_width: 4
   V_min: 8
-  densify_top_percent: 8.0
+  densify_top_percent: 12.0
   phase0_ratio: 0.05
   phase2_ratio: 0.1
   phase_ratio_inner_only: 0.12
@@ -259,11 +262,17 @@ stage2:
   shell_offset_reg_weight: 0.001
   shell_offset_reg_phase0_scale: 0.2
   shell_offset_freeze_phase0: false
-  inner_dual_candidate_enable: false
+  inner_dual_candidate_enable: true
   inner_high_curv_dual_activate_th: 0.2
   inner_face_candidate_ratio: 0.35
   inner_vertex_candidate_ratio: 0.65
   inner_bind_mode_default: vertex
+  inner_local_scale_init_enable: true
+  inner_local_scale_init_vertex_ratio: 0.4
+  inner_local_scale_init_face_ratio: 0.75
+  inner_local_scale_init_normal_ratio: 0.45
+  inner_local_scale_init_min: 0.0008
+  inner_local_scale_init_max: 0.012
   outer_trigger_face_activate_enable: true
   outer_trigger_face_sample_dilate_px: 0
   outer_spawn_from_trigger_ring_only: false
@@ -347,6 +356,12 @@ stage2:
   inner_prune_protect_parts:
   - face
   - hands
+  inner_sparse_cleanup_enable: true
+  inner_sparse_cleanup_vis_th: 0.02
+  inner_sparse_cleanup_opacity_th: 0.08
+  inner_sparse_cleanup_warmup_iters: 800
+  inner_sparse_cleanup_patience: 2
+  inner_sparse_cleanup_every: 200
   dual_quality_gate:
     enable: false
     mode: hard_and
@@ -403,14 +418,14 @@ render:
   deform_render_bound_only: true
   deform_smplx_use_standard_pose: true
   bound_alpha_threshold: 0.0
-  bound_opacity_min: 0.02
+  bound_opacity_min: 0.04
   fg_mask_mode: none
   fg_mask_dilate_px: 0
   fg_mask_erode_px: 0
   fg_only_alpha_threshold: 0.02
   fg_only_alpha_gamma: 1.0
   fg_only_alpha_gain_max: 1.0
-  deform_alpha_threshold: 0.0
+  deform_alpha_threshold: 0.03
   deform_alpha_gamma: 1.0
   deform_alpha_gain_max: 1.0
   overlay_smpl_skeleton: false

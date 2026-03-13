@@ -778,7 +778,7 @@ def prepare_stage2_supervision_artifacts(
     smpl_mask_erode_px = int(stage2_cfg.get("smpl_mask_erode_px", 0))
     strict_inner_mask = bool(stage2_cfg.get("inner_use_strict_smpl_mask", True))
     smpl_color_mask_erode_px = int(stage2_cfg.get("smpl_color_mask_erode_px", 0))
-    inner_rgb_from_combined_rgb = bool(stage2_cfg.get("inner_rgb_from_combined_rgb", True))
+    inner_rgb_from_combined_rgb = bool(stage2_cfg.get("inner_rgb_from_combined_rgb", False))
     inner_matches_smpl = bool(strict_inner_mask) and int(smpl_color_mask_erode_px) <= 0
     inner_mask_dir = smpl_mask_dir if inner_matches_smpl else ensure_dir(preview_root / "inner_mask")
 

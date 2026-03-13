@@ -142,7 +142,8 @@ def update_outer_gaussians_with_binding(
                 ob = float(np.clip(float(cfg.outer_geom_scale_blend), 0.0, 1.0))
                 s_t1 = (1.0 - ob) * s_old[:, 0] + ob * s_geom_1
                 s_t2 = (1.0 - ob) * s_old[:, 1] + ob * s_geom_2
-            s_n_local = torch.full_like(s_t1, float(cfg.eps_normal))
+            # Preserve learned normal thickness instead of resetting it to eps_normal each frame.
+            s_n_local = s_old[:, 2].clamp(min=float(cfg.scale_clamp_min))
             target_scale[local] = torch.stack([s_t1, s_t2, s_n_local], dim=1)
 
             # Outer-only local offset in face tangent frame.

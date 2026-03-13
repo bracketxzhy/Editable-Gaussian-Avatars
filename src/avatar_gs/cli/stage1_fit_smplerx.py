@@ -20,6 +20,8 @@ from avatar_gs.alignment import (
 )
 from avatar_gs.io.mesh_export import build_obj_face_text, export_obj
 from avatar_gs.segmentation import estimate_person_mask_modnet, resolve_modnet_ckpt_path
+from avatar_gs.segmentation.smpl_face_semantics import build_stage1_fashn_face_semantics
+from avatar_gs.smpl import SharedBetaRefitConfig, apply_shared_beta_refit
 
 try:
     import torch
@@ -491,7 +493,17 @@ def _extract_tpose_cam_from_record(
     if gender not in {"neutral", "male", "female"}:
         gender = "neutral"
     betas_np = np.asarray(params.get("betas", np.zeros((10,), dtype=np.float32)), dtype=np.float32).reshape(-1)
-    transl_t = torch.from_numpy(cam_t.reshape(1, 3))
+    transl_np = np.asarray(
+        params.get("transl", params.get("translation", params.get("cam_t", cam_t))),
+        dtype=np.float32,
+    ).reshape(3)
+    transl_t = torch.from_numpy(transl_np.reshape(1, 3))
+    global_orient_t = torch.from_numpy(
+        _flatten_pose_param(
+            params.get("global_orient", params.get("root_orient", np.zeros((1, 3), dtype=np.float32))),
+            3,
+        )
+    ).to(dtype=torch.float32)
 
     def _run_tpose_for_model(model_type: str, assets_root: Path) -> tuple[np.ndarray, np.ndarray]:
         model = smplx.create(
@@ -525,7 +537,8 @@ def _extract_tpose_cam_from_record(
         for bp in candidates:
             kwargs = {
                 "betas": betas_t,
-                "global_orient": torch.zeros((1, 3), dtype=torch.float32),
+                # Keep the frame root orientation so "T-pose" stays upright in camera space.
+                "global_orient": global_orient_t,
                 "body_pose": bp,
                 "transl": transl_t,
                 "return_verts": True,
@@ -570,6 +583,60 @@ def _extract_tpose_cam_from_record(
 
     print("Warning: failed to compute true T-pose. attempts=" + " | ".join(errors))
     return None, None
+
+
+def _shared_beta_npz_kwargs(meta: dict[str, object] | None) -> dict[str, np.ndarray]:
+    if not isinstance(meta, dict) or len(meta) <= 0:
+        return {}
+    out: dict[str, np.ndarray] = {
+        "beta_refit_enabled": np.asarray([1 if bool(meta.get("enabled", False)) else 0], dtype=np.uint8),
+    }
+    if "shared_beta" in meta:
+        out["beta_shared"] = np.asarray(meta["shared_beta"], dtype=np.float32).reshape(1, -1)
+        out["beta_fit_strategy"] = np.asarray(["shared_beta_refit"], dtype=object)
+    if "candidate_indices" in meta:
+        out["beta_shared_candidate_indices"] = np.asarray(meta["candidate_indices"], dtype=np.int32).reshape(-1)
+    if "candidate_weights" in meta:
+        out["beta_shared_candidate_weights"] = np.asarray(meta["candidate_weights"], dtype=np.float32).reshape(-1)
+    if "candidate_reason" in meta:
+        out["beta_shared_candidate_reason"] = np.asarray([str(meta["candidate_reason"])], dtype=object)
+    if "anchor_index" in meta:
+        out["beta_shared_anchor_index"] = np.asarray([int(meta["anchor_index"])], dtype=np.int32)
+    if "refit_vertex_loss" in meta:
+        out["beta_refit_vertex_loss"] = np.asarray(meta["refit_vertex_loss"], dtype=np.float32).reshape(-1)
+    if "refit_joint_loss" in meta:
+        out["beta_refit_joint_loss"] = np.asarray(meta["refit_joint_loss"], dtype=np.float32).reshape(-1)
+    if "refit_total_loss" in meta:
+        out["beta_refit_total_loss"] = np.asarray(meta["refit_total_loss"], dtype=np.float32).reshape(-1)
+    return out
+
+
+def _shared_beta_summary(meta: dict[str, object] | None) -> dict[str, object] | None:
+    if not isinstance(meta, dict) or len(meta) <= 0:
+        return None
+    out: dict[str, object] = {"enabled": bool(meta.get("enabled", False))}
+    if "reason" in meta:
+        out["reason"] = str(meta["reason"])
+    if "device" in meta:
+        out["device"] = str(meta["device"])
+    if "candidate_reason" in meta:
+        out["candidate_reason"] = str(meta["candidate_reason"])
+    if "anchor_index" in meta:
+        out["anchor_index"] = int(meta["anchor_index"])
+    if "shared_beta" in meta:
+        out["shared_beta"] = np.asarray(meta["shared_beta"], dtype=np.float32).reshape(-1).round(6).tolist()
+    if "candidate_indices" in meta:
+        idx = np.asarray(meta["candidate_indices"], dtype=np.int32).reshape(-1)
+        out["candidate_count"] = int(idx.shape[0])
+        out["candidate_indices_head"] = idx[: min(8, int(idx.shape[0]))].tolist()
+    if "refit_total_loss" in meta:
+        loss = np.asarray(meta["refit_total_loss"], dtype=np.float32).reshape(-1)
+        if loss.size > 0:
+            out["refit_total_loss_mean"] = float(loss.mean())
+            out["refit_total_loss_max"] = float(loss.max())
+    if "canonical_available" in meta:
+        out["canonical_available"] = bool(meta["canonical_available"])
+    return out
 
 
 def _frame_index_from_name(frame_name: str, fallback: int) -> int:
@@ -696,6 +763,7 @@ def _write_stage1_sequence_assets_full(
     records: list[dict],
     canonical_verts_cam: np.ndarray | None = None,
     canonical_joints_cam: np.ndarray | None = None,
+    extra_params_kwargs: dict[str, np.ndarray] | None = None,
 ) -> dict[str, str]:
     if len(records) == 0:
         raise RuntimeError("No records available for stage1 sequence export.")
@@ -908,6 +976,14 @@ def _write_stage1_sequence_assets_full(
                 ty_px=ty,
             ).reshape(3)
         rec["verts_cam"] = np.asarray(verts_cam, dtype=np.float32)
+        rec["verts_local"] = np.asarray(
+            np.asarray(rec["verts_cam"], dtype=np.float32) - np.asarray(rec["cam_t"], dtype=np.float32).reshape(1, 3),
+            dtype=np.float32,
+        )
+        params_sync = rec.get("smplerx_params", None)
+        if isinstance(params_sync, dict):
+            params_sync["transl"] = np.asarray(rec["cam_t"], dtype=np.float32).reshape(1, 3)
+            rec["smplerx_params"] = params_sync
 
         obj_name = f"frame_{frame_idx:06d}.obj"
         export_obj(seq_dir / obj_name, verts_cam, faces, face_text=shared_face_text)
@@ -1101,6 +1177,8 @@ def _write_stage1_sequence_assets_full(
         if jj.ndim == 2 and jj.shape[1] == 3:
             params_kwargs["joints_canonical_cam"] = jj
             params_kwargs["joints_tpose_cam"] = jj
+    if extra_params_kwargs:
+        params_kwargs.update(extra_params_kwargs)
     np.savez(params_npz, **params_kwargs)
 
     return {
@@ -1186,7 +1264,7 @@ def main() -> None:
     parser.add_argument("--project_root", type=str, default=".", help="Project root")
     parser.add_argument("--frames_dir", type=str, default="data/frames/input", help="Video frame directory")
     parser.add_argument("--assets_dir", type=str, default="assets", help="Assets root directory")
-    parser.add_argument("--out_dir", type=str, default="outputs/stage1", help="All outputs are written here")
+    parser.add_argument("--out_dir", type=str, default="outputs/stage1_sharedbeta", help="All outputs are written here")
     parser.add_argument("--smplerx_frame_indices", type=str, default="-1", help="Frame indices passed to SMPLerX refine")
     parser.add_argument("--smplerx_stride", type=int, default=1, help="Sample every N frames for SMPLerX refine when smplerx_frame_indices is all/-1")
     parser.add_argument("--smplerx_ckpt", type=str, default="", help="Optional explicit SMPLerX checkpoint path")
@@ -1194,6 +1272,22 @@ def main() -> None:
     parser.add_argument("--skip_smplerx", action="store_true", help="Skip SMPLerX stage")
     parser.add_argument("--smplerx_repo_dir", type=str, default="third_party/SMPLer-X", help="SMPLer-X repo dir")
     parser.add_argument("--minimal_stage1_outputs", action="store_true", help="Keep only sequence assets required by stage2; delete intermediates")
+    parser.add_argument("--disable_shared_beta_refit", action="store_true", help="Disable stage1 postprocess that shares beta and refits per-frame pose/transl")
+    parser.add_argument("--shared_beta_min_align_iou", type=float, default=0.995, help="Use align_iou >= threshold when picking shared-beta frames if enough frames pass")
+    parser.add_argument("--shared_beta_min_candidate_frames", type=int, default=8, help="Minimum number of frames required before applying exact/high-quality candidate filtering")
+    parser.add_argument("--shared_beta_refit_iters", type=int, default=30, help="Optimization steps for each per-frame fixed-beta refit")
+    parser.add_argument("--shared_beta_refit_lr", type=float, default=0.03, help="Learning rate for each per-frame fixed-beta refit")
+    parser.add_argument("--shared_beta_refit_vertex_samples", type=int, default=1024, help="Number of mesh vertices sampled for each refit loss")
+    parser.add_argument("--shared_beta_refit_device", type=str, default="auto", help="Device for shared-beta refit: auto/cpu/cuda")
+    parser.add_argument("--build_fashn_face_semantics", dest="build_fashn_face_semantics", action="store_true", help="Run local FASHN parsing after stage1 and export SMPL face-level exposed/covered labels")
+    parser.add_argument("--skip_fashn_face_semantics", dest="build_fashn_face_semantics", action="store_false", help="Skip FASHN face-semantics postprocess after stage1")
+    parser.add_argument("--fashn_face_semantics_out_dir", type=str, default="", help="Optional output dir for FASHN->SMPL face semantics; default is <out_dir>/fashn_face_semantics")
+    parser.add_argument("--fashn_device", type=str, default="cuda", help="FASHN inference device: cuda/cpu/auto")
+    parser.add_argument("--fashn_max_edge", type=int, default=384, help="Resize each frame so its longest edge is at most this size before FASHN inference")
+    parser.add_argument("--fashn_min_non_bg_votes", type=int, default=8, help="Minimum non-background pixel votes required before assigning a non-unknown face label")
+    parser.add_argument("--fashn_frame_stride", type=int, default=1, help="Use every Nth frame when building face semantics")
+    parser.add_argument("--fashn_max_frames", type=int, default=0, help="Optional cap on number of frames used for FASHN face semantics; 0 means all selected frames")
+    parser.set_defaults(build_fashn_face_semantics=True)
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
@@ -1340,8 +1434,74 @@ def main() -> None:
         canonical_verts_cam=canonical_verts_cam,
         canonical_joints_cam=canonical_joints_cam,
     )
+    shared_beta_refit_summary: dict[str, object] | None = None
+    if not bool(args.disable_shared_beta_refit):
+        try:
+            align_iou = None
+            params_npz_path = Path(str(compat_assets.get("smpl_params_sequence_npz", out_dir / "smpl_params_sequence.npz")))
+            if params_npz_path.exists():
+                params_first_pass = np.load(params_npz_path, allow_pickle=True)
+                if "camera_align_iou" in params_first_pass.files:
+                    align_iou = np.asarray(params_first_pass["camera_align_iou"], dtype=np.float32).reshape(-1)
+            refit_cfg = SharedBetaRefitConfig(
+                enabled=True,
+                min_align_iou=float(args.shared_beta_min_align_iou),
+                min_candidate_frames=int(max(1, int(args.shared_beta_min_candidate_frames))),
+                refit_iters=int(max(1, int(args.shared_beta_refit_iters))),
+                lr=float(args.shared_beta_refit_lr),
+                vertex_sample_count=int(max(0, int(args.shared_beta_refit_vertex_samples))),
+                device=str(args.shared_beta_refit_device),
+            )
+            refit_result = apply_shared_beta_refit(
+                records=records,
+                assets_dir=assets_dir,
+                align_iou=align_iou,
+                config=refit_cfg,
+            )
+            records = refit_result.records
+            shared_beta_refit_summary = _shared_beta_summary(refit_result.meta)
+            if refit_result.canonical_verts_cam is not None:
+                canonical_verts_cam = np.asarray(refit_result.canonical_verts_cam, dtype=np.float32)
+            if refit_result.canonical_joints_cam is not None:
+                canonical_joints_cam = np.asarray(refit_result.canonical_joints_cam, dtype=np.float32)
+            compat_assets = _write_stage1_sequence_assets_full(
+                out_dir=out_dir,
+                frames_dir=frames_dir,
+                records=records,
+                canonical_verts_cam=canonical_verts_cam,
+                canonical_joints_cam=canonical_joints_cam,
+                extra_params_kwargs=_shared_beta_npz_kwargs(refit_result.meta),
+            )
+        except Exception as e:
+            shared_beta_refit_summary = {"enabled": False, "error": str(e)}
+            print(f"Warning: shared-beta refit failed; keeping first-pass stage1 export. err={e}")
+    else:
+        shared_beta_refit_summary = {"enabled": False, "reason": "disabled_by_flag"}
     stage1_seq_obj = out_dir / "sequence" / f"frame_{int(last_rec['frame_idx']):06d}.obj"
     model_type_set = sorted({str(rec.get("model_type", "unknown")) for rec in records})
+    fashn_face_semantics_summary: dict[str, object] | None = None
+    if bool(args.build_fashn_face_semantics):
+        if str(args.fashn_face_semantics_out_dir).strip() == "":
+            fashn_out_dir = (out_dir / "fashn_face_semantics").resolve()
+        else:
+            fashn_out_dir = Path(str(args.fashn_face_semantics_out_dir).strip())
+            if not fashn_out_dir.is_absolute():
+                fashn_out_dir = project_root / fashn_out_dir
+            fashn_out_dir = fashn_out_dir.resolve()
+        try:
+            fashn_face_semantics_summary = build_stage1_fashn_face_semantics(
+                stage1_dir=out_dir,
+                frames_dir=frames_dir,
+                out_dir=fashn_out_dir,
+                device=str(args.fashn_device),
+                max_edge=int(args.fashn_max_edge),
+                frame_stride=int(args.fashn_frame_stride),
+                max_frames=int(args.fashn_max_frames),
+                min_non_bg_votes=int(args.fashn_min_non_bg_votes),
+            )
+        except Exception as e:
+            fashn_face_semantics_summary = {"enabled": False, "error": str(e)}
+            print(f"Warning: FASHN face semantics export failed. err={e}")
     summary = {
         "frames_dir": str(frames_dir),
         "assets_dir": str(assets_dir),
@@ -1358,6 +1518,8 @@ def main() -> None:
         "pred_source_counts": pred_source_counts,
         "pred_non_exact_local_indices": non_exact_local_idx,
         "missing_requirements": req,
+        "shared_beta_refit": shared_beta_refit_summary,
+        "fashn_face_semantics": fashn_face_semantics_summary,
         "stage2_compat_assets": compat_assets,
         "stage1_sequence_obj": str(stage1_seq_obj),
     }
@@ -1376,6 +1538,8 @@ def main() -> None:
     print(f"Sequence last frame: {last_rec['frame_name']} (idx={int(last_rec['frame_idx'])})")
     print(f"Sequence sample OBJ: {stage1_seq_obj}")
     print(f"Summary: {final_out / 'run_summary.json'}")
+    if fashn_face_semantics_summary is not None:
+        print(f"FASHN face semantics: {fashn_face_semantics_summary.get('out_npz', fashn_face_semantics_summary)}")
 
 
 if __name__ == "__main__":

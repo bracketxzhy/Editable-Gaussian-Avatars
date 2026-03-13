@@ -1,0 +1,31 @@
+{
+    "focal": [
+        20483.3984375,
+        20483.3984375
+    ],
+    "princpt": [
+        573.0,
+        575.5
+    ],
+    "bbox": [
+        179.71875,
+        51.125,
+        786.5625,
+        1048.75
+    ],
+    "bbox_detector": [
+        302.0,
+        156.0,
+        543.0,
+        840.0
+    ],
+    "bbox_mmdet": [
+        302.0,
+        156.0,
+        543.0,
+        840.0
+    ],
+    "detector": "modnet",
+    "bbox_id": 0,
+    "img_path": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1_sharedbeta\\smplerx\\selected_frames_input\\000003.jpg"
+}

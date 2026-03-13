@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from avatar_gs.alignment import mask_iou
-from avatar_gs.segmentation import estimate_person_mask_modnet
+from avatar_gs.segmentation.modnet import estimate_person_mask_modnet
 
 
 def project_vertices_to_image(verts_cam: np.ndarray, K: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

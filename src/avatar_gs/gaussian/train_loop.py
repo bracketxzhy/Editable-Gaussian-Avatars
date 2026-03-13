@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from avatar_gs.gaussian.structured_gaussian import Gaussian3D
+from avatar_gs.gaussian.structured_gaussian import Gaussian3D, sanitize_inner_surface_binding_
 from avatar_gs.gaussian.binding import (
     BindingFrameData,
     export_binding_mode_config,
@@ -55,6 +55,7 @@ from avatar_gs.gaussian.shell_policy import (
     select_outer_prune_candidates,
 )
 from avatar_gs.stage2 import (
+    Stage2FaceSemantics,
     Stage2FrameAssets,
     Stage2MeshRuntime,
     Stage2TrainLoopConfig,
@@ -68,6 +69,7 @@ from avatar_gs.stage2 import (
     evaluate_stage2_quality,
     fuse_outer_contour_mask_np,
     initialize_stage2_training_binding_state,
+    load_stage2_face_semantics,
     prepare_stage2_report_paths,
     project_points_numpy as _project_points_numpy,
     project_points_torch as _project_points_torch,
@@ -214,6 +216,137 @@ def _compute_outer_airspace_penalty(
     invade = F.relu(signed_h) * inside_expanded.float() * neigh_weights * valid_nb.float()
     denom = valid_nb.float().sum().clamp_min(1.0)
     return (invade * invade).sum() / denom
+
+
+def _compute_inner_local_color_prior(
+    *,
+    rgb: torch.Tensor,
+    shell_layer: torch.Tensor | None,
+    prune_state: torch.Tensor | None,
+    bind_face_idx: torch.Tensor | None,
+    color_conf: torch.Tensor,
+    vis_mean: torch.Tensor,
+    opacity: torch.Tensor,
+    face_raw_semantic: torch.Tensor,
+    face_semantic_conf: torch.Tensor,
+    neighbor_idx: torch.Tensor | None,
+    neighbor_w: torch.Tensor | None,
+    target_conf_max: float,
+    donor_conf_min: float,
+    donor_opacity_min: float,
+    donor_vis_min: float,
+    semantic_conf_min: float,
+    min_donor_weight: float,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    zero = rgb.new_tensor(0.0)
+    stats: dict[str, float] = {
+        "targets": 0.0,
+        "assisted": 0.0,
+        "donors": 0.0,
+        "mean_target_conf": 0.0,
+    }
+    if (
+        shell_layer is None
+        or prune_state is None
+        or bind_face_idx is None
+        or int(face_raw_semantic.numel()) <= 0
+        or float(target_conf_max) <= 0.0
+    ):
+        return zero, stats
+
+    n_faces = int(face_raw_semantic.shape[0])
+    face_idx = bind_face_idx.to(device=rgb.device, dtype=torch.long).view(-1)
+    face_valid = (face_idx >= 0) & (face_idx < n_faces)
+    if not bool(face_valid.any()):
+        return zero, stats
+
+    face_raw = torch.full((int(face_idx.shape[0]),), -1, dtype=torch.long, device=rgb.device)
+    face_conf = torch.zeros((int(face_idx.shape[0]),), dtype=torch.float32, device=rgb.device)
+    face_ids_valid = face_idx[face_valid]
+    face_raw[face_valid] = face_raw_semantic.index_select(0, face_ids_valid)
+    face_conf[face_valid] = face_semantic_conf.index_select(0, face_ids_valid)
+
+    semantic_valid = face_valid & (face_raw >= 0) & (face_conf >= float(semantic_conf_min))
+    active_inner = (shell_layer == 0) & (prune_state != 2) & semantic_valid
+    if not bool(active_inner.any()):
+        return zero, stats
+
+    color_conf_det = color_conf.detach().clamp(0.0, 1.0).view(-1)
+    vis_det = vis_mean.detach().clamp(0.0, 1.0).view(-1)
+    opacity_det = opacity.detach().clamp(0.0, 1.0).view(-1)
+
+    donor_mask = (
+        active_inner
+        & (color_conf_det >= float(donor_conf_min))
+        & (vis_det >= float(donor_vis_min))
+        & (opacity_det >= float(donor_opacity_min))
+    )
+    target_mask = active_inner & (color_conf_det < float(target_conf_max))
+    stats["targets"] = float(target_mask.sum().item())
+    stats["donors"] = float(donor_mask.sum().item())
+    if not bool(donor_mask.any()) or not bool(target_mask.any()):
+        return zero, stats
+
+    donor_face_ids = face_idx[donor_mask]
+    donor_w = (
+        color_conf_det[donor_mask]
+        * vis_det[donor_mask]
+        * opacity_det[donor_mask]
+    ).clamp_min(1e-4)
+    donor_rgb = rgb.detach()[donor_mask]
+    face_rgb_sum = torch.zeros((n_faces, 3), dtype=rgb.dtype, device=rgb.device)
+    face_w_sum = torch.zeros((n_faces,), dtype=torch.float32, device=rgb.device)
+    face_rgb_sum.index_add_(0, donor_face_ids, donor_rgb * donor_w.unsqueeze(1))
+    face_w_sum.index_add_(0, donor_face_ids, donor_w)
+
+    face_total_rgb = face_rgb_sum.clone()
+    face_total_w = face_w_sum.clone()
+    if (
+        neighbor_idx is not None
+        and neighbor_w is not None
+        and int(neighbor_idx.numel()) > 0
+        and int(neighbor_idx.shape[0]) == n_faces
+    ):
+        safe_neigh = neighbor_idx.clamp_min(0)
+        neigh_face_w = face_w_sum.index_select(0, safe_neigh.reshape(-1)).reshape_as(neighbor_idx)
+        neigh_face_rgb = face_rgb_sum.index_select(0, safe_neigh.reshape(-1)).reshape(n_faces, -1, 3)
+        neigh_sem = face_raw_semantic.index_select(0, safe_neigh.reshape(-1)).reshape_as(neighbor_idx)
+        neigh_conf = face_semantic_conf.index_select(0, safe_neigh.reshape(-1)).reshape_as(neighbor_idx)
+        center_sem = face_raw_semantic.view(-1, 1)
+        valid_neigh = (
+            (neighbor_idx >= 0)
+            & (neighbor_w > 0.0)
+            & (center_sem >= 0)
+            & (neigh_sem == center_sem)
+            & (neigh_conf >= float(semantic_conf_min))
+        )
+        if bool(valid_neigh.any()):
+            neigh_weight = neighbor_w * valid_neigh.float() * neigh_face_w
+            face_total_w = face_total_w + neigh_weight.sum(dim=1)
+            face_total_rgb = face_total_rgb + (neigh_face_rgb * neigh_weight.unsqueeze(-1)).sum(dim=1)
+
+    target_idx = torch.nonzero(target_mask, as_tuple=False).view(-1)
+    target_face_ids = face_idx.index_select(0, target_idx)
+    target_face_total_w = face_total_w.index_select(0, target_face_ids)
+    assisted_mask = target_face_total_w >= float(max(min_donor_weight, 1e-6))
+    stats["assisted"] = float(assisted_mask.sum().item())
+    if not bool(assisted_mask.any()):
+        return zero, stats
+
+    target_idx = target_idx[assisted_mask]
+    target_face_ids = target_face_ids[assisted_mask]
+    target_face_total_w = target_face_total_w[assisted_mask].clamp_min(1e-6)
+    prior_rgb = face_total_rgb.index_select(0, target_face_ids) / target_face_total_w.unsqueeze(1)
+    target_conf = color_conf_det.index_select(0, target_idx)
+    target_weight = ((float(target_conf_max) - target_conf) / max(float(target_conf_max), 1e-6)).clamp(0.0, 1.0)
+    target_weight = target_weight * face_conf.index_select(0, target_idx).clamp(0.0, 1.0)
+    if not bool((target_weight > 0.0).any()):
+        return zero, stats
+
+    stats["mean_target_conf"] = float(target_conf.mean().item())
+    color_err = (rgb.index_select(0, target_idx) - prior_rgb).abs().mean(dim=1)
+    loss = (color_err * target_weight).sum() / (target_weight.sum() + 1e-6)
+    return loss, stats
 
 
 def _erode_binary_mask_torch(mask: torch.Tensor, erode_px: int) -> torch.Tensor:
@@ -521,6 +654,20 @@ def _train_gaussians_3d_learnable_camera_impl(
     bind_quat_normal_blend: float = 1.0,
     bind_surface_aniso_weight: float = 0.0,
     bind_surface_aniso_margin: float = 0.15,
+    inner_local_scale_cap_weight: float = 0.0,
+    inner_local_scale_cap_ratio: float = 1.2,
+    inner_local_scale_cap_normal_ratio: float = 0.7,
+    smpl_face_semantics_npz: str | Path | None = None,
+    outer_block_exposed_faces: bool = True,
+    inner_local_color_prior_enable: bool = False,
+    inner_local_color_prior_weight: float = 0.03,
+    inner_local_color_prior_start_iter: int = 200,
+    inner_local_color_prior_target_conf_max: float = 0.30,
+    inner_local_color_prior_donor_conf_min: float = 0.65,
+    inner_local_color_prior_donor_opacity_min: float = 0.08,
+    inner_local_color_prior_donor_vis_min: float = 0.05,
+    inner_local_color_prior_semantic_conf_min: float = 0.55,
+    inner_local_color_prior_min_donor_weight: float = 0.20,
     use_smpl_silhouette_mask: bool = False,
     smpl_mask_dilate_px: int = 0,
     smpl_mask_erode_px: int = 0,
@@ -722,6 +869,12 @@ def _train_gaussians_3d_learnable_camera_impl(
     inner_soft_lr_scale: float = 0.2,
     inner_prune_every: int = 400,
     inner_prune_protect_parts: list[str] | tuple[str, ...] | None = None,
+    inner_sparse_cleanup_enable: bool = True,
+    inner_sparse_cleanup_vis_th: float = 0.02,
+    inner_sparse_cleanup_opacity_th: float = 0.08,
+    inner_sparse_cleanup_warmup_iters: int = 800,
+    inner_sparse_cleanup_patience: int = 2,
+    inner_sparse_cleanup_every: int = 200,
     outer_pruned_opacity_logit_max: float = -12.0,
     outer_quality_log_every: int = 100,
     outer_progress_log_every: int = 20,
@@ -853,6 +1006,13 @@ def _train_gaussians_3d_learnable_camera_impl(
         inner_sel_init = (g.shell_layer == 0) & (g.inner_bind_mode < 0)
         if bool(inner_sel_init.any()):
             g.inner_bind_mode[inner_sel_init] = int(default_inner_mode)
+    inner_surface_stats = sanitize_inner_surface_binding_(g)
+    if inner_surface_stats["inner_bind_offset_zeroed"] > 0 or inner_surface_stats["inner_face_offset_zeroed"] > 0:
+        train_logger.info(
+            "Inner surface binding cleanup: zeroed inner bind_offset=%d, bind_face_offset_local=%d",
+            int(inner_surface_stats["inner_bind_offset_zeroed"]),
+            int(inner_surface_stats["inner_face_offset_zeroed"]),
+        )
     if g.quality_fail_counter is None:
         g.quality_fail_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     else:
@@ -890,6 +1050,36 @@ def _train_gaussians_3d_learnable_camera_impl(
     bind_quat_normal_blend = float(np.clip(bind_quat_normal_blend, 0.0, 1.0))
     bind_surface_aniso_weight = float(max(bind_surface_aniso_weight, 0.0))
     bind_surface_aniso_margin = float(max(bind_surface_aniso_margin, 0.0))
+    inner_local_scale_cap_weight = float(max(inner_local_scale_cap_weight, 0.0))
+    inner_local_scale_cap_ratio = float(max(inner_local_scale_cap_ratio, 0.0))
+    inner_local_scale_cap_normal_ratio = float(max(inner_local_scale_cap_normal_ratio, 0.0))
+    inner_local_color_prior_enable = bool(inner_local_color_prior_enable)
+    inner_local_color_prior_weight = float(max(inner_local_color_prior_weight, 0.0))
+    inner_local_color_prior_start_iter = max(int(inner_local_color_prior_start_iter), 0)
+    inner_local_color_prior_target_conf_max = float(np.clip(float(inner_local_color_prior_target_conf_max), 0.0, 1.0))
+    inner_local_color_prior_donor_conf_min = float(np.clip(float(inner_local_color_prior_donor_conf_min), 0.0, 1.0))
+    inner_local_color_prior_donor_opacity_min = float(np.clip(float(inner_local_color_prior_donor_opacity_min), 0.0, 1.0))
+    inner_local_color_prior_donor_vis_min = float(np.clip(float(inner_local_color_prior_donor_vis_min), 0.0, 1.0))
+    inner_local_color_prior_semantic_conf_min = float(np.clip(float(inner_local_color_prior_semantic_conf_min), 0.0, 1.0))
+    inner_local_color_prior_min_donor_weight = float(max(inner_local_color_prior_min_donor_weight, 0.0))
+    smpl_face_semantics_path = None if smpl_face_semantics_npz is None else Path(str(smpl_face_semantics_npz))
+    if (
+        inner_local_color_prior_enable
+        and inner_local_color_prior_target_conf_max > inner_local_color_prior_donor_conf_min
+    ):
+        _log_warning(
+            train_logger,
+            "inner_local_color_prior_target_conf_max=%.3f exceeds donor_conf_min=%.3f; clamping target threshold.",
+            inner_local_color_prior_target_conf_max,
+            inner_local_color_prior_donor_conf_min,
+        )
+        inner_local_color_prior_target_conf_max = float(inner_local_color_prior_donor_conf_min)
+    inner_sparse_cleanup_enable = bool(inner_sparse_cleanup_enable)
+    inner_sparse_cleanup_vis_th = float(np.clip(float(inner_sparse_cleanup_vis_th), 0.0, 1.0))
+    inner_sparse_cleanup_opacity_th = float(np.clip(float(inner_sparse_cleanup_opacity_th), 0.0, 1.0))
+    inner_sparse_cleanup_warmup_iters = max(int(inner_sparse_cleanup_warmup_iters), 0)
+    inner_sparse_cleanup_patience = max(int(inner_sparse_cleanup_patience), 1)
+    inner_sparse_cleanup_every = max(int(inner_sparse_cleanup_every), 1)
     default_bind_mode = "games_face" if (g.bind_face_idx is not None and g.bind_bary is not None) else "legacy"
     binding_cfg = parse_binding_mode_config(binding, default_mode=default_bind_mode)
     bind_rigid_align_cfg = None if mesh_context is None or mesh_context.bind_rigid_align_cfg is None else dict(mesh_context.bind_rigid_align_cfg)
@@ -1289,6 +1479,74 @@ def _train_gaussians_3d_learnable_camera_impl(
     outer_face_spawn_iter = binding_state.outer_face_spawn_iter
     outer_face_spawn_frame_idx = binding_state.outer_face_spawn_frame_idx
     bind_rigid_align_meta = binding_state.bind_rigid_align_meta
+    face_semantics_asset: Stage2FaceSemantics | None = None
+    face_semantic_raw_t: torch.Tensor | None = None
+    face_semantic_conf_t: torch.Tensor | None = None
+    outer_blocked_face_mask_t: torch.Tensor | None = None
+    need_face_semantics = bool(inner_local_color_prior_enable) or (
+        bool(shell_enable) and bool(outer_block_exposed_faces)
+    )
+    if need_face_semantics:
+        if not bool(binding_enabled) or g.bind_face_idx is None:
+            _log_warning(
+                train_logger,
+                "Semantic face policies require mesh binding with valid bind_face_idx; disabling them for this run.",
+            )
+            inner_local_color_prior_enable = False
+            outer_block_exposed_faces = False
+        else:
+            expected_face_count = None
+            if bind_faces_np is not None:
+                expected_face_count = int(bind_faces_np.shape[0])
+            elif bind_face_neighbor_idx_t is not None:
+                expected_face_count = int(bind_face_neighbor_idx_t.shape[0])
+            if smpl_face_semantics_path is None:
+                raise ValueError(
+                    "Face semantic policies require smpl_face_semantics_npz. "
+                    "Run stage1 FASHN face semantics export first."
+                )
+            face_semantics_asset = load_stage2_face_semantics(
+                smpl_face_semantics_path,
+                expected_face_count=expected_face_count,
+            )
+            face_semantic_raw_t = torch.as_tensor(
+                face_semantics_asset.raw_label_ids,
+                device=device,
+                dtype=torch.long,
+            )
+            face_semantic_conf_t = torch.as_tensor(
+                face_semantics_asset.raw_label_confidence,
+                device=device,
+                dtype=torch.float32,
+            )
+            if bool(outer_block_exposed_faces):
+                blocked_np = face_semantics_asset.exclude_outer_mask
+                if blocked_np is None:
+                    blocked_np = (np.asarray(face_semantics_asset.group_ids, dtype=np.int16).reshape(-1) == 1).astype(
+                        np.uint8
+                    )
+                outer_blocked_face_mask_t = torch.as_tensor(
+                    np.asarray(blocked_np, dtype=np.uint8).reshape(-1) > 0,
+                    device=device,
+                    dtype=torch.bool,
+                )
+            _log_info(
+                train_logger,
+                "Loaded SMPL face semantics: faces=%d asset=%s",
+                int(face_semantics_asset.face_count),
+                str(face_semantics_asset.npz_path),
+            )
+            if bool(inner_local_color_prior_enable):
+                _log_info(
+                    train_logger,
+                    "Enabled inner local color prior.",
+                )
+            if bool(outer_block_exposed_faces) and outer_blocked_face_mask_t is not None:
+                _log_info(
+                    train_logger,
+                    "Enabled outer exposed-face block: blocked_faces=%d",
+                    int(outer_blocked_face_mask_t.sum().item()),
+                )
     bind_rigid_apply_cfg = binding_state.bind_rigid_apply_cfg
     _load_mesh_np_raw = binding_state.load_mesh_np_raw
     _load_mesh_verts = binding_state.load_mesh_verts
@@ -1387,9 +1645,11 @@ def _train_gaussians_3d_learnable_camera_impl(
 
     inner_soft_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     inner_hard_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
+    inner_sparse_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     outer_low_support_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     outer_boundary_violation_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
     outer_boundary_hard_clamp_count = 0
+    inner_sparse_pruned_total = 0
 
     outer_spawn_stats_by_frame: dict[str, dict[str, int]] = {
         str(fn): {"total": 0, "trigger": 0, "fallback": 0, "iters_hit": 0}
@@ -1410,6 +1670,10 @@ def _train_gaussians_3d_learnable_camera_impl(
     head_detached_coverage_baseline: float | None = None
     last_quality_metrics: dict[str, float] | None = None
     inner_ckpt_saved = False
+    inner_color_prior_last_loss = 0.0
+    inner_color_prior_last_targets = 0
+    inner_color_prior_last_assisted = 0
+    inner_color_prior_last_donors = 0
 
     checkpoint_metadata_base = {
         "frames": frames_list,
@@ -1495,6 +1759,19 @@ def _train_gaussians_3d_learnable_camera_impl(
         "bind_quat_normal_blend": bind_quat_normal_blend,
         "bind_surface_aniso_weight": bind_surface_aniso_weight,
         "bind_surface_aniso_margin": bind_surface_aniso_margin,
+        "inner_local_scale_cap_weight": inner_local_scale_cap_weight,
+        "inner_local_scale_cap_ratio": inner_local_scale_cap_ratio,
+        "inner_local_scale_cap_normal_ratio": inner_local_scale_cap_normal_ratio,
+        "smpl_face_semantics_npz": None if smpl_face_semantics_path is None else str(smpl_face_semantics_path),
+        "inner_local_color_prior_enable": inner_local_color_prior_enable,
+        "inner_local_color_prior_weight": inner_local_color_prior_weight,
+        "inner_local_color_prior_start_iter": inner_local_color_prior_start_iter,
+        "inner_local_color_prior_target_conf_max": inner_local_color_prior_target_conf_max,
+        "inner_local_color_prior_donor_conf_min": inner_local_color_prior_donor_conf_min,
+        "inner_local_color_prior_donor_opacity_min": inner_local_color_prior_donor_opacity_min,
+        "inner_local_color_prior_donor_vis_min": inner_local_color_prior_donor_vis_min,
+        "inner_local_color_prior_semantic_conf_min": inner_local_color_prior_semantic_conf_min,
+        "inner_local_color_prior_min_donor_weight": inner_local_color_prior_min_donor_weight,
         "bind_rigid_align": bind_rigid_align_meta if binding_enabled else None,
         "binding": export_binding_mode_config(binding_cfg),
         "use_smpl_silhouette_mask": use_smpl_silhouette_mask,
@@ -1746,6 +2023,7 @@ def _train_gaussians_3d_learnable_camera_impl(
         loss_value = 0.0
         spawn_frame_name = str(frames_list[fi])
         vis_accum: list[torch.Tensor] = []
+        inner_color_support_accum: list[torch.Tensor] = []
         edge_accum: list[torch.Tensor] = []
         outer_detached_support_accum: list[torch.Tensor] = []
         outer_gap_half_n_accum: list[torch.Tensor] = []
@@ -2097,6 +2375,13 @@ def _train_gaussians_3d_learnable_camera_impl(
                     sample_dilate_px=int(max(outer_trigger_face_sample_dilate_px, 0)),
                 )
                 if face_trigger_support is not None:
+                    if (
+                        bool(outer_block_exposed_faces)
+                        and outer_blocked_face_mask_t is not None
+                        and int(outer_blocked_face_mask_t.shape[0]) == int(face_trigger_support.shape[0])
+                    ):
+                        face_trigger_support = face_trigger_support.clone()
+                        face_trigger_support[outer_blocked_face_mask_t] = 0.0
                     if bool(outer_gap_fallback_enable):
                         if face_gap_half_curr is None or face_gap_scale_curr is None or face_gap_support_curr is None:
                             n_faces_curr = int(face_trigger_support.shape[0])
@@ -2426,6 +2711,29 @@ def _train_gaussians_3d_learnable_camera_impl(
                 else:
                     visibility = torch.where(vis_pos, visibility.clamp(min=inner_vis_floor), visibility)
             visibility = visibility.clamp(0.0, 1.0)
+            if bool(inner_local_color_prior_enable):
+                color_support_mask = inner_supervision_mask
+                if color_support_mask is None:
+                    color_support_mask = smpl_mask_for_color if smpl_mask_for_color is not None else smpl_mask
+                if color_support_mask is not None:
+                    if u_proj is None or v_proj is None or valid_proj is None:
+                        u_proj, v_proj, valid_proj = _project_points_torch(xyz_render.detach(), K_curr, R, t)
+                    inside_color_proj = (
+                        valid_proj
+                        & (u_proj >= 0)
+                        & (u_proj <= float(W - 1))
+                        & (v_proj >= 0)
+                        & (v_proj <= float(H - 1))
+                    )
+                    color_support = _sample_mask_at_projected_uv(
+                        color_support_mask,
+                        u_proj,
+                        v_proj,
+                        inside_color_proj,
+                        H,
+                        W,
+                    )
+                    inner_color_support_accum.append((color_support * visibility.detach()).clamp(0.0, 1.0))
             vis_accum.append(visibility.detach())
 
             # Densify stats (module hooks for policy).
@@ -2625,7 +2933,54 @@ def _train_gaussians_3d_learnable_camera_impl(
                 loss_value += float(aniso_loss.detach().cpu())
                 aniso_loss.backward()
 
+            if (
+                binding_enabled
+                and frame_data is not None
+                and bind_mask_curr is not None
+                and bool(bind_mask_curr.any())
+                and inner_local_scale_cap_weight > 0.0
+                and g.shell_layer is not None
+                and g.bind_face_idx is not None
+                and frame_data.face_s1_t is not None
+                and frame_data.face_s2_t is not None
+            ):
+                inner_face_mask = (
+                    bind_mask_curr
+                    & (g.shell_layer == 0)
+                    & (g.bind_face_idx >= 0)
+                    & (g.bind_face_idx < int(frame_data.face_s1_t.shape[0]))
+                )
+                if bool(inner_face_mask.any()):
+                    face_ids = g.bind_face_idx[inner_face_mask].to(device=device, dtype=torch.long)
+                    scales_inner = g.scales()[inner_face_mask]
+                    tang_scales = torch.sort(scales_inner[:, :2], dim=1, descending=True).values
+                    local_cap = torch.stack(
+                        [
+                            float(inner_local_scale_cap_ratio) * frame_data.face_s1_t.index_select(0, face_ids),
+                            float(inner_local_scale_cap_ratio) * frame_data.face_s2_t.index_select(0, face_ids),
+                        ],
+                        dim=1,
+                    )
+                    local_cap = torch.sort(local_cap, dim=1, descending=True).values.clamp(min=1e-6)
+                    normal_cap = (
+                        float(inner_local_scale_cap_normal_ratio)
+                        * torch.minimum(local_cap[:, 0], local_cap[:, 1])
+                    ).clamp(min=1e-6)
+                    pen_t = F.relu(tang_scales - local_cap)
+                    pen_n = F.relu(scales_inner[:, 2] - normal_cap)
+                    inner_local_scale_loss = float(inner_local_scale_cap_weight) * float(wj) * (
+                        (pen_t * pen_t).mean() + (pen_n * pen_n).mean()
+                    )
+                    loss_value += float(inner_local_scale_loss.detach().cpu())
+                    inner_local_scale_loss.backward()
+
         vis_mean = torch.stack(vis_accum, dim=0).mean(dim=0) if len(vis_accum) > 0 else torch.ones((n_gauss,), device=device)
+        has_inner_color_support = len(inner_color_support_accum) > 0
+        inner_color_support_mean = (
+            torch.stack(inner_color_support_accum, dim=0).mean(dim=0)
+            if has_inner_color_support
+            else torch.zeros((n_gauss,), dtype=torch.float32, device=device)
+        )
         edge_mean = (
             torch.stack(edge_accum, dim=0).mean(dim=0)
             if len(edge_accum) > 0
@@ -2698,6 +3053,7 @@ def _train_gaussians_3d_learnable_camera_impl(
                 outer_face_gap_scale_avg = outer_face_gap_scale_weighted_sum.detach() / denom
         # Keep all policy vectors strictly 1D to avoid accidental broadcasting (NxN).
         vis_mean = vis_mean.view(-1)
+        inner_color_support_mean = inner_color_support_mean.view(-1)
         edge_mean = edge_mean.view(-1)
         outer_head_support_mean = outer_head_support_mean.view(-1)
         outer_inside_support_mean = outer_inside_support_mean.view(-1)
@@ -2732,6 +3088,7 @@ def _train_gaussians_3d_learnable_camera_impl(
             )
             outer_align_protect_mask = align_candidate & (~severe_bad)
 
+        color_conf_global_now: float | None = None
         if dq_enable:
             eval_due = ((it + 1) >= int(dq_warmup_iters)) and (((it + 1) % int(dq_eval_every)) == 0)
             if eval_due:
@@ -2755,18 +3112,82 @@ def _train_gaussians_3d_learnable_camera_impl(
 
             color_conf_now = max(0.0, min(1.0, 1.0 - (dq_last_color_error / max(float(dq_color_max_error), 1e-6))))
             geom_conf_now = max(0.0, min(1.0, dq_last_geom_score / max(float(dq_geom_min_score), 1e-6)))
-            g.color_conf_ema = 0.9 * g.color_conf_ema + 0.1 * float(color_conf_now)
+            color_conf_global_now = float(color_conf_now)
             g.geom_conf_ema = 0.9 * g.geom_conf_ema + 0.1 * float(geom_conf_now)
 
             if dq_fail_active:
                 outer_fail_m = (g.shell_layer == 1) & (g.prune_state != 2)
                 g.quality_fail_counter[outer_fail_m] = g.quality_fail_counter[outer_fail_m] + 1.0
 
+        with torch.no_grad():
+            color_conf_prev = g.color_conf_ema
+            color_conf_next = (
+                0.9 * color_conf_prev + 0.1 * float(color_conf_global_now)
+                if color_conf_global_now is not None
+                else color_conf_prev.clone()
+            )
+            if (
+                bool(inner_local_color_prior_enable)
+                and has_inner_color_support
+                and face_semantic_raw_t is not None
+                and face_semantic_conf_t is not None
+                and g.bind_face_idx is not None
+                and g.shell_layer is not None
+            ):
+                face_idx_all = g.bind_face_idx.to(device=device, dtype=torch.long).view(-1)
+                valid_inner_sem = (
+                    (g.shell_layer == 0)
+                    & (g.prune_state != 2)
+                    & (face_idx_all >= 0)
+                    & (face_idx_all < int(face_semantic_raw_t.shape[0]))
+                )
+                if bool(valid_inner_sem.any()):
+                    face_idx_valid = face_idx_all[valid_inner_sem]
+                    face_raw_valid = face_semantic_raw_t.index_select(0, face_idx_valid)
+                    face_conf_valid = face_semantic_conf_t.index_select(0, face_idx_valid)
+                    semantic_update_mask = valid_inner_sem.clone()
+                    semantic_update_mask[valid_inner_sem] = (
+                        (face_raw_valid >= 0)
+                        & (face_conf_valid >= float(inner_local_color_prior_semantic_conf_min))
+                    )
+                    if bool(semantic_update_mask.any()):
+                        local_color_conf = inner_color_support_mean.detach().clamp(0.0, 1.0)
+                        color_conf_next[semantic_update_mask] = (
+                            0.9 * color_conf_prev[semantic_update_mask]
+                            + 0.1 * local_color_conf[semantic_update_mask]
+                        )
+            g.color_conf_ema = color_conf_next
+
         # Shell/occlusion policy updates (state-based, non-destructive).
         if bool(shell_enable):
             inner_mask = (g.shell_layer == 0)
             outer_mask = (g.shell_layer == 1)
             active_mask = (g.prune_state != 2)
+            opacity_detached = g.opacity().detach().view(-1)
+            if (
+                bool(outer_block_exposed_faces)
+                and outer_blocked_face_mask_t is not None
+                and g.bind_face_idx is not None
+            ):
+                face_idx_all = g.bind_face_idx.to(device=device, dtype=torch.long).view(-1)
+                blocked_outer_valid = (
+                    outer_mask
+                    & active_mask
+                    & (face_idx_all >= 0)
+                    & (face_idx_all < int(outer_blocked_face_mask_t.shape[0]))
+                )
+                blocked_outer = torch.zeros_like(blocked_outer_valid)
+                if bool(blocked_outer_valid.any()):
+                    valid_outer_idx = torch.nonzero(blocked_outer_valid, as_tuple=False).view(-1)
+                    valid_outer_face_idx = face_idx_all.index_select(0, valid_outer_idx)
+                    blocked_local = outer_blocked_face_mask_t.index_select(0, valid_outer_face_idx)
+                    if bool(blocked_local.any()):
+                        blocked_outer[valid_outer_idx] = blocked_local
+                        g.prune_state[blocked_outer] = 2
+                        g.opacity_logit[blocked_outer] = g.opacity_logit[blocked_outer].clamp(
+                            max=float(outer_pruned_opacity_logit_max)
+                        )
+                        active_mask = (g.prune_state != 2)
             inside_support_th = float(np.clip(float(outer_inside_support_th), 0.0, 1.0))
             inside_support_mask = outer_inside_support_mean.detach() >= inside_support_th
             outside_support_mask = ~inside_support_mask
@@ -2813,6 +3234,38 @@ def _train_gaussians_3d_learnable_camera_impl(
                     hard_patience=int(inner_hard_patience),
                 )
                 g.prune_state[to_hard] = 2
+
+            if bool(inner_sparse_cleanup_enable):
+                sparse_cleanup_phase = (phase_tag == "phase_inner")
+                sparse_bad = (
+                    inner_mask
+                    & active_mask
+                    & (vis_mean.detach() <= float(inner_sparse_cleanup_vis_th))
+                    & (opacity_detached <= float(inner_sparse_cleanup_opacity_th))
+                )
+                if sparse_cleanup_phase:
+                    inner_sparse_counter = torch.where(
+                        sparse_bad,
+                        inner_sparse_counter + 1.0,
+                        torch.zeros_like(inner_sparse_counter),
+                    )
+                else:
+                    inner_sparse_counter = torch.zeros_like(inner_sparse_counter)
+                if (
+                    sparse_cleanup_phase
+                    and (it + 1) >= int(inner_sparse_cleanup_warmup_iters)
+                    and int(inner_sparse_cleanup_every) > 0
+                    and ((it + 1) % int(inner_sparse_cleanup_every) == 0)
+                ):
+                    to_sparse_prune = (
+                        inner_mask
+                        & active_mask
+                        & (inner_sparse_counter >= float(inner_sparse_cleanup_patience))
+                    )
+                    if bool(to_sparse_prune.any()):
+                        pruned_now = int(to_sparse_prune.sum().item())
+                        g.prune_state[to_sparse_prune] = 2
+                        inner_sparse_pruned_total += pruned_now
 
             # Outer score / prune policy.
             edge_metric_base = (g.bind_mix_weight.view(-1).detach() - 0.5).abs() * 2.0
@@ -2971,6 +3424,12 @@ def _train_gaussians_3d_learnable_camera_impl(
                             & (outer_face_gap_scale_avg.view(-1) > 0.0)
                             & (~outer_face_spawned_mask.view(-1))
                         )
+                        if (
+                            bool(outer_block_exposed_faces)
+                            and outer_blocked_face_mask_t is not None
+                            and int(outer_blocked_face_mask_t.shape[0]) == int(face_candidate_mask.shape[0])
+                        ):
+                            face_candidate_mask = face_candidate_mask & (~outer_blocked_face_mask_t.view(-1))
                         face_idx = torch.nonzero(face_candidate_mask, as_tuple=False).view(-1)
                         if occupied_outer_faces is not None and int(face_idx.numel()) > 0:
                             face_idx = face_idx[~torch.isin(face_idx, occupied_outer_faces)]
@@ -3074,6 +3533,47 @@ def _train_gaussians_3d_learnable_camera_impl(
             )
         reg_opacity = float(alpha_prior_weight) * phase_alpha_mul * low_vis_boost * reg_opacity_term
         reg_cov = float(cov_penalty_weight) * low_vis_boost * covariance_penalty(g.scales(), float(cov_min), float(cov_max))
+        reg_inner_local_color = opacity_all.new_tensor(0.0)
+        inner_color_prior_stats = {
+            "targets": 0.0,
+            "assisted": 0.0,
+            "donors": 0.0,
+            "mean_target_conf": 0.0,
+        }
+        if (
+            bool(inner_local_color_prior_enable)
+            and float(inner_local_color_prior_weight) > 0.0
+            and (it + 1) >= int(inner_local_color_prior_start_iter)
+            and face_semantic_raw_t is not None
+            and face_semantic_conf_t is not None
+            and g.shell_layer is not None
+            and g.prune_state is not None
+            and g.bind_face_idx is not None
+        ):
+            color_prior_term, inner_color_prior_stats = _compute_inner_local_color_prior(
+                rgb=g.rgb(),
+                shell_layer=g.shell_layer,
+                prune_state=g.prune_state,
+                bind_face_idx=g.bind_face_idx,
+                color_conf=g.color_conf_ema.detach(),
+                vis_mean=vis_mean.detach(),
+                opacity=opacity_all.detach().view(-1),
+                face_raw_semantic=face_semantic_raw_t,
+                face_semantic_conf=face_semantic_conf_t,
+                neighbor_idx=bind_face_neighbor_idx_t,
+                neighbor_w=bind_face_neighbor_w_t,
+                target_conf_max=float(inner_local_color_prior_target_conf_max),
+                donor_conf_min=float(inner_local_color_prior_donor_conf_min),
+                donor_opacity_min=float(inner_local_color_prior_donor_opacity_min),
+                donor_vis_min=float(inner_local_color_prior_donor_vis_min),
+                semantic_conf_min=float(inner_local_color_prior_semantic_conf_min),
+                min_donor_weight=float(inner_local_color_prior_min_donor_weight),
+            )
+            reg_inner_local_color = float(inner_local_color_prior_weight) * color_prior_term
+        inner_color_prior_last_loss = float(reg_inner_local_color.detach().cpu())
+        inner_color_prior_last_targets = int(inner_color_prior_stats["targets"])
+        inner_color_prior_last_assisted = int(inner_color_prior_stats["assisted"])
+        inner_color_prior_last_donors = int(inner_color_prior_stats["donors"])
         offset_reg_w_eff = float(shell_offset_reg_weight)
         if phase_tag in ("phase_inner", "phase_outer"):
             offset_reg_w_eff *= float(max(shell_offset_reg_phase0_scale, 0.0))
@@ -3237,6 +3737,7 @@ def _train_gaussians_3d_learnable_camera_impl(
         reg_total = (
             reg_opacity
             + reg_cov
+            + reg_inner_local_color
             + reg_offset
             + reg_offset_min
             + reg_alpha_balance
@@ -3425,9 +3926,21 @@ def _train_gaussians_3d_learnable_camera_impl(
                 if fg_log_scale_min is not None or fg_log_scale_max is not None:
                     min_v = -7.0 if fg_log_scale_min is None else float(fg_log_scale_min)
                     max_v = 0.0 if fg_log_scale_max is None else float(fg_log_scale_max)
-                    g.log_scales[bind_mask] = g.log_scales[bind_mask].clamp(
-                        min=min_v, max=max_v
-                    )
+                    if g.shell_layer is not None:
+                        outer_b_fg = bind_mask & (g.shell_layer == 1)
+                        fg_non_outer = bind_mask & (~outer_b_fg)
+                        if bool(fg_non_outer.any()):
+                            g.log_scales[fg_non_outer] = g.log_scales[fg_non_outer].clamp(
+                                min=min_v, max=max_v
+                            )
+                        if bool(outer_b_fg.any()):
+                            g.log_scales[outer_b_fg, :2] = g.log_scales[outer_b_fg, :2].clamp(
+                                min=min_v, max=max_v
+                            )
+                    else:
+                        g.log_scales[bind_mask] = g.log_scales[bind_mask].clamp(
+                            min=min_v, max=max_v
+                        )
                 if (
                     g.shell_layer is not None
                     and (outer_log_scale_min is not None or outer_log_scale_max is not None)
@@ -3436,7 +3949,7 @@ def _train_gaussians_3d_learnable_camera_impl(
                     if bool(outer_b.any()):
                         min_v = -9.0 if outer_log_scale_min is None else float(outer_log_scale_min)
                         max_v = 0.0 if outer_log_scale_max is None else float(outer_log_scale_max)
-                        g.log_scales[outer_b] = g.log_scales[outer_b].clamp(min=min_v, max=max_v)
+                        g.log_scales[outer_b, :2] = g.log_scales[outer_b, :2].clamp(min=min_v, max=max_v)
                         detached_floor_th = float(np.clip(float(outer_detached_support_th), 0.0, 1.0))
                         detached_floor_mask = (
                             outer_b
@@ -3605,6 +4118,7 @@ def _train_gaussians_3d_learnable_camera_impl(
                     "iter": int(it + 1),
                     "active_outer_count": int(outer_total),
                     "hard_pruned_outer_count": int(hard_pruned_outer),
+                    "hard_pruned_inner_sparse_count": int(inner_sparse_pruned_total),
                     "outer_active_outside_contour_ratio": float(outside_contour_ratio),
                     "outer_active_outside_person_ratio": float(outside_person_ratio),
                     "outer_active_outside_alpha_gt_0.05_ratio": float(outside_alpha_ratio),
@@ -3616,6 +4130,10 @@ def _train_gaussians_3d_learnable_camera_impl(
                     "outer_head_ring_coverage": float(head_detached_coverage),
                     "outer_boundary_hard_clamp_count": int(outer_boundary_hard_clamp_count),
                     "outer_align_protected_count": int(align_protected_q.sum().item()),
+                    "inner_local_color_prior_loss": float(inner_color_prior_last_loss),
+                    "inner_local_color_prior_target_count": int(inner_color_prior_last_targets),
+                    "inner_local_color_prior_assisted_count": int(inner_color_prior_last_assisted),
+                    "inner_local_color_prior_donor_count": int(inner_color_prior_last_donors),
                 }
                 if ((it + 1) % quality_log_every) == 0 or (it == 0) or ((it + 1) == int(iters)):
                     write_stage2_quality_log(quality_log_path, last_quality_metrics)

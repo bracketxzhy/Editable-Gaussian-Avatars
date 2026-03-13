@@ -14,7 +14,7 @@ from avatar_gs.utils.io import ensure_dir
 from avatar_gs.utils.log import setup_logger
 from avatar_gs.utils.seed import seed_everything
 
-from avatar_gs.gaussian.structured_gaussian import Gaussian3D
+from avatar_gs.gaussian.structured_gaussian import Gaussian3D, sanitize_inner_surface_binding_
 from avatar_gs.gaussian.init_from_smpl import load_obj_vertices
 from avatar_gs.gaussian.binding import (
     BindingFrameData,
@@ -54,6 +54,66 @@ SMPL_SKELETON_CONNECTIONS = [
     (2, 5), (5, 8), (8, 11),
 ]
 SMPLX_OVERLAY_JOINT_COUNT = 49
+DEFAULT_DEFORM_INPUT_YAML = Path("configs/deform_input.yaml")
+_LEGACY_DEFORM_RENDER_KEYS = (
+    "deform_source",
+    "deform_smplx_params_npz",
+    "deform_smplx_frame_index",
+    "deform_smplx_frame_name",
+    "deform_smplx_model_type",
+    "deform_smplx_gender",
+    "deform_smplx_model_root",
+    "deform_smplx_use_standard_pose",
+)
+
+
+def _load_deform_input_cfg(
+    *,
+    project_root: Path,
+    render_cfg: dict,
+):
+    legacy_keys = [key for key in _LEGACY_DEFORM_RENDER_KEYS if key in render_cfg]
+    if len(legacy_keys) > 0:
+        raise ValueError(
+            "Legacy deform render keys are no longer supported in render config. "
+            f"Move them to {DEFAULT_DEFORM_INPUT_YAML} instead: {legacy_keys}"
+        )
+    deform_cfg_path = project_root / DEFAULT_DEFORM_INPUT_YAML
+    if not deform_cfg_path.exists():
+        raise FileNotFoundError(
+            f"Missing deform input config: {deform_cfg_path}. "
+            "Create configs/deform_input.yaml before deform rendering."
+        )
+    deform_root = load_yaml(deform_cfg_path)
+    deform_cfg = deform_root.get("deform", {})
+    if not isinstance(deform_cfg, dict):
+        raise ValueError(f"{deform_cfg_path} must contain a top-level 'deform' mapping.")
+
+    deform_source = str(deform_cfg.get("source", "smplx_params")).strip().lower()
+    if deform_source != "smplx_params":
+        raise ValueError(
+            "deform_input.source only supports smplx_params. "
+            f"Got: {deform_source}"
+        )
+    params_npz_cfg = str(
+        deform_cfg.get("smplx_params_npz", "outputs/stage1_sharedbeta/smpl_params_sequence.npz")
+    ).strip()
+    frame_index = int(deform_cfg.get("frame_index", -1))
+    frame_name = str(deform_cfg.get("frame_name", "")).strip()
+    model_type = str(deform_cfg.get("model_type", "smplx")).strip().lower()
+    gender = str(deform_cfg.get("gender", "neutral")).strip().lower()
+    model_root = str(deform_cfg.get("model_root", "")).strip()
+    use_standard_pose = bool(deform_cfg.get("use_standard_pose", False))
+    return deform_cfg_path, {
+        "source": deform_source,
+        "smplx_params_npz": params_npz_cfg,
+        "frame_index": frame_index,
+        "frame_name": frame_name,
+        "model_type": model_type,
+        "gender": gender,
+        "model_root": model_root,
+        "use_standard_pose": use_standard_pose,
+    }
 
 
 def _parse_frame_idx_from_name(frame_name: str) -> int | None:
@@ -1187,6 +1247,11 @@ def main():
     file_suffix = str(render_cfg.get("file_suffix", "")).strip()
     if file_suffix and (not file_suffix.startswith("_")):
         file_suffix = f"_{file_suffix}"
+    deform_input_cfg_path, deform_input_cfg = _load_deform_input_cfg(
+        project_root=project_root,
+        render_cfg=render_cfg,
+    )
+    deform_smplx_use_standard_pose = bool(deform_input_cfg["use_standard_pose"])
     six_views_enable = bool(render_cfg.get("six_views_enable", True))
     six_views_internal = bool(render_cfg.get("six_views_internal", False))
     six_views_include_top_bottom = bool(render_cfg.get("six_views_include_top_bottom", True))
@@ -1219,7 +1284,6 @@ def main():
                 "render.render_bound_only=true",
                 "render.fg_only_render_bound_only=true",
                 "render.deform_render_bound_only=true",
-                f"render.deform_smplx_use_standard_pose={'true' if deform_smplx_use_standard_pose else 'false'}",
                 "render.overlay_smpl_skeleton=false",
                 "render.debug_overlay_keypoints=false",
                 "render.debug_bind_to_google_skeleton=false",
@@ -1315,6 +1379,13 @@ def main():
       color_conf_ema=gsd["color_conf_ema"].to(device) if ("color_conf_ema" in gsd and gsd["color_conf_ema"] is not None) else None,
       geom_conf_ema=gsd["geom_conf_ema"].to(device) if ("geom_conf_ema" in gsd and gsd["geom_conf_ema"] is not None) else None,
     )
+    inner_surface_stats = sanitize_inner_surface_binding_(g)
+    if inner_surface_stats["inner_bind_offset_zeroed"] > 0 or inner_surface_stats["inner_face_offset_zeroed"] > 0:
+        logger.info(
+            "Inner surface binding cleanup: zeroed inner bind_offset=%d, bind_face_offset_local=%d",
+            int(inner_surface_stats["inner_bind_offset_zeroed"]),
+            int(inner_surface_stats["inner_face_offset_zeroed"]),
+        )
 
     # Intrinsics
     K = torch.as_tensor(ckpt["K"], dtype=torch.float32, device=device).view(3, 3)
@@ -1511,22 +1582,13 @@ def main():
     deform_alpha_gamma = float(render_cfg.get("deform_alpha_gamma", fg_only_alpha_gamma))
     fg_only_alpha_gain_max = float(render_cfg.get("fg_only_alpha_gain_max", 1.0))
     deform_alpha_gain_max = float(render_cfg.get("deform_alpha_gain_max", 1.0))
-    deform_source_raw = str(render_cfg.get("deform_source", "smplx_params")).strip().lower()
-    deform_smplx_params_npz_cfg = str(render_cfg.get("deform_smplx_params_npz", "")).strip()
-    deform_smplx_frame_index = int(render_cfg.get("deform_smplx_frame_index", -1))
-    deform_smplx_frame_name = str(render_cfg.get("deform_smplx_frame_name", "")).strip()
-    deform_smplx_model_type = str(render_cfg.get("deform_smplx_model_type", "smplx")).strip().lower()
-    deform_smplx_gender = str(render_cfg.get("deform_smplx_gender", "neutral")).strip().lower()
-    deform_smplx_model_root = str(render_cfg.get("deform_smplx_model_root", "")).strip()
-    deform_smplx_use_standard_pose = bool(render_cfg.get("deform_smplx_use_standard_pose", False))
-
-    deform_source = deform_source_raw
-    if deform_source != "smplx_params":
-        raise ValueError(
-            "render.deform_source only supports smplx_params. "
-            "Pass target pose via deform_smplx_params_npz + deform_smplx_frame_index/name. "
-            f"Got: {deform_source_raw}"
-        )
+    deform_source = str(deform_input_cfg["source"]).strip().lower()
+    deform_smplx_params_npz_cfg = str(deform_input_cfg["smplx_params_npz"]).strip()
+    deform_smplx_frame_index = int(deform_input_cfg["frame_index"])
+    deform_smplx_frame_name = str(deform_input_cfg["frame_name"]).strip()
+    deform_smplx_model_type = str(deform_input_cfg["model_type"]).strip().lower()
+    deform_smplx_gender = str(deform_input_cfg["gender"]).strip().lower()
+    deform_smplx_model_root = str(deform_input_cfg["model_root"]).strip()
 
     vis_rgb_raw = render_cfg.get("vis_rgb", None)
     vis_rgb = None
@@ -1579,7 +1641,8 @@ def main():
     )
     logger.info(f"Deform source: {deform_source}")
     logger.info(
-        "Deform render uses SMPL-X params: npz=%s, name=%s, idx=%d, standard_pose=%s",
+        "Deform render input: cfg=%s npz=%s name=%s idx=%d standard_pose=%s",
+        str(deform_input_cfg_path),
         deform_smplx_params_npz_cfg or "outputs/stage1/smpl_params_sequence.npz",
         deform_smplx_frame_name,
         int(deform_smplx_frame_index),

@@ -1,0 +1,194 @@
+Metadata-Version: 2.4
+Name: fashn-human-parser
+Version: 0.1.1
+Summary: Human parsing model for fashion and virtual try-on applications
+Project-URL: Homepage, https://github.com/fashn-AI/fashn-human-parser
+Project-URL: Documentation, https://huggingface.co/fashn-ai/fashn-human-parser
+Project-URL: Repository, https://github.com/fashn-AI/fashn-human-parser
+Project-URL: Issues, https://github.com/fashn-AI/fashn-human-parser/issues
+Author-email: FASHN AI <dan@fashn.ai>
+License: See LICENSE
+License-File: LICENSE
+Keywords: computer-vision,deep-learning,fashion,human-parsing,segmentation,virtual-try-on
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Scientific/Engineering :: Image Processing
+Requires-Python: >=3.8
+Requires-Dist: numpy>=1.20
+Requires-Dist: opencv-python>=4.8
+Requires-Dist: pillow>=9.0
+Requires-Dist: torch>=2.2
+Requires-Dist: transformers>=4.30
+Provides-Extra: dev
+Requires-Dist: pytest-cov>=4.0; extra == 'dev'
+Requires-Dist: pytest>=7.0; extra == 'dev'
+Description-Content-Type: text/markdown
+
+# FASHN Human Parser
+
+[![Hugging Face Model](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue)](https://huggingface.co/fashn-ai/fashn-human-parser)
+
+A SegFormer-B4 model fine-tuned for human parsing with 18 semantic classes, optimized for fashion and virtual try-on applications.
+
+<p align="center">
+  <img src="https://static.fashn.ai/repositories/fashn-human-parser/example.webp" alt="Human Parsing Example" width="800">
+</p>
+
+This package provides the exact preprocessing used during model training for maximum accuracy. For quick experimentation, you can also use the model directly via [HuggingFace](https://huggingface.co/fashn-ai/fashn-human-parser).
+
+## Installation
+
+```bash
+pip install fashn-human-parser
+```
+
+## Model Weights
+
+On first use, the model weights (~244 MB) are automatically downloaded from [HuggingFace Hub](https://huggingface.co/fashn-ai/fashn-human-parser) and cached locally.
+
+**Default cache location:**
+- Linux/macOS: `~/.cache/huggingface/hub/`
+- Windows: `C:\Users\<username>\.cache\huggingface\hub\`
+
+**To customize the cache location**, set the `HF_HOME` environment variable before running your script:
+
+```bash
+export HF_HOME=/path/to/custom/cache  # Linux/macOS
+set HF_HOME=C:\path\to\custom\cache   # Windows
+```
+
+## Usage
+
+```python
+from fashn_human_parser import FashnHumanParser
+
+# Initialize parser (automatically uses GPU if available)
+parser = FashnHumanParser()
+
+# Run prediction on an image
+segmentation = parser.predict("path/to/image.jpg")
+
+# segmentation is a numpy array of shape (H, W) with values 0-17
+# representing the 18 semantic classes
+```
+
+### Input Formats
+
+The `predict` method accepts:
+- File path (string)
+- PIL Image
+- NumPy array (RGB, uint8 or float32)
+
+**Note:** NumPy arrays must be in RGB format. If using `cv2.imread()` (which returns BGR), convert first:
+```python
+img = cv2.cvtColor(cv2.imread("image.jpg"), cv2.COLOR_BGR2RGB)
+```
+
+### Batch Processing
+
+```python
+# Process multiple images in a single forward pass
+results = parser.predict([image1, image2, image3])
+# results is a list of numpy arrays, one per image
+```
+
+### Get Raw Logits
+
+```python
+logits = parser.predict(image, return_logits=True)
+# logits shape: (1, 18, H, W)
+```
+
+## Label Definitions
+
+| ID | Label |
+|----|-------|
+| 0 | background |
+| 1 | face |
+| 2 | hair |
+| 3 | top |
+| 4 | dress |
+| 5 | skirt |
+| 6 | pants |
+| 7 | belt |
+| 8 | bag |
+| 9 | hat |
+| 10 | scarf |
+| 11 | glasses |
+| 12 | arms |
+| 13 | hands |
+| 14 | legs |
+| 15 | feet |
+| 16 | torso |
+| 17 | jewelry |
+
+### Accessing Labels
+
+```python
+from fashn_human_parser import IDS_TO_LABELS, LABELS_TO_IDS
+
+# Get label name from ID
+print(IDS_TO_LABELS[3])  # "top"
+
+# Get ID from label name
+print(LABELS_TO_IDS["top"])  # 3
+```
+
+## Model Details
+
+- **Architecture**: SegFormer-B4 (MIT-B4 encoder + MLP decoder)
+- **Input Size**: 384 x 576 (width x height)
+- **Output**: 18-class semantic segmentation mask
+- **Base Model**: [nvidia/mit-b4](https://huggingface.co/nvidia/mit-b4)
+
+## Why Use This Package?
+
+**Ease of use:**
+- Simple one-line prediction: `parser.predict(image)`
+- Output matches input dimensions - no manual resizing needed
+- Returns parsed label IDs directly (not raw logits)
+- Accepts multiple input formats (file path, PIL, numpy)
+- Batch processing with single forward pass: `parser.predict([img1, img2, img3])`
+
+**Utility exports:**
+- `IDS_TO_LABELS` / `LABELS_TO_IDS` for label mapping
+- `IDENTITY_LABELS` for labels preserved in virtual try-on
+- `CATEGORY_TO_BODY_COVERAGE` for clothing category mappings
+
+**Exact preprocessing:**
+- Uses `cv2.INTER_AREA` resize (optimal for downsampling)
+- Matches the exact preprocessing from model training
+
+The HuggingFace Hub version uses PIL LANCZOS resampling for broader compatibility, which may result in slightly different outputs.
+
+## Using with HuggingFace
+
+You can also use the model directly via the HuggingFace pipeline:
+
+```python
+from transformers import pipeline
+
+pipe = pipeline("image-segmentation", model="fashn-ai/fashn-human-parser")
+result = pipe("image.jpg")
+# result is a list of dicts with 'label', 'score', 'mask' for each detected class
+```
+
+**Note:** The pipeline returns per-class masks. This package returns a single segmentation map with class IDs.
+
+## License
+
+This model inherits the [NVIDIA Source Code License for SegFormer](https://github.com/NVlabs/SegFormer/blob/master/LICENSE). Please review the license terms before use.
+
+## Links
+
+- [FASHN AI](https://fashn.ai/)
+- [HuggingFace Model](https://huggingface.co/fashn-ai/fashn-human-parser)
+- [GitHub Repository](https://github.com/fashn-AI/fashn-human-parser)

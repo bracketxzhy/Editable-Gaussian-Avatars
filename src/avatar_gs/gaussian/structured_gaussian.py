@@ -135,3 +135,34 @@ class Gaussian3D:
     def normalized_quat(self):
         q = self.quat
         return q / (torch.norm(q, dim=-1, keepdim=True) + 1e-8)
+
+
+def sanitize_inner_surface_binding_(g: Gaussian3D) -> dict[str, int]:
+    stats = {
+        "inner_bind_offset_zeroed": 0,
+        "inner_face_offset_zeroed": 0,
+    }
+    if g.shell_layer is None:
+        return stats
+
+    shell = g.shell_layer.data if isinstance(g.shell_layer, torch.nn.Parameter) else g.shell_layer
+    inner_mask = shell.to(device=shell.device, dtype=torch.int64) == 0
+    if not bool(inner_mask.any()):
+        return stats
+
+    with torch.no_grad():
+        if g.bind_offset is not None:
+            bind_offset = g.bind_offset.data if isinstance(g.bind_offset, torch.nn.Parameter) else g.bind_offset
+            nonzero = bind_offset[inner_mask].abs().amax(dim=1) > 1e-8
+            stats["inner_bind_offset_zeroed"] = int(nonzero.sum().item())
+            bind_offset[inner_mask] = 0.0
+        if g.bind_face_offset_local is not None:
+            face_offset = (
+                g.bind_face_offset_local.data
+                if isinstance(g.bind_face_offset_local, torch.nn.Parameter)
+                else g.bind_face_offset_local
+            )
+            nonzero = face_offset[inner_mask].abs().amax(dim=1) > 1e-8
+            stats["inner_face_offset_zeroed"] = int(nonzero.sum().item())
+            face_offset[inner_mask] = 0.0
+    return stats

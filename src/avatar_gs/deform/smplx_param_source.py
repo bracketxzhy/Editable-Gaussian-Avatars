@@ -172,6 +172,12 @@ def load_deform_smplx_vertices_from_npz(
 
     z = np.load(params_npz_path, allow_pickle=True)
     row_idx = _resolve_npz_row_index(z, frame_index=frame_index, frame_name=frame_name)
+    canonical_key = "verts_canonical_cam" if "verts_canonical_cam" in z.files else ("verts_tpose_cam" if "verts_tpose_cam" in z.files else "")
+    param_keys = [
+        "global_orient", "root_orient", "body_pose", "pose_body",
+        "betas", "shape", "transl", "translation", "cam_t",
+    ]
+    has_model_params = any(k in z.files for k in param_keys)
 
     def _load_ref_verts_row_external() -> np.ndarray | None:
         p_ref = ref_vertices_npz_path
@@ -246,7 +252,6 @@ def load_deform_smplx_vertices_from_npz(
         if vc_row is None:
             vc_row = _load_ref_verts_row_external()
 
-        canonical_key = "verts_canonical_cam" if "verts_canonical_cam" in z.files else ("verts_tpose_cam" if "verts_tpose_cam" in z.files else "")
         if bool(use_standard_pose) and canonical_key:
             vv = np.asarray(z[canonical_key], dtype=np.float32)
             if vv.ndim == 2 and vv.shape[1] == 3:
@@ -259,12 +264,7 @@ def load_deform_smplx_vertices_from_npz(
                     "params_npz": str(params_npz_path),
                     "source": canonical_key,
                 }
-                if vc_row is not None:
-                    vv_m, jj_m, sign, delta = _match_direct_space_to_reference(vv, jj, vc_row)
-                    meta["space_matched_to"] = "verts_cam"
-                    meta["space_match_sign"] = sign.tolist()
-                    meta["space_match_delta"] = delta.tolist()
-                    return vv_m, jj_m, meta
+                meta["space_matched_to"] = "canonical_direct"
                 return vv, jj, meta
 
         if vc_row is not None:
@@ -279,11 +279,19 @@ def load_deform_smplx_vertices_from_npz(
 
         return None
 
-    param_keys = [
-        "global_orient", "root_orient", "body_pose", "pose_body",
-        "betas", "shape", "transl", "translation", "cam_t",
-    ]
-    has_model_params = any(k in z.files for k in param_keys)
+    if bool(use_standard_pose) and canonical_key and not has_model_params:
+        vv = np.asarray(z[canonical_key], dtype=np.float32)
+        if vv.ndim == 2 and vv.shape[1] == 3:
+            jj = _direct_joints_canonical()
+            return vv.astype(np.float32), jj.astype(np.float32), {
+                "row_idx": int(row_idx),
+                "model_type": "direct",
+                "gender": "direct",
+                "model_root": "direct_npz",
+                "params_npz": str(params_npz_path),
+                "source": canonical_key,
+                "space_matched_to": "canonical_direct",
+            }
 
     if not has_model_params:
         direct = _load_direct_vertices()
@@ -350,6 +358,10 @@ def load_deform_smplx_vertices_from_npz(
     bp = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["body_pose", "pose_body"]) or "", row_idx), body_pose_dim)
     bt = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["betas", "shape"]) or "", row_idx), num_betas)
     tr = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["transl", "translation", "cam_t"]) or "", row_idx), 3)
+    if bool(use_standard_pose):
+        # Standard-pose preview should preserve the frame root orientation and translation,
+        # otherwise the body appears upside down or arbitrarily rotated in camera space.
+        bp = np.zeros_like(bp, dtype=np.float32)
 
     kwargs = {
         "betas": torch.from_numpy(bt.reshape(1, num_betas)).to(dtype=torch.float32),
@@ -367,6 +379,13 @@ def load_deform_smplx_vertices_from_npz(
         re = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["reye_pose"]) or "", row_idx), 3)
         num_expr = int(getattr(model, "num_expression_coeffs", 10))
         expr = _fit_param_dim(_read_param_row(z, _pick_param_key(z, ["expression", "expr"]) or "", row_idx), num_expr)
+        if bool(use_standard_pose):
+            lh = np.zeros_like(lh, dtype=np.float32)
+            rh = np.zeros_like(rh, dtype=np.float32)
+            jaw = np.zeros_like(jaw, dtype=np.float32)
+            le = np.zeros_like(le, dtype=np.float32)
+            re = np.zeros_like(re, dtype=np.float32)
+            expr = np.zeros_like(expr, dtype=np.float32)
         kwargs.update(
             {
                 "left_hand_pose": torch.from_numpy(lh.reshape(1, 45)).to(dtype=torch.float32),
@@ -389,7 +408,7 @@ def load_deform_smplx_vertices_from_npz(
         "gender": gender,
         "model_root": str(model_root),
         "params_npz": str(params_npz_path),
-        "source": "smplx_rebuild",
+        "source": "smplx_standard_pose_rebuild" if bool(use_standard_pose) else "smplx_rebuild",
     }
 
     ref_row = _load_ref_verts_row_external()

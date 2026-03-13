@@ -1,0 +1,12 @@
+FASHN Human Parser License
+
+This software package provides a wrapper for the FASHN Human Parser model.
+
+The underlying model (fashn-ai/fashn-human-parser) is a fine-tuned version of
+SegFormer and inherits the NVIDIA Source Code License for SegFormer.
+
+Please review the full license terms at:
+https://github.com/NVlabs/SegFormer/blob/master/LICENSE
+
+By using this software, you agree to comply with the terms of the NVIDIA
+Source Code License for SegFormer.

@@ -15,6 +15,10 @@ from .mesh_runtime import (
     pack_face_neighbor_arrays,
     resolve_effective_rigid_align_config,
 )
+from .fashn_semantics import (
+    Stage2FaceSemantics,
+    load_stage2_face_semantics,
+)
 from .rigid_align import normalize_rigid_align_config, run_stage2_rigid_align_search
 from .reporting import (
     Stage2QualityEvaluation,
@@ -59,6 +63,8 @@ __all__ = [
     "initialize_stage2_training_binding_state",
     "pack_face_neighbor_arrays",
     "resolve_effective_rigid_align_config",
+    "Stage2FaceSemantics",
+    "load_stage2_face_semantics",
     "normalize_rigid_align_config",
     "run_stage2_rigid_align_search",
     "Stage2QualityEvaluation",

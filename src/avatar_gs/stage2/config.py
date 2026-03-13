@@ -187,6 +187,14 @@ class Stage2TrainLoopConfig:
     ) -> "Stage2TrainLoopConfig":
         stage2_cfg = train_config.stage2_raw
         stage1_dir = train_config.stage1_dir
+        smpl_face_semantics_npz = stage2_cfg.get(
+            "smpl_face_semantics_npz",
+            str(stage1_dir / "fashn_face_semantics" / "smpl_face_semantics.npz"),
+        )
+        if smpl_face_semantics_npz is not None:
+            smpl_face_semantics_npz = Path(str(smpl_face_semantics_npz))
+            if not smpl_face_semantics_npz.is_absolute():
+                smpl_face_semantics_npz = train_config.project_root / smpl_face_semantics_npz
         return cls(
             frames_dir=train_config.frames_dir,
             frames_list=[str(x) for x in frames],
@@ -239,6 +247,20 @@ class Stage2TrainLoopConfig:
                 "bind_quat_normal_blend": float(stage2_cfg.get("bind_quat_normal_blend", 1.0)),
                 "bind_surface_aniso_weight": float(stage2_cfg.get("bind_surface_aniso_weight", 0.0)),
                 "bind_surface_aniso_margin": float(stage2_cfg.get("bind_surface_aniso_margin", 0.15)),
+                "inner_local_scale_cap_weight": float(stage2_cfg.get("inner_local_scale_cap_weight", 0.0)),
+                "inner_local_scale_cap_ratio": float(stage2_cfg.get("inner_local_scale_cap_ratio", 1.2)),
+                "inner_local_scale_cap_normal_ratio": float(stage2_cfg.get("inner_local_scale_cap_normal_ratio", 0.7)),
+                "smpl_face_semantics_npz": None if smpl_face_semantics_npz is None else str(smpl_face_semantics_npz),
+                "outer_block_exposed_faces": bool(stage2_cfg.get("outer_block_exposed_faces", True)),
+                "inner_local_color_prior_enable": bool(stage2_cfg.get("inner_local_color_prior_enable", False)),
+                "inner_local_color_prior_weight": float(stage2_cfg.get("inner_local_color_prior_weight", 0.03)),
+                "inner_local_color_prior_start_iter": int(stage2_cfg.get("inner_local_color_prior_start_iter", 200)),
+                "inner_local_color_prior_target_conf_max": float(stage2_cfg.get("inner_local_color_prior_target_conf_max", 0.30)),
+                "inner_local_color_prior_donor_conf_min": float(stage2_cfg.get("inner_local_color_prior_donor_conf_min", 0.65)),
+                "inner_local_color_prior_donor_opacity_min": float(stage2_cfg.get("inner_local_color_prior_donor_opacity_min", 0.08)),
+                "inner_local_color_prior_donor_vis_min": float(stage2_cfg.get("inner_local_color_prior_donor_vis_min", 0.05)),
+                "inner_local_color_prior_semantic_conf_min": float(stage2_cfg.get("inner_local_color_prior_semantic_conf_min", 0.55)),
+                "inner_local_color_prior_min_donor_weight": float(stage2_cfg.get("inner_local_color_prior_min_donor_weight", 0.20)),
                 "use_smpl_silhouette_mask": bool(stage2_cfg.get("use_smpl_silhouette_mask", False)),
                 "smpl_mask_dilate_px": int(stage2_cfg.get("smpl_mask_dilate_px", 0)),
                 "smpl_mask_erode_px": int(stage2_cfg.get("smpl_mask_erode_px", 0)),
@@ -431,6 +453,12 @@ class Stage2TrainLoopConfig:
                 "inner_soft_lr_scale": float(stage2_cfg.get("inner_soft_lr_scale", 0.2)),
                 "inner_prune_every": int(stage2_cfg.get("inner_prune_every", 400)),
                 "inner_prune_protect_parts": stage2_cfg.get("inner_prune_protect_parts", ["face", "hands"]),
+                "inner_sparse_cleanup_enable": bool(stage2_cfg.get("inner_sparse_cleanup_enable", True)),
+                "inner_sparse_cleanup_vis_th": float(stage2_cfg.get("inner_sparse_cleanup_vis_th", 0.02)),
+                "inner_sparse_cleanup_opacity_th": float(stage2_cfg.get("inner_sparse_cleanup_opacity_th", 0.08)),
+                "inner_sparse_cleanup_warmup_iters": int(stage2_cfg.get("inner_sparse_cleanup_warmup_iters", 800)),
+                "inner_sparse_cleanup_patience": int(stage2_cfg.get("inner_sparse_cleanup_patience", 2)),
+                "inner_sparse_cleanup_every": int(stage2_cfg.get("inner_sparse_cleanup_every", 200)),
                 "outer_pruned_opacity_logit_max": float(stage2_cfg.get("outer_pruned_opacity_logit_max", -12.0)),
                 "outer_quality_log_every": int(stage2_cfg.get("outer_quality_log_every", 100)),
                 "outer_progress_log_every": int(stage2_cfg.get("outer_progress_log_every", 20)),
