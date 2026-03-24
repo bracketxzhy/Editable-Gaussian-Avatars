@@ -7,19 +7,19 @@ This repository implements a monocular pipeline for building an editable Gaussia
 The actual execution chain is:
 
 1. `preprocess_video.py`
-2. `stage1_fit_smplerx.py`
+2. `stage1_fit_smplestx.py`
 3. `stage2_train_gaussian.py`
 4. `render.py`
 
 The short version:
 
-- Stage 1 uses vendored `SMPLer-X` to estimate per-frame human body parameters and exports stage2-friendly assets.
+- Stage 1 uses vendored `SMPLest-X` to estimate per-frame human body parameters and exports stage2-friendly assets.
 - Stage 2 initializes Gaussians on the SMPL mesh sequence, binds them to the moving mesh, and optimizes them against RGB and silhouette supervision.
 - Render reconstructs `real`, `fg_only`, and `deform` views from the trained checkpoint.
 
 This is not a clean-room single-model system. It is a practical engineering pipeline built around:
 
-- `SMPLer-X` for per-frame body estimation
+- `SMPLest-X` for per-frame body estimation
 - `MODNet` for person-mask supervision
 - `gsplat` for Gaussian rendering
 
@@ -37,7 +37,7 @@ That second point is why stage2 contains inner/outer Gaussian logic instead of a
 The repository solves these tasks:
 
 - Extract frames from a monocular RGB video while preserving the original resolution.
-- Estimate frame-wise body parameters and camera intrinsics using `SMPLer-X`.
+- Estimate frame-wise body parameters and camera intrinsics using `SMPLest-X`.
 - Build stage2 training assets:
   - `cameras.json`
   - `keypoints.json`
@@ -69,6 +69,23 @@ If you blindly say you "reproduced the full pipeline" using the stock config, yo
 
 The PowerShell helper `scripts/auto_full_pipeline.ps1` also uses the same default config, so its name is more optimistic than accurate.
 
+### 4.1 Current Stage1 Update: SMPLest-X, Silhouette Refine, Optional Shared-Beta, and FASHN
+
+The current stage1 implementation materially changes the stage1-to-stage2 contract.
+
+What changed in practice:
+
+- A local FASHN parser runtime and model snapshot are now vendored into the repository under `assets/fashn_local/runtime/` and `third_party/FASHN/`.
+- Stage1 now shells out through `src/avatar_gs/cli/_run_smplestx_refine_frames.py` and rebuilds the final sequence package from raw SMPLest-X outputs under `<out_dir>/smplestx/`.
+- Stage1 now runs silhouette-driven per-frame refinement through `src/avatar_gs/smpl/silhouette_refine.py` unless `--disable_silhouette_refine` is set.
+- Stage1 still supports sequence-level shared-beta refit through `src/avatar_gs/smpl/shared_beta_refit.py`, but that branch is disabled by default and only runs with `--enable_shared_beta_refit`.
+- Stage1 can export `smpl_face_semantics.npz` plus CSV, previews, and a summary JSON under `<out_dir>/fashn_face_semantics/` by mapping local FASHN parsing onto SMPL faces.
+- Optional `src/avatar_gs/cli/stage1_bestof_merge.py` can merge evaluated candidate stage1 runs into `outputs/stage1_bestof/`.
+- Stage2 can consume the face-semantics asset to improve inner local color donor selection for low-confidence Gaussians and to block exposed faces from outer-shell behavior.
+
+This does **not** create a clean second default stage1 root.
+The stock stage1 CLI still writes to `outputs/stage1` unless you change `--out_dir`.
+
 ## 5. High-Level Architecture
 
 ### 5.1 Stage 0: Video Preprocess
@@ -86,13 +103,13 @@ Core file:
 
 - `src/avatar_gs/cli/preprocess_video.py`
 
-### 5.2 Stage 1: SMPLer-X Asset Export
+### 5.2 Stage 1: SMPLest-X Asset Export
 
 Input:
 
 - extracted frames
-- `third_party/SMPLer-X`
-- SMPLer-X pretrained checkpoint
+- `third_party/SMPLest-X`
+- SMPLest-X pretrained checkpoint
 - SMPL/SMPL-X body model files
 - MODNet checkpoint
 
@@ -106,11 +123,23 @@ Output:
 - `outputs/stage1/smpl_joints_sequence.npz`
 - `outputs/stage1/smpl_skeleton_sequence.npz`
 - `outputs/stage1/sequence/frame_*.obj`
+- `outputs/stage1/smplestx/**`
+- `outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz`
+- `outputs/stage1/fashn_face_semantics/smpl_face_semantics.csv`
+- `outputs/stage1/fashn_face_semantics/smpl_face_semantics_summary.json`
 - `outputs/stage1/final/run_summary.json`
 
 Core file:
 
-- `src/avatar_gs/cli/stage1_fit_smplerx.py`
+- `src/avatar_gs/cli/stage1_fit_smplestx.py`
+
+Latest update note:
+
+- stage1 now runs SMPLest-X through `src/avatar_gs/cli/_run_smplestx_refine_frames.py` and stores raw backend artifacts under `outputs/stage1/smplestx/`
+- stage1 now runs default-on silhouette refine through `src/avatar_gs/smpl/silhouette_refine.py`
+- shared-beta refit still exists through `src/avatar_gs/smpl/shared_beta_refit.py`, but it is disabled by default unless `--enable_shared_beta_refit` is passed
+- optional semantic assets now live under `<out_dir>/fashn_face_semantics/`
+- optional `src/avatar_gs/cli/stage1_bestof_merge.py` can synthesize `outputs/stage1_bestof/` from evaluated candidate runs
 
 ### 5.3 Stage 2: Gaussian Training
 
@@ -156,6 +185,24 @@ Core file:
 
 ## 6. Directory Layout
 
+Additional paths introduced by the current stage1 update:
+
+- `third_party/FASHN/`
+- `assets/fashn_local/runtime/`
+- `outputs/stage1/smplestx/`
+- `outputs/stage1/fashn_face_semantics/`
+- `outputs/stage1_bestof/`
+- `src/avatar_gs/cli/_run_smplestx_refine_frames.py`
+- `src/avatar_gs/cli/stage1_bestof_merge.py`
+- `src/avatar_gs/segmentation/fashn.py`
+- `src/avatar_gs/segmentation/smpl_face_semantics.py`
+- `src/avatar_gs/smpl/shared_beta_refit.py`
+- `src/avatar_gs/smpl/silhouette_refine.py`
+- `src/avatar_gs/stage2/fashn_semantics.py`
+- `src/avatar_gs/cli/stage1_build_fashn_face_semantics.py`
+- `src/avatar_gs/utils/progress.py`
+
+
 ```text
 Editable Gaussian Avatars/
 |- configs/
@@ -168,7 +215,7 @@ Editable Gaussian Avatars/
 |  \- lib/
 |- third_party/
 |  |- MODNet/
-|  \- SMPLer-X/
+|  \- SMPLest-X/
 |- README.md
 |- PROJECT_MAP.md
 |- idea.md
@@ -184,7 +231,7 @@ For a file-by-file map, see:
 
 ### 7.1 Recommended Python Environment
 
-Use a dedicated environment. The vendored `SMPLer-X` stack is not tolerant of random package drift.
+Use a dedicated environment. The vendored `SMPLest-X` stack is not tolerant of random package drift.
 
 Example with conda:
 
@@ -212,7 +259,7 @@ pip install -r requirements.txt
 
 ### 7.4 Install `mmcv-full`
 
-`SMPLer-X` requires `mmcv-full==1.7.1`, and this usually needs a wheel URL matched to your PyTorch/CUDA combination.
+`SMPLest-X` requires `mmcv-full==1.7.1`, and this usually needs a wheel URL matched to your PyTorch/CUDA combination.
 
 Example used by this repository's helper script:
 
@@ -224,10 +271,10 @@ If that fails, use the OpenMMLab wheel index that matches your local CUDA/PyTorc
 
 ### 7.5 Install Vendored `mmpose` Utilities
 
-`SMPLer-X` also expects its vendored transformer utilities to be installed in editable mode:
+`SMPLest-X` also expects its vendored transformer utilities to be installed in editable mode:
 
 ```powershell
-pip install -v -e third_party/SMPLer-X/main/transformer_utils
+pip install -v -e third_party/SMPLest-X/main/transformer_utils
 ```
 
 ### 7.6 Set `PYTHONPATH`
@@ -248,24 +295,24 @@ $env:TORCH_EXTENSIONS_DIR = "$PWD\\.torch_extensions"
 
 The repository does not become self-sufficient just because the folders are vendored. You still need the actual model files.
 
-### 8.1 SMPLer-X Repository
+### 8.1 SMPLest-X Repository
 
 Expected default path:
 
-- `third_party/SMPLer-X`
+- `third_party/SMPLest-X`
 
-### 8.2 SMPLer-X Pretrained Checkpoint
+### 8.2 SMPLest-X Pretrained Checkpoint
 
 Stage1 checks for a pretrained checkpoint either under:
 
-- `third_party/SMPLer-X/pretrained_models/`
+- `third_party/SMPLest-X/pretrained_models/`
 - or somewhere under `assets/`
 
 The code searches for names like:
 
 - `smpler_x_*.pth.tar`
-- `SMPLer-X*.pth.tar`
-- `SMPLerX*.pth.tar`
+- `SMPLest-X*.pth.tar`
+- `SMPLestX*.pth.tar`
 
 ### 8.3 MODNet Checkpoint
 
@@ -275,7 +322,7 @@ Expected default path:
 
 ### 8.4 SMPL / SMPL-X Body Model Files
 
-These are expected under your assets/body-model layout consumed by `SMPLer-X` and `smplx`.
+These are expected under your assets/body-model layout consumed by `SMPLest-X` and `smplx`.
 
 If these files are missing, stage1 will not be reproducible.
 
@@ -311,17 +358,38 @@ Expected outputs:
 
 ### 9.3 Step 2: Run Stage1
 
+The current stage1 path does more than export SMPLest-X outputs.
+It can now:
+
+- run default-on silhouette-driven per-frame refinement
+- optionally refit the sequence to a shared body-shape beta with `--enable_shared_beta_refit`
+- export face-level semantics inferred from local FASHN parsing
+
+The stock CLI still writes its final compatible assets into `outputs/stage1` and keeps raw backend artifacts under `outputs/stage1/smplestx/`.
+
+
 ```powershell
 $env:PYTHONPATH = "src"
-python -m avatar_gs.cli.stage1_fit_smplerx --project_root . --frames_dir data/frames/input --assets_dir assets --out_dir outputs/stage1 --smplerx_frame_indices -1 --single_person
+python -m avatar_gs.cli.stage1_fit_smplestx --project_root . --frames_dir data/frames/input --assets_dir assets --out_dir outputs/stage1 --smplestx_frame_indices -1 --single_person
 ```
 
 Expected outputs:
 
+- `outputs/stage1/smplestx/**`
 - `outputs/stage1/cameras.json`
 - `outputs/stage1/person_masks.npz`
 - `outputs/stage1/smpl_params_sequence.npz`
 - `outputs/stage1/sequence/frame_*.obj`
+- `outputs/stage1/final/run_summary.json`
+
+If you ran multiple candidate stage1 directories and already evaluated them, merge the best per-frame winners instead of hand-picking them:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m avatar_gs.cli.stage1_bestof_merge --project_root . --base_stage1_dir outputs/stage1 --candidate_stage1_dirs outputs/stage1_try_a outputs/stage1_try_b --out_dir outputs/stage1_bestof
+```
+
+That CLI reads `evaluation/output_images/**/stage1_eval_report_all.json` and writes a stage2-compatible merged root under `outputs/stage1_bestof/`.
 
 ### 9.4 Optional: Evaluate Stage1 Alignment
 
@@ -333,6 +401,16 @@ python evaluation/stage1_eval/run_stage1_eval.py --stage1_dir outputs/stage1 --f
 Use this before stage2 if your stage1 silhouettes look suspicious. Otherwise you will end up blaming geometry for mask/alignment problems.
 
 ### 9.5 Step 3: Train Stage2
+
+The stock stage2 config is currently split across two stage1 roots:
+
+- `stage1_dir: outputs/stage1_sharedbeta`
+- `person_masks_npz: outputs/stage1_sharedbeta/person_masks.npz`
+- `smpl_face_semantics_npz: outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz`
+
+So the default stage1 CLI output and the stock stage2 config do not line up out of the box.
+Either point stage2 back to `outputs/stage1`, or intentionally run stage1 into `outputs/stage1_sharedbeta` and keep the semantics path consistent.
+
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -385,7 +463,7 @@ The repository already writes resolved configs into `outputs/logs/`. Use them. I
 
 - `configs/video.yaml`
   - video extraction config
-- `configs/stage1_smplerx.yaml`
+- `configs/stage1_smplestx.yaml`
   - stage1 path and export config
 - `configs/stage2_gaussian.yaml`
   - main stage2 training/render config
@@ -450,7 +528,15 @@ Only if the cache actually matches the config and data revision. Otherwise you a
 
 ## 14. Limitations
 
-- The repository depends heavily on external components (`SMPLer-X`, `MODNet`, `gsplat`).
+Additional limitations introduced by the current stage1 update:
+
+- the repository now vendors a large FASHN runtime tree, which increases repository weight and review noise
+- semantic policies depend on a face-semantics asset whose face count and sequence identity must match the current stage1 mesh topology
+- shared-beta refit is a modeling choice, not a neutral export step
+- the stock stage2 config currently splits its stage1 dependencies across `outputs/stage1_sharedbeta` and `outputs/stage1`
+
+
+- The repository depends heavily on external components (`SMPLest-X`, `MODNet`, `gsplat`).
 - The default configuration does not currently reflect the full outer-shell story implied by the codebase.
 - `train_loop.py` and `render.py` are large and carry too much responsibility.
 - Several files are placeholders or compatibility shells rather than real production modules.
@@ -462,7 +548,7 @@ If you are new to the repository, read in this order:
 1. `README.md`
 2. `idea.md`
 3. `PROJECT_MAP.md`
-4. `src/avatar_gs/cli/stage1_fit_smplerx.py`
+4. `src/avatar_gs/cli/stage1_fit_smplestx.py`
 5. `src/avatar_gs/cli/stage2_train_gaussian.py`
 6. `src/avatar_gs/gaussian/train_loop.py`
 7. `src/avatar_gs/cli/render.py`
@@ -471,7 +557,7 @@ If you are new to the repository, read in this order:
 
 This repository relies on major upstream components:
 
-- `SMPLer-X`
+- `SMPLest-X`
 - `MODNet`
 - `gsplat`
 

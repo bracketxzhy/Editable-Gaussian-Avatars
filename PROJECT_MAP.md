@@ -19,6 +19,89 @@ For each file below, the contract is described in four parts:
 - inputs
 - outputs or downstream users
 
+## Current Stage1 Additions
+
+The current stage1 implementation adds a new semantic branch, a default-on silhouette-refine postprocess, and optional shared-beta or best-of branches.
+The important additions are listed here so the rest of the file can stay mostly stable.
+
+### `third_party/FASHN/`
+- Role: vendored local FASHN model snapshot and upstream metadata.
+- Interface: asset directory, not a normal owned source module.
+- Inputs: consumed by `src/avatar_gs/segmentation/fashn.py`.
+- Outputs/downstream: parser model used by local clothing and exposed-body semantics.
+
+### `assets/fashn_local/runtime/`
+- Role: vendored importable runtime packages required by the local FASHN parser.
+- Interface: runtime directory injected into `sys.path`.
+- Inputs: consumed by `src/avatar_gs/segmentation/fashn.py`.
+- Outputs/downstream: makes local FASHN parsing runnable without separately managed site-packages.
+
+### `src/avatar_gs/cli/stage1_build_fashn_face_semantics.py`
+- Role: standalone CLI to build face-level SMPL semantics from stage1 outputs and local FASHN parsing.
+- Interface: `main()`.
+- Inputs: stage1 directory, frames directory, output directory, FASHN device and parser settings.
+- Outputs/downstream: writes `smpl_face_semantics.npz`, CSV, previews, and summary JSON for stage2.
+
+### `src/avatar_gs/segmentation/fashn.py`
+- Role: adapter around the vendored FASHN parser.
+- Interface: model or runtime path resolution, runtime import patching, parser loading, device normalization, segmentation prediction, and coarse label mapping.
+- Inputs: RGB image arrays plus local FASHN model and runtime paths.
+- Outputs/downstream: raw parser labels and coarse groups consumed by stage1 semantics export.
+
+### `src/avatar_gs/segmentation/smpl_face_semantics.py`
+- Role: map frame-level FASHN predictions onto SMPL face topology.
+- Interface: face-topology loading, visible-face rasterization, vote accumulation, preview export, CSV export, and summary export.
+- Inputs: stage1 vertices, stage1 cameras, frame RGBs, FASHN parser predictions.
+- Outputs/downstream: `smpl_face_semantics.npz` and related reports used by stage2.
+
+### `src/avatar_gs/smpl/__init__.py`
+- Role: SMPL package export layer.
+- Interface: package import layer.
+- Inputs: `shared_beta_refit.py` and `silhouette_refine.py`.
+- Outputs/downstream: exports the shared-beta and silhouette-refine APIs to stage1.
+
+### `src/avatar_gs/smpl/shared_beta_refit.py`
+- Role: estimate one shared sequence beta and refit per-frame pose or translation while holding shape fixed.
+- Interface: `SharedBetaRefitConfig`, `SharedBetaRefitResult`, `apply_shared_beta_refit`.
+- Inputs: stage1 records, optional alignment IoU, optional person masks or 2D joints, body-model assets.
+- Outputs/downstream: rewritten stage1 records and shared-beta metadata.
+
+### `src/avatar_gs/smpl/silhouette_refine.py`
+- Role: refine per-frame SMPLest-X parameters against person masks and silhouette quality metrics.
+- Interface: `SilhouetteRefineConfig`, `SilhouetteRefineResult`, `apply_silhouette_refine`.
+- Inputs: stage1 records, body-model assets, mask-source selection, and optional MODNet checkpoint.
+- Outputs/downstream: rewritten stage1 records plus per-frame acceptance and loss metadata consumed by stage1 export and summaries.
+
+### `src/avatar_gs/stage2/fashn_semantics.py`
+- Role: load and validate the face-semantics NPZ for stage2.
+- Interface: `Stage2FaceSemantics`, `load_stage2_face_semantics`.
+- Inputs: `smpl_face_semantics.npz`, optional expected face count.
+- Outputs/downstream: validated semantic asset for `src/avatar_gs/gaussian/train_loop.py`.
+
+### `outputs/stage1/smplestx/`
+- Role: raw backend runtime directory and predictions produced by the selected-frame SMPLest-X invocation.
+- Interface: generated output directory.
+- Inputs: written by `src/avatar_gs/cli/_run_smplestx_refine_frames.py`.
+- Outputs/downstream: read by `src/avatar_gs/cli/stage1_fit_smplestx.py` when rebuilding final stage1 records.
+
+### `outputs/stage1/fashn_face_semantics/`
+- Role: default face-semantics asset directory under the stock stage1 output root.
+- Interface: generated output directory.
+- Inputs: written by stage1 FASHN face-semantics export.
+- Outputs/downstream: provides semantic assets for stage2 semantic policies.
+
+### `outputs/stage1_sharedbeta/`
+- Role: legacy or alternate stage1 root still referenced by the stock stage2 config, not the stage1 CLI default.
+- Interface: generated output directory only if the operator targets that `--out_dir` or keeps older artifacts.
+- Inputs: written by `src/avatar_gs/cli/stage1_fit_smplestx.py` only when explicitly targeted there.
+- Outputs/downstream: still referenced by `configs/stage2_gaussian.yaml` for geometry and mask paths.
+
+### `outputs/stage1_bestof/`
+- Role: optional merged stage1 root assembled from per-frame winners across evaluated candidate runs.
+- Interface: generated output directory.
+- Inputs: written by `src/avatar_gs/cli/stage1_bestof_merge.py` from candidate stage1 dirs and evaluation reports.
+- Outputs/downstream: stage2-compatible alternative to a single-run `outputs/stage1`.
+
 ## Top-Level Files
 
 ### `README.md`
@@ -32,7 +115,7 @@ For each file below, the contract is described in four parts:
 - Interface: `pip install -r requirements.txt`.
 - Inputs: package constraints derived from code imports.
 - Outputs/downstream: base Python environment for local execution.
-- Caveat: does not fully solve the environment by itself; `mmcv-full==1.7.1`, body-model assets, and editable install of `third_party/SMPLer-X/main/transformer_utils` are still required.
+- Caveat: does not fully solve the environment by itself; `mmcv-full==1.7.1`, body-model assets, and editable install of `third_party/SMPLest-X/main/transformer_utils` are still required.
 
 ### `idea.md`
 - Role: repository truth ledger, branch map, risk list, and maintenance priorities.
@@ -65,8 +148,8 @@ Actual setup depends on:
 - `requirements.txt`
 - CUDA/PyTorch-compatible `torch` and `torchvision`
 - `mmcv-full==1.7.1`
-- editable install of `third_party/SMPLer-X/main/transformer_utils`
-- external checkpoints for SMPLer-X and MODNet
+- editable install of `third_party/SMPLest-X/main/transformer_utils`
+- external checkpoints for SMPLest-X and MODNet
 - SMPL / SMPL-X body-model assets under `assets/**`
 
 That is why the README, requirements, and stage1 docs must stay consistent.
@@ -79,11 +162,11 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Inputs: input video path, output frame directory, frame step, image quality.
 - Outputs/downstream: controls extraction of `data/frames/input/*.jpg` and `metadata.json`.
 
-### `configs/stage1_smplerx.yaml`
+### `configs/stage1_smplestx.yaml`
 - Role: stage1 path and asset configuration.
-- Interface: loaded by `avatar_gs.cli.stage1_fit_smplerx`.
-- Inputs: frame directory, asset roots, SMPLer-X root, output directory.
-- Outputs/downstream: determines where stage1 writes sequence assets.
+- Interface: loaded by `avatar_gs.cli.stage1_fit_smplestx`.
+- Inputs: frame directory, asset roots, SMPLest-X root, output directory.
+- Outputs/downstream: determines where stage1 writes sequence assets; the stock `out_dir` is `outputs/stage1`.
 
 ### `configs/stage2_gaussian.yaml`
 - Role: main stage2 configuration for frame selection, binding, supervision, losses, shell logic, and render defaults.
@@ -91,6 +174,7 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Inputs: stage1 output paths, training parameters, supervision policy, shell settings, render settings.
 - Outputs/downstream: defines default stage2 behavior.
 - Critical fact: the current default still says `training_mode: inner_only`.
+- Latest update: the stock config is now split across stage1 roots. Geometry and mask paths still point to `outputs/stage1_sharedbeta`, while `smpl_face_semantics_npz` points to `outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz`; it also relaxes `stage1_align_filter_min` to `0.93`, enables `inner_rgb_from_combined_rgb`, and raises several densify or local-prior candidate ratios.
 
 ## Scripts
 
@@ -160,10 +244,10 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Outputs/downstream: consumed by stage2 training.
 
 ### `src/avatar_gs/segmentation/__init__.py`
-- Role: export MODNet runtime helpers.
+- Role: export segmentation helpers.
 - Interface: package import layer.
-- Inputs: `modnet.py`.
-- Outputs/downstream: unified import path for mask estimation.
+- Inputs: `modnet.py`, `fashn.py`, and face-semantics helper exports.
+- Outputs/downstream: unified import path for mask estimation and FASHN-driven stage1 semantics export.
 
 ### `src/avatar_gs/stage2/__init__.py`
 - Role: export stage2 config, supervision, mesh runtime, reporting, and rigid-align symbols.
@@ -191,18 +275,25 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Inputs: `configs/video.yaml` plus CLI overrides and input video.
 - Outputs/downstream: frame JPEGs, metadata, resolved YAML, and stage1-ready frame data.
 
-### `src/avatar_gs/cli/_run_smplerx_refine_frames.py`
-- Role: prepare and invoke SMPLer-X on selected frames.
+### `src/avatar_gs/cli/_run_smplestx_refine_frames.py`
+- Role: prepare and invoke SMPLest-X on selected frames.
 - Interface: `main()` plus helpers for frame listing, index parsing, safe copying, model-name resolution, and checkpoint checks.
-- Inputs: frame directory, selected frame indices, SMPLer-X repo path, pretrained model path.
-- Outputs/downstream: a prepared runtime directory for `third_party/SMPLer-X/main/inference.py`.
+- Inputs: frame directory, selected frame indices, SMPLest-X repo path, pretrained model path.
+- Outputs/downstream: a prepared runtime directory for `third_party/SMPLest-X/main/inference.py`.
 
-### `src/avatar_gs/cli/stage1_fit_smplerx.py`
+### `src/avatar_gs/cli/stage1_fit_smplestx.py`
 - Role: stage1 master executor.
 - Interface: `main()` plus a large set of helpers for requirement checks, mask estimation, projection, parameter reconstruction, frame-record building, and export.
-- Inputs: frame images, SMPLer-X outputs, MODNet outputs, stage1 config, body-model assets.
-- Outputs/downstream: all stage1 sequence assets consumed by stage2 and render.
-- Data flow: frames -> SMPLer-X -> rebuilt cameras and meshes -> fused masks -> exported sequence package.
+- Inputs: frame images, SMPLest-X outputs, MODNet outputs, stage1 config, body-model assets, and optional local FASHN assets.
+- Outputs/downstream: all stage1 sequence assets consumed by stage2 and render, raw backend artifacts under `<out_dir>/smplestx`, optional face-semantics assets under `<out_dir>/fashn_face_semantics`, and summary metadata under `<out_dir>/final`.
+- Data flow: frames -> `_run_smplestx_refine_frames.py` -> SMPLest-X -> rebuilt cameras and meshes -> fused masks -> optional shared-beta refit -> silhouette refine -> optional FASHN face semantics export -> exported sequence package.
+- Default behavior: `disable_shared_beta_refit=True`, `build_fashn_face_semantics=True`, and silhouette refine runs unless explicitly disabled.
+
+### `src/avatar_gs/cli/stage1_bestof_merge.py`
+- Role: merge best per-frame stage1 assets from multiple evaluated candidate runs.
+- Interface: `main()` plus helpers for evaluation-report lookup, per-frame scoring, and NPZ merging.
+- Inputs: candidate stage1 directories, a base stage1 directory, and `evaluation/output_images/**/stage1_eval_report_all.json`.
+- Outputs/downstream: writes `outputs/stage1_bestof/**`, copies per-frame OBJ files, and records source provenance in `smpl_params_sequence.npz`.
 
 ### `src/avatar_gs/cli/stage1_align_check.py`
 - Role: CLI entry for stage1 alignment checks.
@@ -213,9 +304,9 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 ### `src/avatar_gs/cli/stage2_train_gaussian.py`
 - Role: stage2 launcher and coordinator.
 - Interface: `main()` plus helpers for project-path resolution, stage1 frame filtering, alignment-score loading, camera-tensor alignment, and optional init-checkpoint loading.
-- Inputs: stage2 config, stage1 assets, optional init checkpoint.
+- Inputs: stage2 config, stage1 assets, optional init checkpoint, and optionally the stage1 face-semantics NPZ referenced by config.
 - Outputs/downstream: trained Gaussian checkpoints, supervision cache or summaries, outer reports.
-- Data flow: config -> frame selection -> rigid align -> init gaussians -> supervision state -> mesh runtime -> train loop.
+- Data flow: config -> frame selection -> rigid align -> init gaussians -> supervision state -> semantic asset resolution -> mesh runtime -> train loop.
 
 ### `src/avatar_gs/cli/render.py`
 - Role: render executor for real, foreground-only, and deform views.
@@ -223,6 +314,7 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Inputs: stage2 checkpoint, stage1 meshes or params, original images, render config.
 - Outputs/downstream: rendered PNG images across combined, inner, and outer shell views.
 - Data flow: checkpoint + selected mesh/pose source -> per-frame Gaussian selection -> renderer -> optional overlays -> saved images.
+- Latest update: when driven by the stock config, render inherits the same split-root stage1 defaults as stage2, with geometry paths still targeting `outputs/stage1_sharedbeta`.
 
 ### `src/avatar_gs/cli/edit.py`
 - Role: small edit utility over saved stage2 checkpoints.
@@ -373,6 +465,7 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Inputs: `Gaussian3D`, stage2 config, supervision state, mesh runtime, binding state, optimizer state.
 - Outputs/downstream: updated checkpoints, logs, shell-policy state, and metrics.
 - Data flow per iteration: select frame -> update binding -> render -> compute losses -> optimize -> densify/prune -> log and checkpoint.
+- Latest update: semantic-aware policies now use face-level semantics for inner local color donor selection and exposed-face blocking in outer logic.
 - Warning: this file is overloaded and is the main maintenance risk.
 
 ## Gaussian Binding
@@ -478,6 +571,7 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Interface: dataclasses and config objects for frame selection, binding, supervision, and training.
 - Inputs: YAML config plus CLI overrides.
 - Outputs/downstream: typed config used across stage2 launcher, mesh runtime, supervision, and train loop.
+- Latest update: resolves `smpl_face_semantics_npz` and semantic-policy thresholds into the stage2 runtime config.
 
 ### `src/avatar_gs/stage2/mesh_runtime.py`
 - Role: build runtime mesh context for stage2 and render.
@@ -542,6 +636,12 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Interface: `setup_logger`.
 - Inputs: logger name and output configuration.
 - Outputs/downstream: consistent CLI logging.
+
+### `src/avatar_gs/utils/progress.py`
+- Role: small progress-wrapper compatibility layer.
+- Interface: exported `tqdm`.
+- Inputs: iterable work units and optional progress labels.
+- Outputs/downstream: shared progress bars for stage1 CLI and related helpers.
 
 ### `src/avatar_gs/utils/person_contour.py`
 - Role: shim that re-exports contour helpers from evaluation code.
@@ -675,7 +775,13 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - `outputs/stage1/smpl_joints_sequence.npz`
 - `outputs/stage1/smpl_skeleton_sequence.npz`
 - `outputs/stage1/sequence/frame_*.obj`
+- `outputs/stage1/smplestx/**`
 - `outputs/stage1/final/run_summary.json`
+- `outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz`
+- `outputs/stage1/fashn_face_semantics/smpl_face_semantics.csv`
+- `outputs/stage1/fashn_face_semantics/smpl_face_semantics_summary.json`
+- `outputs/stage1_bestof/**`
+- `outputs/stage1_sharedbeta/**` as an alternate or legacy root still referenced by the stock stage2 config
 
 ### Stage2 outputs
 - `outputs/stage2/gaussians3d.pt`
@@ -699,10 +805,10 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 
 ## External Boundaries
 
-### `third_party/SMPLer-X/**`
+### `third_party/SMPLest-X/**`
 - Boundary role: external body-estimation stack used by stage1.
-- Entry points used here: primarily `third_party/SMPLer-X/main/inference.py` and editable install under `main/transformer_utils`.
-- Contract with this repo: produce body predictions that `stage1_fit_smplerx.py` rebuilds into stage1 assets.
+- Entry points used here: primarily `third_party/SMPLest-X/main/inference.py` and editable install under `main/transformer_utils`.
+- Contract with this repo: produce body predictions that `stage1_fit_smplestx.py` rebuilds into stage1 assets.
 
 ### `third_party/MODNet/**`
 - Boundary role: external portrait matting stack.
@@ -719,16 +825,19 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 1. `preprocess_video.py`
    `input.mp4 -> frame jpg + metadata.json`
 
-2. `stage1_fit_smplerx.py`
-   `frame jpg + SMPLer-X + body assets -> cameras + keypoints + masks + params + vertices + OBJ sequence`
+2. `stage1_fit_smplestx.py`
+   `frame jpg + SMPLest-X + body assets -> raw smplestx outputs + rebuilt stage1 assets + optional shared-beta or silhouette postprocess + optional face semantics`
 
-3. `stage2_train_gaussian.py`
+3. `stage1_bestof_merge.py` (optional)
+   `multiple evaluated stage1 dirs + reports -> best per-frame merged stage1 root`
+
+4. `stage2_train_gaussian.py`
    `stage1 assets + stage2 config -> Gaussian3D + supervision state + mesh runtime -> trained checkpoints and reports`
 
-4. `render.py`
+5. `render.py`
    `trained checkpoint + stage1 mesh or params + frame images -> real/fg_only/deform renders`
 
-5. `run_stage1_eval.py`
+6. `run_stage1_eval.py`
    `stage1 vertices or OBJ + cameras + person mask or contour -> stage1 alignment metrics and debug images`
 
 ## Maintenance Priority Files
@@ -739,7 +848,7 @@ If someone changes only a few files and still expects to understand the repo, th
 - `idea.md`
 - `PROJECT_MAP.md`
 - `configs/stage2_gaussian.yaml`
-- `src/avatar_gs/cli/stage1_fit_smplerx.py`
+- `src/avatar_gs/cli/stage1_fit_smplestx.py`
 - `src/avatar_gs/cli/stage2_train_gaussian.py`
 - `src/avatar_gs/cli/render.py`
 - `src/avatar_gs/gaussian/train_loop.py`

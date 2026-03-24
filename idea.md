@@ -14,11 +14,11 @@ If these three files disagree, trust the code first and fix the docs second.
 ## What This Repository Really Is
 
 - This is not a standalone human reconstruction stack.
-- It is a pipeline that wraps and organizes external systems: `SMPLer-X`, `MODNet`, `gsplat`, SMPL/SMPL-X body models, and external checkpoints.
+- It is a pipeline that wraps and organizes external systems: `SMPLest-X`, `MODNet`, `gsplat`, SMPL/SMPL-X body models, and external checkpoints.
 - The intended product is an editable Gaussian avatar bound to a per-frame SMPL mesh sequence.
 - The effective execution chain is:
   1. `src/avatar_gs/cli/preprocess_video.py`
-  2. `src/avatar_gs/cli/stage1_fit_smplerx.py`
+  2. `src/avatar_gs/cli/stage1_fit_smplestx.py`
   3. `src/avatar_gs/cli/stage2_train_gaussian.py`
   4. `src/avatar_gs/cli/render.py`
   5. optional evaluation: `evaluation/stage1_eval/run_stage1_eval.py`
@@ -33,8 +33,8 @@ If these three files disagree, trust the code first and fix the docs second.
 
 ### Step 2: stage1
 
-- Entry: `src/avatar_gs/cli/stage1_fit_smplerx.py`
-- Input: extracted frames, SMPLer-X repo, body-model assets, checkpoints, optional MODNet
+- Entry: `src/avatar_gs/cli/stage1_fit_smplestx.py`
+- Input: extracted frames, SMPLest-X repo, body-model assets, checkpoints, optional MODNet
 - Output:
   - `outputs/stage1/cameras.json`
   - `outputs/stage1/keypoints.json`
@@ -45,7 +45,7 @@ If these three files disagree, trust the code first and fix the docs second.
   - `outputs/stage1/smpl_skeleton_sequence.npz`
   - `outputs/stage1/sequence/frame_*.obj`
   - `outputs/stage1/final/run_summary.json`
-- Real role: not a homegrown body fitter; it is a SMPLer-X runner, result rebuilder, mask generator, and stage2 asset exporter.
+- Real role: not a homegrown body fitter; it is a SMPLest-X runner, result rebuilder, mask generator, and stage2 asset exporter.
 
 ### Step 3: stage2
 
@@ -69,6 +69,24 @@ If these three files disagree, trust the code first and fix the docs second.
 - Output: `outputs/renders/real|fg_only|deform/{combined,inner,outer}/*.png`
 - Real role: not a passive viewer. It is another executor that chooses pose source, mesh source, shell split, overlays, and output modes.
 
+## Current Stage1 Update: Silhouette Refine, Optional Shared-Beta, and FASHN
+
+The current stage1 implementation adds a second control axis on top of the old geometry-plus-mask story.
+
+Before this stage1 update, the repository was mainly:
+- geometry
+- person masks
+- shell policies
+
+After this update, the repository also carries:
+- default-on silhouette-driven per-frame refinement
+- sequence-level shared body-shape refit that is optional and disabled by default
+- face-level semantics inferred from local FASHN parsing
+- optional best-of merge across evaluated stage1 candidates
+
+The important implication is that stage1 is no longer just a body-parameter exporter.
+It is now also a postprocess stage and an optional semantics-export stage.
+
 ## Where the Logic Branches
 
 ### Branch 1: stage1 name versus stage1 reality
@@ -76,14 +94,17 @@ If these three files disagree, trust the code first and fix the docs second.
 The file name suggests a local SMPL fitting stage. That is not what the code is centered on.
 
 What it really does:
-- prepare SMPLer-X runtime and checkpoints
-- call `src/avatar_gs/cli/_run_smplerx_refine_frames.py`
-- rebuild camera, joints, and vertices from SMPLer-X outputs
+- prepare SMPLest-X runtime and checkpoints
+- call `src/avatar_gs/cli/_run_smplestx_refine_frames.py`
+- rebuild camera, joints, and vertices from SMPLest-X outputs
 - estimate and fuse person masks
+- optionally run shared-beta refit
+- run silhouette-driven parameter refinement unless explicitly disabled
+- optionally export FASHN face semantics
 - export the assets required by stage2
 
 Conclusion:
-- stage1 quality is dominated by `third_party/SMPLer-X` and external assets
+- stage1 quality is dominated by `third_party/SMPLest-X` and external assets
 - pretending it is a self-contained in-repo optimizer is fiction
 
 ### Branch 2: person-mask supervision has multiple sources
@@ -219,18 +240,52 @@ A real reproduction requires:
 - a CUDA/PyTorch-matched install of `torch` and `torchvision`
 - `requirements.txt`
 - separate install of `mmcv-full==1.7.1`
-- editable install of `third_party/SMPLer-X/main/transformer_utils`
-- SMPLer-X checkpoints
+- editable install of `third_party/SMPLest-X/main/transformer_utils`
+- SMPLest-X checkpoints
 - MODNet checkpoints
 - SMPL / SMPL-X body-model assets
 
 That is why the docs must keep Python dependencies separate from external assets and model files.
 Mixing them together is lazy and misleading.
 
+### Branch 11: stage1 output provenance is now split in several incompatible ways
+
+The stage1 CLI default, the optional shared-beta branch, the optional best-of branch, and the stock stage2 config no longer point to one canonical root.
+
+Current reality:
+- `stage1_fit_smplestx.py` writes to `outputs/stage1` by default
+- shared-beta refit rewrites records in the same output dir only if `--enable_shared_beta_refit` is passed
+- `stage1_bestof_merge.py` can build a separate `outputs/stage1_bestof`
+- `configs/stage2_gaussian.yaml` still points `stage1_dir` and `person_masks_npz` at `outputs/stage1_sharedbeta`
+- the same config points `smpl_face_semantics_npz` at `outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz`
+
+If downstream code or documentation does not say which branch it consumes, the result is not just ambiguous.
+It is operationally broken.
+
+### Branch 12: semantics are now a second supervision-control path
+
+Mask logic still answers where the person and silhouette support are.
+The new face-semantics asset answers something different:
+- whether a face is exposed body
+- whether a face is covered by clothing or hair
+- whether the label is too uncertain to trust
+
+That semantic branch now changes stage2 behavior through:
+- inner local color donor selection
+- exposed-face exclusion from outer-shell logic
+
+### Branch 13: richer outer-shell logic still does not make the default run full
+
+The code is now smarter about where outer behavior should not happen.
+But the default config still says `training_mode: inner_only`.
+
+So the repository got semantically smarter without fixing the oldest honesty problem.
+The default run is still not the same thing as a full dual-layer pipeline.
+
 ## Current Risks
 
-1. The default config and the repository narrative do not match.
-   The code advertises dual-layer behavior, but the default run remains `inner_only`.
+1. The default config, stage1 defaults, and the repository narrative do not match.
+   The code advertises dual-layer behavior, the default run remains `inner_only`, and the stock stage2 config still points at `outputs/stage1_sharedbeta` even though stage1 writes `outputs/stage1` and disables shared-beta by default.
 
 2. Mask provenance dominates downstream quality.
    Alignment, trigger-ring activation, spawn/prune logic, and evaluation all depend on it.
@@ -245,6 +300,12 @@ Mixing them together is lazy and misleading.
 
 6. Documentation can split again.
    `README.md`, `PROJECT_MAP.md`, and `idea.md` must be updated together when defaults, data contracts, or reproduction steps change.
+
+7. Vendored runtime bulk now hides logic changes.
+   The FASHN runtime tree makes it much easier for meaningful source changes to disappear inside a giant diff.
+
+8. Semantic assets introduce a topology-mismatch failure mode.
+   A stale `smpl_face_semantics.npz` can be structurally valid as a file but still invalid for the current face topology or stage1 sequence.
 
 ## What the Owner Should Do Next
 
@@ -265,3 +326,12 @@ Mixing them together is lazy and misleading.
 
 6. Keep the three docs synchronized.
    Any change to defaults, output layout, or reproduction steps should update `README.md`, `PROJECT_MAP.md`, and `idea.md` in the same change.
+
+7. Choose one canonical stage1 root and make the code match it.
+   Right now the CLI default is `outputs/stage1`, the stock stage2 config still expects `outputs/stage1_sharedbeta`, and best-of can create `outputs/stage1_bestof`. That is a taxonomy problem, not flexibility.
+
+8. Decide whether face semantics are optional or expected.
+   Right now the code can survive without them in some paths, but semantic-policy paths clearly expect them.
+
+9. Keep reviewable source separate from vendored runtime bulk.
+   If every semantic update drags a mountain of runtime files into the same diff, maintenance quality will keep dropping.

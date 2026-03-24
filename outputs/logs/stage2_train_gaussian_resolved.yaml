@@ -4,11 +4,11 @@ log_dir: outputs/logs
 data:
   frames_dir: data/frames/input
 stage2:
-  stage1_dir: outputs/stage1
-  out_dir: outputs/stage2
+  stage1_dir: outputs/stage1_sharedbeta
+  out_dir: outputs/stage2_inner_sharedbeta
   training_mode: inner_only
   init_ckpt: null
-  inner_ckpt_path: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage2\gaussians3d_inner.pt
+  inner_ckpt_path: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage2_inner_sharedbeta\gaussians3d_inner.pt
   init_mesh_obj: ''
   enable_tf32: true
   cudnn_benchmark: true
@@ -54,7 +54,7 @@ stage2:
   l1_weight: 0.6
   use_alpha_mask: false
   alpha_threshold: 0.03
-  keypoints_json: outputs/stage1/keypoints.json
+  keypoints_json: outputs/stage1_sharedbeta/keypoints.json
   kpt_conf_min: 0.2
   kpt_box_pad: 0.12
   use_kpt_bbox_mask: false
@@ -76,12 +76,12 @@ stage2:
   frame_select: stage1_sequence
   stage1_align_filter_enable: true
   stage1_align_filter_metric: camera_align_iou
-  stage1_align_filter_min: 0.995
+  stage1_align_filter_min: 0.93
   temporal_ref_anchor: sample
   temporal_ref_window: 0
   temporal_ref_decay: 0.86
   bind_to_mesh: true
-  bind_mesh_sequence_dir: outputs/stage1
+  bind_mesh_sequence_dir: outputs/stage1_sharedbeta
   bind_cache_size: 32
   bind_mesh_obj_space: auto
   bind_align_quat_to_mesh_normals: true
@@ -91,6 +91,17 @@ stage2:
   inner_local_scale_cap_weight: 0.03
   inner_local_scale_cap_ratio: 1.2
   inner_local_scale_cap_normal_ratio: 0.75
+  smpl_face_semantics_npz: outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
+  outer_block_exposed_faces: true
+  inner_local_color_prior_enable: true
+  inner_local_color_prior_weight: 0.03
+  inner_local_color_prior_start_iter: 200
+  inner_local_color_prior_target_conf_max: 0.3
+  inner_local_color_prior_donor_conf_min: 0.65
+  inner_local_color_prior_donor_opacity_min: 0.08
+  inner_local_color_prior_donor_vis_min: 0.05
+  inner_local_color_prior_semantic_conf_min: 0.55
+  inner_local_color_prior_min_donor_weight: 0.2
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset:
@@ -107,7 +118,7 @@ stage2:
     max_outside_after: 0.2
     init_from_bbox: true
     use_best_if_quality_fail: true
-    person_masks_npz: outputs/stage1/person_masks.npz
+    person_masks_npz: outputs/stage1_sharedbeta/person_masks.npz
     sample_frames: 4
     eval_downsample: 0.35
     outside_weight: 2.0
@@ -156,8 +167,8 @@ stage2:
   smpl_mask_precompute: true
   smpl_mask_precompute_max_frames: 48
   use_person_mask: true
-  person_masks_npz: outputs/stage1/person_masks.npz
-  prepared_supervision_cache_path: outputs/stage2/supervision_cache.npz
+  person_masks_npz: outputs/stage1_sharedbeta/person_masks.npz
+  prepared_supervision_cache_path: outputs/stage2_inner_sharedbeta/supervision_cache.npz
   person_mask_dilate_px: 0
   person_mask_erode_px: 0
   gt_mask_mode: modnet
@@ -231,7 +242,7 @@ stage2:
   use_border_attenuation: true
   border_attenuation_width: 4
   V_min: 8
-  densify_top_percent: 12.0
+  densify_top_percent: 16.0
   phase0_ratio: 0.05
   phase2_ratio: 0.1
   phase_ratio_inner_only: 0.12
@@ -264,13 +275,13 @@ stage2:
   shell_offset_freeze_phase0: false
   inner_dual_candidate_enable: true
   inner_high_curv_dual_activate_th: 0.2
-  inner_face_candidate_ratio: 0.35
-  inner_vertex_candidate_ratio: 0.65
+  inner_face_candidate_ratio: 0.45
+  inner_vertex_candidate_ratio: 0.55
   inner_bind_mode_default: vertex
   inner_local_scale_init_enable: true
   inner_local_scale_init_vertex_ratio: 0.4
-  inner_local_scale_init_face_ratio: 0.75
-  inner_local_scale_init_normal_ratio: 0.45
+  inner_local_scale_init_face_ratio: 0.6
+  inner_local_scale_init_normal_ratio: 0.35
   inner_local_scale_init_min: 0.0008
   inner_local_scale_init_max: 0.012
   outer_trigger_face_activate_enable: true
@@ -387,70 +398,3 @@ stage2:
       outer_color_band_weight: 0.03
       layer_alpha_balance_weight: 0.01
   bind_rigid_align_effective: *id001
-render:
-  stage2_dir: outputs/stage2
-  out_dir: outputs/renders
-  save_main_image: false
-  save_real_image: true
-  real_out_subdir: real
-  save_fg_nobg_skeleton: true
-  fg_nobg_out_subdir: fg_only
-  deform_render_image: true
-  deform_out_subdir: deform
-  clear_out_dir_pngs: true
-  frames_dir: data/frames/input
-  frame_select: last
-  max_frames: 1
-  bg:
-  - 1.0
-  - 1.0
-  - 1.0
-  k_scale: 1.0
-  center_subject: false
-  subject_fit_enabled: false
-  six_views_enable: true
-  six_views_include_top_bottom: true
-  fg_scale: 1.0
-  bg_scale: 1.0
-  split_by_bind: false
-  render_bound_only: true
-  fg_only_render_bound_only: true
-  deform_render_bound_only: true
-  deform_smplx_use_standard_pose: true
-  bound_alpha_threshold: 0.0
-  bound_opacity_min: 0.04
-  fg_mask_mode: none
-  fg_mask_dilate_px: 0
-  fg_mask_erode_px: 0
-  fg_only_alpha_threshold: 0.02
-  fg_only_alpha_gamma: 1.0
-  fg_only_alpha_gain_max: 1.0
-  deform_alpha_threshold: 0.03
-  deform_alpha_gamma: 1.0
-  deform_alpha_gain_max: 1.0
-  overlay_smpl_skeleton: false
-  debug_overlay_keypoints: false
-  debug_bind_to_google_skeleton: false
-  smpl_skeleton_source: joints
-  smpl_skeleton_npz: outputs/stage1/smpl_skeleton_sequence.npz
-  smpl_joints_npz: outputs/stage1/smpl_joints_sequence.npz
-  smpl_skeleton_color_bgr:
-  - 0
-  - 255
-  - 0
-  smpl_skeleton_line_thickness: 0
-  smpl_skeleton_joint_radius: 3
-  use_gt_background: false
-  bind_mesh_sequence_dir: outputs/stage1
-  bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
-  bind_mesh_obj_space: auto
-  deform_mesh_obj_space: auto
-  bind_rigid_align_auto_from_stage2: true
-  bind_align_quat_to_mesh_normals: true
-  bind_quat_normal_blend: 1.0
-  bind_mesh_to_camera: true
-  bind_inverse_export_upright: true
-  bind_mesh_offset:
-  - 0.0
-  - 0.0
-  - 0.0

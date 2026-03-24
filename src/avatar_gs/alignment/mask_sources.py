@@ -91,7 +91,7 @@ def read_stage1_frame_camera_K(
         except Exception:
             pass
 
-    meta_path = stage1_dir / "smplerx" / "selected_frames" / "meta" / f"{int(frame_index) + 1:05d}_0.json"
+    meta_path = stage1_dir / "smplestx" / "selected_frames" / "meta" / f"{int(frame_index) + 1:05d}_0.json"
     if meta_path.exists():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -153,11 +153,32 @@ def _largest_component_by_overlap(mask_u8: np.ndarray, ref_mask_u8: np.ndarray |
     return out
 
 
+def _fill_small_sealed_holes(mask_u8: np.ndarray, max_hole_area: int) -> np.ndarray:
+    m = (np.asarray(mask_u8, dtype=np.uint8) > 0).astype(np.uint8)
+    if m.ndim != 2 or m.size <= 0:
+        return (m > 0).astype(np.uint8)
+    h, w = m.shape[:2]
+    inv = (1 - m).astype(np.uint8)
+    flood = inv.copy()
+    flood_mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
+    cv2.floodFill(flood, flood_mask, (0, 0), 2)
+    holes = (flood == 1).astype(np.uint8)
+    if int(holes.sum()) <= 0:
+        return (m > 0).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(holes, connectivity=8)
+    out = m.copy()
+    for comp_i in range(1, int(n)):
+        area = int(stats[comp_i, cv2.CC_STAT_AREA])
+        if area <= int(max_hole_area):
+            out[labels == comp_i] = 1
+    return (out > 0).astype(np.uint8)
+
+
 def clean_person_mask_eval_style_np(mask_u8: np.ndarray, ref_mask_u8: np.ndarray | None = None) -> np.ndarray:
     m = (np.asarray(mask_u8, dtype=np.uint8) > 0).astype(np.uint8)
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     m = cv2.morphologyEx(m, cv2.MORPH_OPEN, k, iterations=1)
-    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k, iterations=2)
+    m = _fill_small_sealed_holes(m, max_hole_area=96)
     return _largest_component_by_overlap(m, ref_mask_u8, min_area=128)
 
 

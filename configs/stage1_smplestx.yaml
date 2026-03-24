@@ -1,0 +1,17 @@
+project_root: .
+seed: 42
+log_dir: outputs/logs
+
+data:
+  frames_dir: data/frames/input
+
+stage1_smplestx:
+  assets_dir: assets
+  out_dir: outputs/stage1
+  smplestx_frame_indices: -1
+  smplestx_stride: 1
+  single_person: true
+
+  smplestx_ckpt: smplest_x_h
+  smplestx_repo_dir: third_party/SMPLest-X
+

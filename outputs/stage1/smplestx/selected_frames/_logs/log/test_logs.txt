@@ -1,0 +1,5 @@
+[92m03-24 12:15:17[0m Using 1 GPU.
+[92m03-24 12:15:17[0m Inference [selected_frames] with [D:\project\Projects-zhy\Editable Gaussian Avatars\third_party\SMPLest-X\pretrained_models\smplest_x_h\smplest_x_h.pth.tar].
+[92m03-24 12:15:17[0m Load checkpoint from D:\project\Projects-zhy\Editable Gaussian Avatars\third_party\SMPLest-X\pretrained_models\smplest_x_h\smplest_x_h.pth.tar
+[92m03-24 12:15:17[0m Creating graph...
+[92m03-24 12:15:27[0m [93mWRN: Attention: Strict=False is set for checkpoint loading. Please check manually.[0m

@@ -1,8 +1,8 @@
 {
   "frames_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\data\\frames\\input",
   "assets_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\assets",
-  "smplerx_repo_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\SMPLer-X",
-  "smplerx_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smplerx\\selected_frames",
+  "smplestx_repo_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\SMPLest-X",
+  "smplestx_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smplestx\\selected_frames",
   "final_output_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\final",
   "sequence_frame_count": 76,
   "sequence_first_frame_name": "000000.jpg",
@@ -10,15 +10,36 @@
   "sequence_first_frame_idx": 0,
   "sequence_last_frame_idx": 75,
   "model_type": "smplx",
-  "smplerx_checkpoint": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\SMPLer-X\\pretrained_models\\smpler_x_h32_correct.pth.tar",
+  "smplestx_checkpoint": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\SMPLest-X\\pretrained_models\\smplest_x_h\\smplest_x_h.pth.tar",
   "pred_source_counts": {
     "exact": 76
   },
   "pred_non_exact_local_indices": [],
   "missing_requirements": {
-    "smplerx": [],
+    "smplestx": [],
     "python": []
   },
+  "shared_beta_refit": {
+    "enabled": false,
+    "reason": "disabled_by_flag"
+  },
+  "silhouette_refine": {
+    "enabled": true,
+    "device": "cuda",
+    "mask_source": "modnet",
+    "accepted_count": 76,
+    "frame_count": 76,
+    "skipped_count": 0,
+    "iou_before_mean": 0.7948088645935059,
+    "iou_after_mean": 0.8847138285636902,
+    "outside_before_mean": 0.12636776268482208,
+    "outside_after_mean": 0.03453253209590912,
+    "score_before_mean": 0.20836035907268524,
+    "score_after_mean": 0.7074645161628723,
+    "refit_total_loss_mean": 128.3828887939453,
+    "refit_total_loss_max": 639.3946533203125
+  },
+  "fashn_face_semantics": null,
   "stage2_compat_assets": {
     "cameras_json": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\cameras.json",
     "keypoints_json": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\keypoints.json",

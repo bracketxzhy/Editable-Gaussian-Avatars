@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from tqdm import tqdm
 
 from avatar_gs.alignment import estimate_mask_similarity_transform
 from avatar_gs.alignment.mask_sources import (
@@ -22,6 +21,7 @@ from avatar_gs.alignment.mask_sources import (
 )
 from avatar_gs.training.inner_layer_training import resolve_inner_supervision_mask
 from avatar_gs.utils.io import ensure_dir
+from avatar_gs.utils.progress import tqdm
 
 
 def project_points_numpy(
@@ -582,8 +582,6 @@ def build_stage2_training_supervision_state(
                     range(nF),
                     total=nF,
                     desc="Stage2 GT contours",
-                    dynamic_ncols=True,
-                    leave=False,
                 )
                 for i in contour_iter:
                     gt_mask_np = estimate_gt_person_contour_mask_np(
@@ -778,9 +776,9 @@ def prepare_stage2_supervision_artifacts(
     smpl_mask_erode_px = int(stage2_cfg.get("smpl_mask_erode_px", 0))
     strict_inner_mask = bool(stage2_cfg.get("inner_use_strict_smpl_mask", True))
     smpl_color_mask_erode_px = int(stage2_cfg.get("smpl_color_mask_erode_px", 0))
-    inner_rgb_from_combined_rgb = bool(stage2_cfg.get("inner_rgb_from_combined_rgb", False))
+    inner_rgb_from_combined_rgb = bool(stage2_cfg.get("inner_rgb_from_combined_rgb", True))
     inner_matches_smpl = bool(strict_inner_mask) and int(smpl_color_mask_erode_px) <= 0
-    inner_mask_dir = smpl_mask_dir if inner_matches_smpl else ensure_dir(preview_root / "inner_mask")
+    inner_mask_dir = ensure_dir(preview_root / "inner_mask")
 
     person_mask_map: dict[str, np.ndarray] = {}
     person_masks_npz_path = Path(str(person_masks_npz)) if person_masks_npz is not None else None
@@ -828,7 +826,6 @@ def prepare_stage2_supervision_artifacts(
         enumerate(frames),
         total=len(frames),
         desc="Stage2 supervision",
-        dynamic_ncols=True,
     )
     for i, fn in supervision_iter:
         img_bgr = cv2.imread(str(frames_dir / fn), cv2.IMREAD_COLOR)
@@ -946,8 +943,7 @@ def prepare_stage2_supervision_artifacts(
         outer_rgb_targets[i] = _masked_rgb_u8(rgb_u8, outer_mask_np)
         combined_rgb_targets[i] = combined_rgb_u8
         stem = Path(fn).stem
-        if not inner_matches_smpl:
-            cv2.imwrite(str(inner_mask_dir / f"{stem}.png"), inner_mask_np * 255)
+        cv2.imwrite(str(inner_mask_dir / f"{stem}.png"), inner_mask_np * 255)
         cv2.imwrite(str(outer_mask_dir / f"{stem}.png"), outer_mask_np * 255)
         cv2.imwrite(str(smpl_mask_dir / f"{stem}.png"), smpl_mask_eval_np * 255)
         cv2.imwrite(str(contour_mask_dir / f"{stem}.png"), gt_eval_mask_np * 255)

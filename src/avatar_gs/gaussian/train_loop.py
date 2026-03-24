@@ -8,7 +8,6 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from tqdm import tqdm
 
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D, sanitize_inner_surface_binding_
 from avatar_gs.gaussian.binding import (
@@ -37,6 +36,7 @@ from avatar_gs.training import (
     map_trigger_ring_to_faces,
     resolve_inner_supervision_mask,
 )
+from avatar_gs.utils.progress import tqdm
 from avatar_gs.gaussian.visibility import (
     build_border_attenuation,
     compute_gaussian_visibility,
@@ -1501,52 +1501,66 @@ def _train_gaussians_3d_learnable_camera_impl(
             elif bind_face_neighbor_idx_t is not None:
                 expected_face_count = int(bind_face_neighbor_idx_t.shape[0])
             if smpl_face_semantics_path is None:
-                raise ValueError(
-                    "Face semantic policies require smpl_face_semantics_npz. "
-                    "Run stage1 FASHN face semantics export first."
+                _log_warning(
+                    train_logger,
+                    "Semantic face policies requested but smpl_face_semantics_npz is unset; disabling them for this run.",
                 )
-            face_semantics_asset = load_stage2_face_semantics(
-                smpl_face_semantics_path,
-                expected_face_count=expected_face_count,
-            )
-            face_semantic_raw_t = torch.as_tensor(
-                face_semantics_asset.raw_label_ids,
-                device=device,
-                dtype=torch.long,
-            )
-            face_semantic_conf_t = torch.as_tensor(
-                face_semantics_asset.raw_label_confidence,
-                device=device,
-                dtype=torch.float32,
-            )
-            if bool(outer_block_exposed_faces):
-                blocked_np = face_semantics_asset.exclude_outer_mask
-                if blocked_np is None:
-                    blocked_np = (np.asarray(face_semantics_asset.group_ids, dtype=np.int16).reshape(-1) == 1).astype(
-                        np.uint8
+                inner_local_color_prior_enable = False
+                outer_block_exposed_faces = False
+            else:
+                try:
+                    face_semantics_asset = load_stage2_face_semantics(
+                        smpl_face_semantics_path,
+                        expected_face_count=expected_face_count,
                     )
-                outer_blocked_face_mask_t = torch.as_tensor(
-                    np.asarray(blocked_np, dtype=np.uint8).reshape(-1) > 0,
-                    device=device,
-                    dtype=torch.bool,
-                )
-            _log_info(
-                train_logger,
-                "Loaded SMPL face semantics: faces=%d asset=%s",
-                int(face_semantics_asset.face_count),
-                str(face_semantics_asset.npz_path),
-            )
-            if bool(inner_local_color_prior_enable):
-                _log_info(
-                    train_logger,
-                    "Enabled inner local color prior.",
-                )
-            if bool(outer_block_exposed_faces) and outer_blocked_face_mask_t is not None:
-                _log_info(
-                    train_logger,
-                    "Enabled outer exposed-face block: blocked_faces=%d",
-                    int(outer_blocked_face_mask_t.sum().item()),
-                )
+                except (FileNotFoundError, RuntimeError, ValueError) as exc:
+                    _log_warning(
+                        train_logger,
+                        "SMPL face semantics unavailable (%s); disabling semantic face policies for this run.",
+                        str(exc),
+                    )
+                    inner_local_color_prior_enable = False
+                    outer_block_exposed_faces = False
+                    face_semantics_asset = None
+                if face_semantics_asset is not None:
+                    face_semantic_raw_t = torch.as_tensor(
+                        face_semantics_asset.raw_label_ids,
+                        device=device,
+                        dtype=torch.long,
+                    )
+                    face_semantic_conf_t = torch.as_tensor(
+                        face_semantics_asset.raw_label_confidence,
+                        device=device,
+                        dtype=torch.float32,
+                    )
+                    if bool(outer_block_exposed_faces):
+                        blocked_np = face_semantics_asset.exclude_outer_mask
+                        if blocked_np is None:
+                            blocked_np = (np.asarray(face_semantics_asset.group_ids, dtype=np.int16).reshape(-1) == 1).astype(
+                                np.uint8
+                            )
+                        outer_blocked_face_mask_t = torch.as_tensor(
+                            np.asarray(blocked_np, dtype=np.uint8).reshape(-1) > 0,
+                            device=device,
+                            dtype=torch.bool,
+                        )
+                    _log_info(
+                        train_logger,
+                        "Loaded SMPL face semantics: faces=%d asset=%s",
+                        int(face_semantics_asset.face_count),
+                        str(face_semantics_asset.npz_path),
+                    )
+                    if bool(inner_local_color_prior_enable):
+                        _log_info(
+                            train_logger,
+                            "Enabled inner local color prior.",
+                        )
+                    if bool(outer_block_exposed_faces) and outer_blocked_face_mask_t is not None:
+                        _log_info(
+                            train_logger,
+                            "Enabled outer exposed-face block: blocked_faces=%d",
+                            int(outer_blocked_face_mask_t.sum().item()),
+                        )
     bind_rigid_apply_cfg = binding_state.bind_rigid_apply_cfg
     _load_mesh_np_raw = binding_state.load_mesh_np_raw
     _load_mesh_verts = binding_state.load_mesh_verts
@@ -2745,10 +2759,17 @@ def _train_gaussians_3d_learnable_camera_impl(
                 float(densify_top_percent),
             )
 
-            # Pass-2 render with per-gaussian visibility weighting.
-            pred_rgb, pred_a = render_gaussians_3d(
-                g_render, K_curr, R, t, H, W, bg=bg_rgb, return_alpha=True, gaussian_weights=visibility.detach()
-            )
+            # In inner-only runs, the visibility estimation pass is sufficient.
+            # Re-running gsplat with per-gaussian weights roughly doubles the heaviest
+            # kernel in the loop and has proven brittle on large shared-beta runs.
+            use_pass1_render_directly = (training_mode == "inner_only") and (phase_tag == "phase_inner")
+            if use_pass1_render_directly:
+                pred_rgb, pred_a = pred_rgb_p1, pred_a_p1
+            else:
+                # Pass-2 render with per-gaussian visibility weighting.
+                pred_rgb, pred_a = render_gaussians_3d(
+                    g_render, K_curr, R, t, H, W, bg=bg_rgb, return_alpha=True, gaussian_weights=visibility.detach()
+                )
             outer_residual_term = pred_rgb.new_tensor(0.0)
             if (
                 is_outer_color_phase

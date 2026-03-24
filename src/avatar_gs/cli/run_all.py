@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import subprocess
 import sys
 
@@ -15,7 +15,7 @@ def main():
     run([
         py,
         "-m",
-        "avatar_gs.cli.stage1_fit_smplerx",
+        "avatar_gs.cli.stage1_fit_smplestx",
         "--project_root",
         ".",
         "--frames_dir",
@@ -24,7 +24,7 @@ def main():
         "assets",
         "--out_dir",
         "outputs/stage1",
-        "--smplerx_frame_indices",
+        "--smplestx_frame_indices",
         "-1",
         "--single_person",
     ])
@@ -34,3 +34,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -1,0 +1,25 @@
+{
+  "focal": [
+    19849.2431640625,
+    19849.2431640625
+  ],
+  "princpt": [
+    698.8221435546875,
+    575.3521881103516
+  ],
+  "bbox": [
+    317.7166748046875,
+    67.21156311035156,
+    762.2109375,
+    1016.28125
+  ],
+  "bbox_detector": [
+    444.71258544921875,
+    151.90167236328125,
+    509.2191162109375,
+    847.9010620117188
+  ],
+  "detector": "yolo",
+  "bbox_id": 0,
+  "img_path": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\smplestx\\selected_frames_input\\000039.jpg"
+}

@@ -79,7 +79,7 @@ stage2:
   frame_select: stage1_sequence
   stage1_align_filter_enable: true
   stage1_align_filter_metric: camera_align_iou
-  stage1_align_filter_min: 0.995
+  stage1_align_filter_min: 0.93
   # Use per-frame optimization without forcing last-frame anchoring.
   temporal_ref_anchor: sample
   temporal_ref_window: 0
@@ -99,7 +99,7 @@ stage2:
   inner_local_scale_cap_weight: 0.03
   inner_local_scale_cap_ratio: 1.20
   inner_local_scale_cap_normal_ratio: 0.75
-  smpl_face_semantics_npz: outputs/stage1_sharedbeta/fashn_face_semantics/smpl_face_semantics.npz
+  smpl_face_semantics_npz: outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
   outer_block_exposed_faces: true
   inner_local_color_prior_enable: true
   inner_local_color_prior_weight: 0.03
@@ -162,7 +162,7 @@ stage2:
   smpl_mask_dilate_px: 0
   smpl_mask_erode_px: 0
   smpl_color_mask_erode_px: 0
-  inner_rgb_from_combined_rgb: false
+  inner_rgb_from_combined_rgb: true
   inner_use_strict_smpl_mask: true
   smpl_alpha_leak_weight: 0.12
   smpl_mask_override_alpha: false
@@ -250,7 +250,7 @@ stage2:
   use_border_attenuation: true
   border_attenuation_width: 4
   V_min: 8
-  densify_top_percent: 12.0
+  densify_top_percent: 16.0
 
   phase0_ratio: 0.05
   phase2_ratio: 0.10
@@ -285,13 +285,13 @@ stage2:
   shell_offset_freeze_phase0: false
   inner_dual_candidate_enable: true
   inner_high_curv_dual_activate_th: 0.20
-  inner_face_candidate_ratio: 0.35
-  inner_vertex_candidate_ratio: 0.65
+  inner_face_candidate_ratio: 0.45
+  inner_vertex_candidate_ratio: 0.55
   inner_bind_mode_default: vertex
   inner_local_scale_init_enable: true
   inner_local_scale_init_vertex_ratio: 0.40
-  inner_local_scale_init_face_ratio: 0.75
-  inner_local_scale_init_normal_ratio: 0.45
+  inner_local_scale_init_face_ratio: 0.60
+  inner_local_scale_init_normal_ratio: 0.35
   inner_local_scale_init_min: 0.0008
   inner_local_scale_init_max: 0.012
   outer_trigger_face_activate_enable: true

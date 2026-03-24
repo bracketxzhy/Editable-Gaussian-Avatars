@@ -22,16 +22,18 @@ except Exception:  # pragma: no cover
 @dataclass
 class SharedBetaRefitConfig:
     enabled: bool = True
-    min_align_iou: float = 0.995
+    min_align_iou: float = 0.99
     min_candidate_frames: int = 8
     use_exact_only: bool = True
-    refit_iters: int = 30
-    lr: float = 0.03
-    vertex_sample_count: int = 1024
+    refit_iters: int = 90
+    lr: float = 0.02
+    vertex_sample_count: int = 4096
     joint_loss_weight: float = 1.0
+    joint2d_loss_weight: float = 0.35
+    bbox_loss_weight: float = 0.20
     vertex_loss_weight: float = 0.25
-    pose_reg_weight: float = 0.01
-    transl_reg_weight: float = 0.10
+    pose_reg_weight: float = 0.005
+    transl_reg_weight: float = 0.05
     device: str = "auto"
 
 
@@ -88,7 +90,7 @@ def _estimate_shared_beta(
     betas: list[np.ndarray] = []
     exact_mask: list[bool] = []
     for rec in records:
-        params = dict(rec.get("smplerx_params", {}))
+        params = dict(rec.get("smplestx_params", {}))
         betas.append(np.asarray(params.get("betas", np.zeros((1, 10), dtype=np.float32)), dtype=np.float32).reshape(-1))
         exact_mask.append(str(rec.get("pred_source", "exact")).strip().lower() == "exact")
     beta_arr = np.asarray(betas, dtype=np.float32)
@@ -145,6 +147,51 @@ def _pick_vertex_indices(n_verts: int, max_count: int) -> np.ndarray:
     if count >= int(n_verts):
         return np.arange(int(n_verts), dtype=np.int64)
     return np.linspace(0, int(n_verts) - 1, num=count, dtype=np.int64)
+
+
+def _project_points_torch(
+    pts: torch.Tensor,
+    *,
+    fx: float,
+    fy: float,
+    cx: float,
+    cy: float,
+    eps: float = 1e-6,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    z = pts[:, 2]
+    valid = torch.isfinite(pts).all(dim=1) & (z.abs() > float(eps))
+    z_safe = torch.where(valid, z, torch.ones_like(z))
+    u = (pts[:, 0] / z_safe) * float(fx) + float(cx)
+    v = (pts[:, 1] / z_safe) * float(fy) + float(cy)
+    uv = torch.stack((u, v), dim=1)
+    return uv, valid
+
+
+def _sanitize_joints2d_np(value: object) -> np.ndarray:
+    if value is None:
+        return np.zeros((0, 3), dtype=np.float32)
+    arr = np.asarray(value, dtype=np.float32)
+    if arr.size <= 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    if arr.ndim == 2 and arr.shape[1] >= 3:
+        return np.asarray(arr[:, :3], dtype=np.float32)
+    flat = arr.reshape(-1)
+    usable = (int(flat.size) // 3) * 3
+    if usable <= 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    return np.asarray(flat[:usable], dtype=np.float32).reshape(-1, 3)
+
+
+def _bbox_from_mask_np(mask: np.ndarray | None) -> np.ndarray | None:
+    if mask is None:
+        return None
+    mm = np.asarray(mask)
+    if mm.ndim < 2:
+        return None
+    ys, xs = np.nonzero(mm > 0)
+    if xs.size <= 0 or ys.size <= 0:
+        return None
+    return np.asarray([float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())], dtype=np.float32)
 
 
 def _extract_tpose_from_shared_beta(
@@ -224,6 +271,7 @@ def apply_shared_beta_refit(
     assets_dir: Path,
     align_iou: np.ndarray | None = None,
     config: SharedBetaRefitConfig | None = None,
+    person_masks_by_name: dict[str, np.ndarray] | None = None,
 ) -> SharedBetaRefitResult:
     cfg = SharedBetaRefitConfig() if config is None else config
     meta: dict[str, Any] = {"enabled": bool(cfg.enabled)}
@@ -251,7 +299,7 @@ def apply_shared_beta_refit(
     total_losses = np.zeros((len(records),), dtype=np.float32)
 
     for rec_idx, rec in enumerate(records):
-        params = dict(rec.get("smplerx_params", {}))
+        params = dict(rec.get("smplestx_params", {}))
         gender = str(rec.get("gender", "neutral")).strip().lower()
         model_key = ("smplx", gender)
         if model_key not in model_cache:
@@ -290,8 +338,26 @@ def apply_shared_beta_refit(
         target_verts = torch.from_numpy(np.asarray(rec["verts_cam"], dtype=np.float32).reshape(-1, 3)).to(device=device, dtype=torch.float32)
         target_joints_np = np.asarray(rec.get("joints_cam", np.zeros((0, 3), dtype=np.float32)), dtype=np.float32).reshape(-1, 3)
         target_joints = torch.from_numpy(target_joints_np).to(device=device, dtype=torch.float32)
+        target_joints2d_np = _sanitize_joints2d_np(rec.get("joints2d", None))
+        target_joints2d = torch.from_numpy(target_joints2d_np[:, :2]).to(device=device, dtype=torch.float32) if target_joints2d_np.shape[0] > 0 else None
+        target_joints2d_conf = (
+            torch.from_numpy(target_joints2d_np[:, 2]).to(device=device, dtype=torch.float32)
+            if target_joints2d_np.shape[0] > 0 and target_joints2d_np.shape[1] >= 3
+            else None
+        )
         v_idx_np = _pick_vertex_indices(int(target_verts.shape[0]), int(cfg.vertex_sample_count))
         v_idx = torch.from_numpy(v_idx_np).to(device=device, dtype=torch.long)
+        focal_xy = np.asarray(rec.get("camera_focal", np.zeros((2,), dtype=np.float32)), dtype=np.float32).reshape(-1)
+        princpt_xy = np.asarray(rec.get("camera_princpt", np.zeros((2,), dtype=np.float32)), dtype=np.float32).reshape(-1)
+        have_intrinsics = focal_xy.size >= 2 and princpt_xy.size >= 2 and np.all(np.isfinite(focal_xy[:2])) and np.all(np.isfinite(princpt_xy[:2]))
+        mask_bbox_np = None
+        if isinstance(person_masks_by_name, dict):
+            mask_bbox_np = _bbox_from_mask_np(person_masks_by_name.get(str(rec.get("frame_name", "")), None))
+        target_bbox = (
+            torch.from_numpy(mask_bbox_np).to(device=device, dtype=torch.float32)
+            if mask_bbox_np is not None
+            else None
+        )
 
         fixed_kwargs = {
             "betas": betas_t,
@@ -330,6 +396,49 @@ def apply_shared_beta_refit(
                     loss_j = F.smooth_l1_loss(joints[:joint_n], target_joints[:joint_n], reduction="mean")
                     loss = loss + float(cfg.joint_loss_weight) * loss_j
                     last_loss_j = float(loss_j.detach().cpu().item())
+            if have_intrinsics and target_joints2d is not None and int(target_joints2d.shape[0]) > 0 and float(cfg.joint2d_loss_weight) > 0.0:
+                uv_j, valid_j = _project_points_torch(
+                    joints,
+                    fx=float(focal_xy[0]),
+                    fy=float(focal_xy[1]),
+                    cx=float(princpt_xy[0]),
+                    cy=float(princpt_xy[1]),
+                )
+                joint_n2 = min(int(uv_j.shape[0]), int(target_joints2d.shape[0]))
+                if joint_n2 > 0:
+                    valid2 = valid_j[:joint_n2]
+                    if target_joints2d_conf is not None and int(target_joints2d_conf.shape[0]) >= joint_n2:
+                        valid2 = valid2 & (target_joints2d_conf[:joint_n2] > 0.05)
+                    if bool(valid2.any().item()):
+                        pred2 = uv_j[:joint_n2][valid2]
+                        tgt2 = target_joints2d[:joint_n2][valid2]
+                        if target_joints2d_conf is not None and int(target_joints2d_conf.shape[0]) >= joint_n2:
+                            conf2 = target_joints2d_conf[:joint_n2][valid2].clamp(0.0, 1.0).unsqueeze(1)
+                            loss_j2 = (F.smooth_l1_loss(pred2, tgt2, reduction="none") * conf2).mean()
+                        else:
+                            loss_j2 = F.smooth_l1_loss(pred2, tgt2, reduction="mean")
+                        loss = loss + float(cfg.joint2d_loss_weight) * loss_j2
+            if have_intrinsics and target_bbox is not None and float(cfg.bbox_loss_weight) > 0.0:
+                uv_v, valid_v = _project_points_torch(
+                    verts,
+                    fx=float(focal_xy[0]),
+                    fy=float(focal_xy[1]),
+                    cx=float(princpt_xy[0]),
+                    cy=float(princpt_xy[1]),
+                )
+                if bool(valid_v.any().item()):
+                    uv_sel = uv_v[valid_v]
+                    bbox_pred = torch.stack(
+                        (
+                            uv_sel[:, 0].amin(),
+                            uv_sel[:, 1].amin(),
+                            uv_sel[:, 0].amax(),
+                            uv_sel[:, 1].amax(),
+                        ),
+                        dim=0,
+                    )
+                    loss_bbox = F.smooth_l1_loss(bbox_pred, target_bbox, reduction="mean")
+                    loss = loss + float(cfg.bbox_loss_weight) * loss_bbox
             loss = loss + float(cfg.pose_reg_weight) * (
                 F.mse_loss(go, go0_t, reduction="mean") + F.mse_loss(bp, bp0_t, reduction="mean")
             )
@@ -356,12 +465,28 @@ def apply_shared_beta_refit(
         params["global_orient"] = _reshape_like(go.detach().cpu().numpy(), params.get("global_orient", None), 3)
         params["body_pose"] = _reshape_like(bp.detach().cpu().numpy(), params.get("body_pose", None), body_dim)
         params["transl"] = _reshape_like(transl_np, params.get("transl", None), 3)
-        rec["smplerx_params"] = params
+        rec["smplestx_params"] = params
         rec["cam_t"] = transl_np
         rec["verts_cam"] = verts_np
         rec["verts_local"] = np.asarray(verts_np - transl_np.reshape(1, 3), dtype=np.float32)
         rec["joints_cam"] = joints_np
-        rec["joints2d"] = None
+        if have_intrinsics:
+            uv_j, valid_j = _project_points_torch(
+                out.joints[0],
+                fx=float(focal_xy[0]),
+                fy=float(focal_xy[1]),
+                cx=float(princpt_xy[0]),
+                cy=float(princpt_xy[1]),
+            )
+            rec["joints2d"] = np.concatenate(
+                [
+                    uv_j.detach().cpu().numpy().astype(np.float32),
+                    valid_j.detach().cpu().numpy().astype(np.float32).reshape(-1, 1),
+                ],
+                axis=1,
+            ).astype(np.float32)
+        else:
+            rec["joints2d"] = np.zeros((0, 3), dtype=np.float32)
         rec["shared_beta_refit_total_loss"] = float(last_loss)
         rec["shared_beta_refit_vertex_loss"] = float(last_loss_v)
         rec["shared_beta_refit_joint_loss"] = float(last_loss_j)
@@ -389,3 +514,4 @@ def apply_shared_beta_refit(
         canonical_joints_cam=canonical_joints_cam,
         meta=meta,
     )
+

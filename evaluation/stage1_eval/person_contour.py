@@ -34,11 +34,32 @@ def _largest_component(mask_u8: np.ndarray, min_area: int = 64) -> np.ndarray:
 
 def _clean_mask(mask_u8: np.ndarray) -> np.ndarray:
     mask = (mask_u8 > 0).astype(np.uint8) * 255
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=2)
+    mask = _fill_small_sealed_holes(mask, max_hole_area=96)
     mask = _largest_component(mask, min_area=128)
     return mask
+
+
+def _fill_small_sealed_holes(mask_u8: np.ndarray, max_hole_area: int) -> np.ndarray:
+    m = (np.asarray(mask_u8, dtype=np.uint8) > 0).astype(np.uint8)
+    if m.ndim != 2 or m.size <= 0:
+        return (m > 0).astype(np.uint8) * 255
+    h, w = m.shape[:2]
+    inv = (1 - m).astype(np.uint8)
+    flood = inv.copy()
+    flood_mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
+    cv2.floodFill(flood, flood_mask, (0, 0), 2)
+    holes = (flood == 1).astype(np.uint8)
+    if int(holes.sum()) <= 0:
+        return (m > 0).astype(np.uint8) * 255
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(holes, connectivity=8)
+    out = m.copy()
+    for comp_i in range(1, int(n)):
+        area = int(stats[comp_i, cv2.CC_STAT_AREA])
+        if area <= int(max_hole_area):
+            out[labels == comp_i] = 1
+    return (out > 0).astype(np.uint8) * 255
 
 
 def load_person_mask_from_npz(npz_path: Path, frame_name: str, image_hw: tuple[int, int]) -> np.ndarray | None:
@@ -79,6 +100,6 @@ def estimate_person_mask_modnet_eval(
 
 
 def extract_person_contours(mask_u8: np.ndarray) -> list[np.ndarray]:
-    contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    contours, _ = cv2.findContours(mask_u8, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+    contours = sorted(contours, key=lambda c: abs(float(cv2.contourArea(c))), reverse=True)
     return contours

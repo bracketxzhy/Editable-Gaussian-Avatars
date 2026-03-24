@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Callable
 import numpy as np
-from tqdm import tqdm
+
+from avatar_gs.utils.progress import tqdm
 
 
 def euler_deg_to_rotmat_np(rx_deg: float, ry_deg: float, rz_deg: float) -> np.ndarray:
@@ -62,7 +63,7 @@ def coordinate_descent_rigid_search(
     max_trans: tuple[float, float, float] = (0.35, 0.35, 0.45),
     show_progress: bool = False,
     progress_desc: str | None = None,
-    progress_leave: bool = False,
+    progress_leave: bool = True,
 ) -> tuple[dict, float, float]:
     """
     Coordinate-descent search on rigid params:
