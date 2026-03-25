@@ -70,16 +70,45 @@ def _filter_frames_by_stage1_align(
     scores = np.asarray(seq[metric_key], dtype=np.float32).reshape(-1)
     n = min(len(seq_names), int(scores.shape[0]))
     score_map = {seq_names[i]: float(scores[i]) for i in range(n)}
-    min_metric = float(stage2_cfg.get("stage1_align_filter_min", 0.83))
     last_frame = str(frames[-1])
-    kept = [fn for fn in frames if (float(score_map.get(fn, -1.0)) >= min_metric) or (str(fn) == last_frame)]
-    if len(kept) <= 0:
-        kept = [last_frame]
+    keep_ratio_cfg = stage2_cfg.get("stage1_align_filter_keep_ratio", None)
+    keep_ratio = None if keep_ratio_cfg is None else float(keep_ratio_cfg)
+    if keep_ratio is not None and keep_ratio > 0.0:
+        keep_ratio = float(np.clip(keep_ratio, 0.0, 1.0))
+        keep_n = int(np.clip(int(np.ceil(keep_ratio * float(len(frames)))), 1, len(frames)))
+        ranked = sorted(
+            [(float(score_map.get(str(fn), -1.0)), idx, str(fn)) for idx, fn in enumerate(frames)],
+            key=lambda x: (-x[0], x[1]),
+        )
+        selected = {name for _, _, name in ranked[:keep_n]}
+        if last_frame not in selected:
+            selected.add(last_frame)
+            if len(selected) > keep_n:
+                removable = [
+                    (float(score_map.get(name, -1.0)), idx, name)
+                    for idx, name in enumerate(frames)
+                    if (name in selected) and (name != last_frame)
+                ]
+                removable.sort(key=lambda x: (x[0], -x[1]))
+                if len(removable) > 0:
+                    selected.remove(removable[0][2])
+        kept = [fn for fn in frames if str(fn) in selected]
+        score_floor = min(float(score_map.get(str(fn), -1.0)) for fn in kept) if len(kept) > 0 else -1.0
+        logger.info(
+            f"Stage1 align frame filter: kept {len(kept)}/{len(frames)} frames "
+            f"with top {keep_ratio * 100.0:.1f}% by {metric_key}; "
+            f"effective_floor={score_floor:.5f}; forced_keep_last={last_frame}"
+        )
+    else:
+        min_metric = float(stage2_cfg.get("stage1_align_filter_min", 0.83))
+        kept = [fn for fn in frames if (float(score_map.get(fn, -1.0)) >= min_metric) or (str(fn) == last_frame)]
+        if len(kept) <= 0:
+            kept = [last_frame]
+        logger.info(
+            f"Stage1 align frame filter: kept {len(kept)}/{len(frames)} frames "
+            f"with {metric_key}>={min_metric:.2f}; forced_keep_last={last_frame}"
+        )
     dropped = int(len(frames) - len(kept))
-    logger.info(
-        f"Stage1 align frame filter: kept {len(kept)}/{len(frames)} frames "
-        f"with {metric_key}>={min_metric:.2f}; forced_keep_last={last_frame}"
-    )
     if dropped > 0:
         logger.info(f"Stage1 align frame filter: dropped {dropped} low-quality frame(s)")
     return kept

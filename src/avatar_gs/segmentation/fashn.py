@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import importlib.util
 import sys
@@ -81,7 +81,18 @@ def _disable_broken_sklearn_probe() -> None:
     _FASHN_IMPORT_PATCHED = True
 
 
+def _prefer_host_regex_package() -> None:
+    if "regex" in sys.modules:
+        return
+    try:
+        import regex as host_regex  # type: ignore
+        sys.modules.setdefault("regex", host_regex)
+    except Exception:
+        return
+
+
 def _ensure_runtime_importable(runtime_dir: Path) -> None:
+    _prefer_host_regex_package()
     runtime_str = str(runtime_dir)
     if runtime_str not in sys.path:
         sys.path.insert(0, runtime_str)
@@ -179,3 +190,4 @@ def build_fashn_raw_to_coarse_id(ids_to_labels: dict[int, str]) -> np.ndarray:
         coarse_name = FASHN_RAW_TO_COARSE.get(str(raw_name), "unknown")
         lut[int(raw_id)] = int(FASHN_COARSE_TO_ID[coarse_name])
     return lut
+

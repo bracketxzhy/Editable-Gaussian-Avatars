@@ -1,0 +1,40 @@
+{
+  "stage1_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1",
+  "frames_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\data\\frames\\input",
+  "out_npz": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\fashn_face_semantics\\smpl_face_semantics.npz",
+  "out_csv": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\fashn_face_semantics\\smpl_face_semantics.csv",
+  "preview_images": [
+    "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\fashn_face_semantics\\000000_raw_face_labels.png",
+    "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\fashn_face_semantics\\000000_group_face_labels.png",
+    "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\fashn_face_semantics\\000075_raw_face_labels.png",
+    "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\outputs\\stage1\\fashn_face_semantics\\000075_group_face_labels.png"
+  ],
+  "n_faces": 20908,
+  "n_frames_total": 76,
+  "n_frames_used": 76,
+  "frame_stride": 1,
+  "max_edge": 384,
+  "device": "cuda",
+  "min_non_bg_votes": 8,
+  "fashn_model_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\third_party\\FASHN",
+  "fashn_runtime_dir": "D:\\project\\Projects-zhy\\Editable Gaussian Avatars\\assets\\fashn_local\\runtime",
+  "raw_face_counts": {
+    "unknown": 9966,
+    "torso": 628,
+    "face": 1045,
+    "hair": 914,
+    "top": 4242,
+    "pants": 1666,
+    "arms": 852,
+    "hands": 939,
+    "feet": 656
+  },
+  "group_face_counts": {
+    "unknown": 9966,
+    "exposed": 4135,
+    "covered": 6807
+  },
+  "exclude_outer_faces": 4135,
+  "observed_faces": 16080,
+  "non_bg_observed_faces": 10942
+}

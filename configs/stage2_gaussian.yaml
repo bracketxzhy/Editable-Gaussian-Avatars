@@ -6,8 +6,8 @@ data:
   frames_dir: data/frames/input
 
 stage2:
-  stage1_dir: outputs/stage1_sharedbeta
-  out_dir: outputs/stage2_inner_sharedbeta
+  stage1_dir: outputs/stage1
+  out_dir: outputs/stage2
   training_mode: inner_only
   init_ckpt: ""
   inner_ckpt_path: outputs/stage2_inner_sharedbeta/gaussians3d_inner.pt
@@ -79,7 +79,8 @@ stage2:
   frame_select: stage1_sequence
   stage1_align_filter_enable: true
   stage1_align_filter_metric: camera_align_iou
-  stage1_align_filter_min: 0.93
+  stage1_align_filter_keep_ratio: 0.90
+  stage1_align_filter_min: 0.83
   # Use per-frame optimization without forcing last-frame anchoring.
   temporal_ref_anchor: sample
   temporal_ref_window: 0
@@ -125,7 +126,7 @@ stage2:
     max_outside_after: 0.20
     init_from_bbox: true
     use_best_if_quality_fail: true
-    person_masks_npz: outputs/stage1_sharedbeta/person_masks.npz
+    person_masks_npz: outputs/stage1/person_masks.npz
     sample_frames: 4
     eval_downsample: 0.35
     outside_weight: 2.0
@@ -170,8 +171,8 @@ stage2:
   smpl_mask_precompute_max_frames: 48
   # Dataset-agnostic person/background separation (not tied to green-screen assumptions).
   use_person_mask: true
-  person_masks_npz: outputs/stage1_sharedbeta/person_masks.npz
-  prepared_supervision_cache_path: outputs/stage2_inner_sharedbeta/supervision_cache.npz
+  person_masks_npz: outputs/stage1/person_masks.npz
+  prepared_supervision_cache_path: outputs/stage2/supervision_cache.npz
   person_mask_dilate_px: 0
   person_mask_erode_px: 0
   gt_mask_mode: modnet
