@@ -19,19 +19,21 @@ def main() -> None:
     parser.add_argument("--project_root", type=str, default=".")
     parser.add_argument("--stage1_dir", type=str, default="outputs/stage1")
     parser.add_argument("--frames_dir", type=str, default="data/frames/input")
+    parser.add_argument("--support_frames_dir", type=str, default="")
     parser.add_argument("--out_dir", type=str, default="")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--model_dir", type=str, default="")
     parser.add_argument("--runtime_dir", type=str, default="")
-    parser.add_argument("--max_edge", type=int, default=384)
+    parser.add_argument("--max_edge", type=int, default=0)
     parser.add_argument("--frame_stride", type=int, default=1)
     parser.add_argument("--max_frames", type=int, default=0)
-    parser.add_argument("--min_non_bg_votes", type=int, default=8)
+    parser.add_argument("--min_non_bg_votes", type=int, default=1)
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
     stage1_dir = _resolve_project_path(project_root, args.stage1_dir)
     frames_dir = _resolve_project_path(project_root, args.frames_dir)
+    support_frames_dir = None if str(args.support_frames_dir).strip() == "" else _resolve_project_path(project_root, args.support_frames_dir)
     out_dir = (
         (stage1_dir / "fashn_face_semantics").resolve()
         if str(args.out_dir).strip() == ""
@@ -44,6 +46,7 @@ def main() -> None:
         stage1_dir=stage1_dir,
         frames_dir=frames_dir,
         out_dir=out_dir,
+        support_frames_dir=support_frames_dir,
         device=str(args.device),
         model_dir=model_dir,
         runtime_dir=runtime_dir,

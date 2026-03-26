@@ -1686,9 +1686,10 @@ def main() -> None:
     parser.add_argument("--build_fashn_face_semantics", dest="build_fashn_face_semantics", action="store_true", help="Run local FASHN parsing after stage1 and export SMPL face-level exposed/covered labels")
     parser.add_argument("--skip_fashn_face_semantics", dest="build_fashn_face_semantics", action="store_false", help="Skip FASHN face-semantics postprocess after stage1")
     parser.add_argument("--fashn_face_semantics_out_dir", type=str, default="", help="Optional output dir for FASHN->SMPL face semantics; default is <out_dir>/fashn_face_semantics")
+    parser.add_argument("--fashn_support_frames_dir", type=str, default="", help="Optional support image directory used only as a foreground mask when building FASHN face semantics")
     parser.add_argument("--fashn_device", type=str, default="cuda", help="FASHN inference device: cuda/cpu/auto")
-    parser.add_argument("--fashn_max_edge", type=int, default=384, help="Resize each frame so its longest edge is at most this size before FASHN inference")
-    parser.add_argument("--fashn_min_non_bg_votes", type=int, default=8, help="Minimum non-background pixel votes required before assigning a non-unknown face label")
+    parser.add_argument("--fashn_max_edge", type=int, default=0, help="Resize each frame so its longest edge is at most this size before FASHN inference; <=0 keeps original resolution")
+    parser.add_argument("--fashn_min_non_bg_votes", type=int, default=1, help="Minimum non-background pixel votes required before assigning a non-unknown face label")
     parser.add_argument("--fashn_frame_stride", type=int, default=1, help="Use every Nth frame when building face semantics")
     parser.add_argument("--fashn_max_frames", type=int, default=0, help="Optional cap on number of frames used for FASHN face semantics; 0 means all selected frames")
     parser.set_defaults(build_fashn_face_semantics=True, single_person=True, disable_shared_beta_refit=True)
@@ -1949,10 +1950,14 @@ def main() -> None:
                 fashn_out_dir = project_root / fashn_out_dir
             fashn_out_dir = fashn_out_dir.resolve()
         try:
+            fashn_support_frames_dir = None if str(args.fashn_support_frames_dir).strip() == "" else Path(str(args.fashn_support_frames_dir).strip())
+            if fashn_support_frames_dir is not None and not fashn_support_frames_dir.is_absolute():
+                fashn_support_frames_dir = (project_root / fashn_support_frames_dir).resolve()
             fashn_face_semantics_summary = build_stage1_fashn_face_semantics(
                 stage1_dir=out_dir,
                 frames_dir=frames_dir,
                 out_dir=fashn_out_dir,
+                support_frames_dir=fashn_support_frames_dir,
                 device=str(args.fashn_device),
                 max_edge=int(args.fashn_max_edge),
                 frame_stride=int(args.fashn_frame_stride),
