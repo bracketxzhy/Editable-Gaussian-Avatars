@@ -8,7 +8,7 @@ from .stats import GaussianDensifyStats
 def update_densify_stats(
     stats: GaussianDensifyStats,
     visibility: torch.Tensor,
-    residual_scalar: float,
+    residual_scalar: float | torch.Tensor,
     tau_vis: float,
     ema_alpha: float = 0.9,
 ) -> None:
@@ -16,12 +16,12 @@ def update_densify_stats(
     visible = vis > float(tau_vis)
     stats.vis_count[visible] += 1.0
 
-    r = float(residual_scalar)
+    if isinstance(residual_scalar, torch.Tensor):
+        r = residual_scalar.detach().to(device=stats.residual_ema.device, dtype=stats.residual_ema.dtype)
+    else:
+        r = torch.tensor(float(residual_scalar), device=stats.residual_ema.device, dtype=stats.residual_ema.dtype)
     a = min(max(float(ema_alpha), 0.0), 1.0)
-    if bool(visible.any()):
-        idx = torch.nonzero(visible, as_tuple=False).view(-1)
-        old = stats.residual_ema[idx]
-        stats.residual_ema[idx] = a * old + (1.0 - a) * r
+    stats.residual_ema[visible] = (a * stats.residual_ema[visible]) + ((1.0 - a) * r)
 
 
 def select_densify_candidates(

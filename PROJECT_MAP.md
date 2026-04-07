@@ -1,4 +1,4 @@
-# PROJECT_MAP
+# PROJECT_MAP_AND_LOG_BOUNDARIES
 
 ## Scope
 
@@ -203,7 +203,7 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - Role: compare projected stage1 SMPL silhouettes against person masks or contours.
 - Interface: `main()` plus per-frame evaluation helpers.
 - Inputs: stage1 cameras, stage1 vertices or OBJ sequence, evaluation masks or contours.
-- Outputs/downstream: JSON metrics and debug images under `evaluation/output_images/stage1`.
+- Outputs/downstream: JSON metrics and debug images under `evaluation/eval_outputs/stage1`.
 
 ### `evaluation/stage1_eval/stage1_align_check.py`
 - Role: compatibility wrapper around the stage1 evaluation path.
@@ -292,7 +292,7 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 ### `src/avatar_gs/cli/stage1_bestof_merge.py`
 - Role: merge best per-frame stage1 assets from multiple evaluated candidate runs.
 - Interface: `main()` plus helpers for evaluation-report lookup, per-frame scoring, and NPZ merging.
-- Inputs: candidate stage1 directories, a base stage1 directory, and `evaluation/output_images/**/stage1_eval_report_all.json`.
+- Inputs: candidate stage1 directories, a base stage1 directory, and `evaluation/eval_outputs/**/stage1_eval_report_all.json`.
 - Outputs/downstream: writes `outputs/stage1_bestof/**`, copies per-frame OBJ files, and records source provenance in `smpl_params_sequence.npz`.
 
 ### `src/avatar_gs/cli/stage1_align_check.py`
@@ -799,9 +799,14 @@ That is why the README, requirements, and stage1 docs must stay consistent.
 - `outputs/renders/deform/{combined,inner,outer}/*.png`
 
 ### Evaluation outputs
-- `evaluation/output_images/stage1/*_gt_stage1_contour.png`
-- `evaluation/output_images/stage1/*_stage1_eval_report.json`
-- `evaluation/output_images/stage1/stage1_eval_report_all.json`
+- `evaluation/eval_outputs/stage1/*_gt_stage1_contour.png`
+- `evaluation/eval_outputs/stage1/*_stage1_eval_report.json`
+- `evaluation/eval_outputs/stage1/stage1_eval_report_all.json`
+- `evaluation/eval_outputs/stage2/current_inner_body_baseline_20260406/**`
+
+### Worklog naming rule
+- Do not hardcode transient experiment ids like `r154` into this map when the goal is long-lived repository navigation.
+- Stable references should use role-based names first and experiment ids second.
 
 ## External Boundaries
 

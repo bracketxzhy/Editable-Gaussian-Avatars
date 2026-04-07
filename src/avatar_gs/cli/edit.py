@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -100,6 +100,7 @@ def _apply_simple_edit(g: Gaussian3D, cfg: Dict[str, Any]) -> Gaussian3D:
         bind_idx=g.bind_idx,
         bind_offset=g.bind_offset,
         bind_face_idx=g.bind_face_idx,
+        effective_face_idx=g.effective_face_idx,
         bind_bary=g.bind_bary,
         bind_hybrid_w=g.bind_hybrid_w,
         inner_bind_mode=g.inner_bind_mode,
@@ -217,3 +218,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -1,6 +1,9 @@
 from __future__ import annotations
 from pathlib import Path
 import json
+import shutil
+import subprocess
+import sys
 import cv2
 import numpy as np
 import torch
@@ -28,6 +31,44 @@ try:
     from avatar_gs.data.h36m import resolve_h36m_image_paths
 except Exception:
     resolve_h36m_image_paths = None
+
+
+def _maybe_run_face_postfit(*, project_root: Path, stage1_dir: Path, ckpt_path: Path, out_dir: Path, stage2_cfg: dict, logger) -> None:
+    if not bool(stage2_cfg.get("face_postfit_enable", False)):
+        return
+    teacher_frames = [str(x) for x in stage2_cfg.get("face_postfit_teacher_frames", ["000050.jpg"]) if str(x).strip()]
+    if len(teacher_frames) <= 0:
+        teacher_frames = ["000050.jpg"]
+    iters = int(max(int(stage2_cfg.get("face_postfit_iters", 1000)), 1))
+    target_source = str(stage2_cfg.get("face_postfit_target_source", "inner_rgb")).strip() or "inner_rgb"
+    tag = str(stage2_cfg.get("face_postfit_tag", "")).strip() or f"{out_dir.name}_facepostfit"
+    fit_script = project_root / 'src' / 'avatar_gs' / 'cli' / 'stage2_face_fit.py'
+    if not fit_script.exists():
+        raise FileNotFoundError(f"face postfit script missing: {fit_script}")
+    cmd = [
+        sys.executable, str(fit_script),
+        '--project_root', str(project_root),
+        '--stage1_dir', str(stage1_dir),
+        '--stage2_ckpt', str(ckpt_path),
+        '--teacher_frames', *teacher_frames,
+        '--target_source', str(target_source),
+        '--iters', str(iters),
+        '--tag', tag,
+    ]
+    logger.info('Running face postfit: %s', ' '.join(cmd))
+    subprocess.run(cmd, cwd=str(project_root), check=True)
+    fit_train_dir = project_root / 'outputs' / 'stage2_face_fit' / tag / 'train'
+    fit_eval_dir = project_root / 'outputs' / 'stage2_face_fit' / tag
+    preview_ckpt = fit_train_dir / 'gaussians3d_facefit_preview.pt'
+    if not preview_ckpt.exists():
+        raise FileNotFoundError(f"face postfit preview checkpoint missing: {preview_ckpt}")
+    backup_ckpt = out_dir / 'gaussians3d_pre_facepostfit.pt'
+    shutil.copy2(ckpt_path, backup_ckpt)
+    shutil.copy2(preview_ckpt, ckpt_path)
+    summary_src = fit_eval_dir / 'summary.json'
+    if summary_src.exists():
+        shutil.copy2(summary_src, out_dir / 'face_postfit_summary.json')
+    logger.info('Applied face postfit to main checkpoint: teachers=%s | target_source=%s | iters=%d | backup=%s', teacher_frames, target_source, iters, backup_ckpt)
 
 
 def _resolve_project_path(project_root: Path, path_like: str | Path | None) -> Path | None:
@@ -627,6 +668,9 @@ def main():
             inner_local_scale_init_normal_ratio=float(cfg["stage2"].get("inner_local_scale_init_normal_ratio", 0.45)),
             inner_local_scale_init_min=float(cfg["stage2"].get("inner_local_scale_init_min", 8e-4)),
             inner_local_scale_init_max=float(cfg["stage2"].get("inner_local_scale_init_max", 1.2e-2)),
+            smpl_face_semantics_npz=cfg["stage2"].get("smpl_face_semantics_npz", None),
+            inner_face_semantic_sampling_boost=float(cfg["stage2"].get("inner_face_semantic_sampling_boost", 1.0)),
+            inner_face_semantic_scale_mult=float(cfg["stage2"].get("inner_face_semantic_scale_mult", 1.0)),
             outer_init_from_inner=bool(cfg["stage2"].get("outer_init_from_inner", False)),
             outer_dormant_slot_ratio=float(cfg["stage2"].get("outer_dormant_slot_ratio", cfg["stage2"].get("shell_init_ratio", 0.15))),
             outer_dormant_face_ratio=float(cfg["stage2"].get("outer_dormant_face_ratio", 0.0)),
@@ -817,7 +861,129 @@ def main():
             "logger": logger,
         },
     )
+    train_loop_cfg.options.update(
+        {
+            "face_align_quality_enable": bool(
+                stage2_cfg.get("face_align_quality_enable", False)
+            ),
+            "face_align_weight_low": float(
+                stage2_cfg.get("face_align_weight_low", 0.25)
+            ),
+            "face_align_weight_high": float(
+                stage2_cfg.get("face_align_weight_high", 3.0)
+            ),
+            "face_align_score_min": float(
+                stage2_cfg.get("face_align_score_min", 0.86)
+            ),
+            "face_align_score_max": float(
+                stage2_cfg.get("face_align_score_max", 0.92)
+            ),
+            "face_align_score_power": float(
+                stage2_cfg.get("face_align_score_power", 2.0)
+            ),
+            "face_frontal_quality_enable": bool(
+                stage2_cfg.get("face_frontal_quality_enable", False)
+            ),
+            "face_frontal_weight_low": float(
+                stage2_cfg.get("face_frontal_weight_low", 0.85)
+            ),
+            "face_frontal_weight_high": float(
+                stage2_cfg.get("face_frontal_weight_high", 1.5)
+            ),
+            "face_frontal_power": float(
+                stage2_cfg.get("face_frontal_power", 1.5)
+            ),
+            "inner_legacy_e526_compat_enable": bool(
+                stage2_cfg.get("inner_legacy_e526_compat_enable", False)
+            ),
+            "inner_local_scale_clamp_enable": bool(
+                stage2_cfg.get("inner_local_scale_clamp_enable", False)
+            ),
+            "inner_local_scale_clamp_ratio": float(
+                stage2_cfg.get("inner_local_scale_clamp_ratio", 1.2)
+            ),
+            "inner_local_scale_clamp_normal_ratio": float(
+                stage2_cfg.get("inner_local_scale_clamp_normal_ratio", 0.7)
+            ),
+            "face_hard_frame_select_enable": bool(
+                stage2_cfg.get("face_hard_frame_select_enable", False)
+            ),
+            "face_hard_frame_keep_topk": int(
+                stage2_cfg.get("face_hard_frame_keep_topk", 0)
+            ),
+            "face_hard_align_min": float(
+                stage2_cfg.get("face_hard_align_min", 0.90)
+            ),
+            "face_hard_frontal_min": float(
+                stage2_cfg.get("face_hard_frontal_min", 0.75)
+            ),
+            "face_hard_reject_weight": float(
+                stage2_cfg.get("face_hard_reject_weight", 0.0)
+            ),
+            "face_hard_exclusive_enable": bool(
+                stage2_cfg.get("face_hard_exclusive_enable", False)
+            ),
+            "face_reference_frame_mode": str(
+                stage2_cfg.get("face_reference_frame_mode", "last")
+            ),
+            "face_reference_frame_name": str(
+                stage2_cfg.get("face_reference_frame_name", "")
+            ),
+            "face_reference_frame_index": int(
+                stage2_cfg.get("face_reference_frame_index", -1)
+            ),
+            "face_reference_weight": float(
+                stage2_cfg.get("face_reference_weight", 1.0)
+            ),
+            "inner_local_color_prior_target_vis_max": float(
+                stage2_cfg.get("inner_local_color_prior_target_vis_max", 0.08)
+            ),
+            "inner_local_color_prior_target_support_max": float(
+                stage2_cfg.get("inner_local_color_prior_target_support_max", 0.15)
+            ),
+            "inner_local_color_repair_enable": bool(
+                stage2_cfg.get("inner_local_color_repair_enable", False)
+            ),
+            "inner_local_color_repair_blend": float(
+                stage2_cfg.get("inner_local_color_repair_blend", 0.20)
+            ),
+            "inner_local_color_repair_min_weight": float(
+                stage2_cfg.get("inner_local_color_repair_min_weight", 0.35)
+            ),
+            "inner_coverage_densify_enable": bool(
+                stage2_cfg.get("inner_coverage_densify_enable", True)
+            ),
+            "inner_coverage_eval_every": int(
+                stage2_cfg.get("inner_coverage_eval_every", 200)
+            ),
+            "inner_coverage_spawn_topk": int(
+                stage2_cfg.get("inner_coverage_spawn_topk", 256)
+            ),
+            "inner_coverage_stop_ratio": float(
+                stage2_cfg.get("inner_coverage_stop_ratio", 0.82)
+            ),
+            "inner_coverage_spawn_scale_mult": float(
+                stage2_cfg.get("inner_coverage_spawn_scale_mult", 0.82)
+            ),
+            "inner_coverage_spawn_opacity_logit_init": float(
+                stage2_cfg.get("inner_coverage_spawn_opacity_logit_init", -2.6)
+            ),
+            "inner_coverage_spawn_opacity_logit_cap": float(
+                stage2_cfg.get("inner_coverage_spawn_opacity_logit_cap", -2.0)
+            ),
+            "inner_count_max": int(stage2_cfg.get("inner_count_max", 260000)),
+        }
+    )
     train_gaussians_3d_learnable_camera(g=g, train_cfg=train_loop_cfg)
+
+    _maybe_run_face_postfit(
+        project_root=project_root,
+        stage1_dir=stage1_dir,
+        ckpt_path=ckpt_path,
+        out_dir=out_dir,
+        stage2_cfg=stage2_cfg,
+        logger=logger,
+    )
 
     logger.info(f"Saved checkpoint: {ckpt_path}")
     if training_mode in ("full", "inner_only"):

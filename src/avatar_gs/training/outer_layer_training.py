@@ -393,6 +393,12 @@ def estimate_face_gap_targets(
         & (gap_px > 0.5)
     ).float()
 
-    target_world = outer_exit_world * gap_support
-    target_half_world = 0.5 * target_world
-    return target_half_world.clamp_min(0.0), target_world.clamp_min(0.0), gap_support.clamp(0.0, 1.0)
+    # Target the actual segment between the SMPL contour exit and the GT contour
+    # exit instead of the older "half of outer distance" heuristic.
+    target_center_world = 0.5 * (smpl_exit_world + outer_exit_world) * gap_support
+    target_half_gap_world = 0.5 * gap_world * gap_support
+    return (
+        target_center_world.clamp_min(0.0),
+        target_half_gap_world.clamp_min(0.0),
+        gap_support.clamp(0.0, 1.0),
+    )

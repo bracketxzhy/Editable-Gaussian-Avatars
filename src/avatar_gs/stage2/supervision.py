@@ -301,40 +301,47 @@ def load_stage2_supervision_cache(*, cache_path: Path, frames: list[str], logger
     if missing:
         raise RuntimeError(f"Bad stage2 supervision cache, missing keys {missing}: {cache_path}")
     cache_frames = [str(x) for x in np.asarray(z["frame_names"]).reshape(-1).tolist()]
-    if cache_frames != [str(x) for x in frames]:
-        raise RuntimeError(
-            "Stage2 supervision cache frame list does not match current selected frames. "
-            "Regenerate supervision cache before training."
-        )
+    selected_frames = [str(x) for x in frames]
+    if cache_frames == selected_frames:
+        take_idx = np.arange(len(cache_frames), dtype=np.int64)
+    else:
+        frame_to_idx = {str(name): i for i, name in enumerate(cache_frames)}
+        missing_frames = [name for name in selected_frames if name not in frame_to_idx]
+        if missing_frames:
+            raise RuntimeError(
+                "Stage2 supervision cache is missing selected frames: "
+                f"{missing_frames}. Regenerate supervision cache before training."
+            )
+        take_idx = np.asarray([frame_to_idx[name] for name in selected_frames], dtype=np.int64)
     cache = {
-        "frame_names": cache_frames,
-        "inner_masks": np.asarray(z["inner_masks"], dtype=np.uint8),
-        "outer_masks": np.asarray(z["outer_masks"], dtype=np.uint8),
-        "smpl_masks": np.asarray(z["smpl_masks"], dtype=np.uint8),
-        "gt_train_contour_masks": np.asarray(z["gt_train_contour_masks"], dtype=np.uint8),
+        "frame_names": selected_frames,
+        "inner_masks": np.asarray(z["inner_masks"], dtype=np.uint8)[take_idx],
+        "outer_masks": np.asarray(z["outer_masks"], dtype=np.uint8)[take_idx],
+        "smpl_masks": np.asarray(z["smpl_masks"], dtype=np.uint8)[take_idx],
+        "gt_train_contour_masks": np.asarray(z["gt_train_contour_masks"], dtype=np.uint8)[take_idx],
         "smpl_align_scales": (
-            np.asarray(z["smpl_align_scales"], dtype=np.float32)
+            np.asarray(z["smpl_align_scales"], dtype=np.float32)[take_idx]
             if "smpl_align_scales" in z.files
-            else np.ones((len(cache_frames),), dtype=np.float32)
+            else np.ones((len(selected_frames),), dtype=np.float32)
         ),
         "smpl_align_tx_px": (
-            np.asarray(z["smpl_align_tx_px"], dtype=np.float32)
+            np.asarray(z["smpl_align_tx_px"], dtype=np.float32)[take_idx]
             if "smpl_align_tx_px" in z.files
-            else np.zeros((len(cache_frames),), dtype=np.float32)
+            else np.zeros((len(selected_frames),), dtype=np.float32)
         ),
         "smpl_align_ty_px": (
-            np.asarray(z["smpl_align_ty_px"], dtype=np.float32)
+            np.asarray(z["smpl_align_ty_px"], dtype=np.float32)[take_idx]
             if "smpl_align_ty_px" in z.files
-            else np.zeros((len(cache_frames),), dtype=np.float32)
+            else np.zeros((len(selected_frames),), dtype=np.float32)
         ),
         "smpl_align_accepted": (
-            np.asarray(z["smpl_align_accepted"], dtype=np.uint8)
+            np.asarray(z["smpl_align_accepted"], dtype=np.uint8)[take_idx]
             if "smpl_align_accepted" in z.files
-            else np.zeros((len(cache_frames),), dtype=np.uint8)
+            else np.zeros((len(selected_frames),), dtype=np.uint8)
         ),
-        "inner_rgb_targets": np.asarray(z["inner_rgb_targets"], dtype=np.uint8),
-        "outer_rgb_targets": np.asarray(z["outer_rgb_targets"], dtype=np.uint8),
-        "combined_rgb_targets": np.asarray(z["combined_rgb_targets"], dtype=np.uint8),
+        "inner_rgb_targets": np.asarray(z["inner_rgb_targets"], dtype=np.uint8)[take_idx],
+        "outer_rgb_targets": np.asarray(z["outer_rgb_targets"], dtype=np.uint8)[take_idx],
+        "combined_rgb_targets": np.asarray(z["combined_rgb_targets"], dtype=np.uint8)[take_idx],
     }
     logger.info(f"Using prepared stage2 supervision cache: {cache_path}")
     return cache

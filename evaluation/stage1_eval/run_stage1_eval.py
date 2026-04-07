@@ -307,7 +307,7 @@ def main() -> None:
     parser.add_argument("--stage1_dir", type=str, default="outputs/stage1")
     parser.add_argument("--assets_dir", type=str, default="assets")
     parser.add_argument("--frames_dir", type=str, default="data/frames/input")
-    parser.add_argument("--out_dir", type=str, default="evaluation/output_images/stage1")
+    parser.add_argument("--out_dir", type=str, default="evaluation/eval_outputs/stage1")
     parser.add_argument("--pred_source", type=str, default="smplestx_raw", choices=["auto", "stage1", "smplestx_raw"])
     parser.add_argument("--frame_select", type=str, default="last", choices=["all", "first", "last", "index", "name"])
     parser.add_argument("--frame_index", type=int, default=-1)

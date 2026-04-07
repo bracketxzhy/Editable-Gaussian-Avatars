@@ -12,8 +12,8 @@
   "final": {
     "iter": 4200,
     "active_outer_count": 0,
-    "hard_pruned_outer_count": 20908,
-    "hard_pruned_inner_sparse_count": 0,
+    "hard_pruned_outer_count": 3500,
+    "hard_pruned_inner_sparse_count": 541,
     "outer_active_outside_contour_ratio": 0.0,
     "outer_active_outside_person_ratio": 0.0,
     "outer_active_outside_alpha_gt_0.05_ratio": 0.0,
@@ -23,8 +23,13 @@
     "outer_projection_outside_anyframe_ratio": 0.0,
     "outer_arm_nontrigger_activation_ratio": 0.0,
     "outer_head_ring_coverage": 0.0,
-    "outer_boundary_hard_clamp_count": 119636,
-    "outer_align_protected_count": 0
+    "outer_boundary_hard_clamp_count": 14280,
+    "outer_align_protected_count": 0,
+    "inner_local_color_prior_loss": 0.21980032324790955,
+    "inner_local_color_prior_target_count": 8094,
+    "inner_local_color_prior_assisted_count": 4509,
+    "inner_local_color_prior_donor_count": 91436,
+    "inner_coverage_spawn_count": 0
   },
   "pass": true
 }

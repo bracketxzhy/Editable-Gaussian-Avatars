@@ -43,22 +43,18 @@ def sample_border_weight(
         if att.ndim != 2:
             raise ValueError(f"attenuation_map tensor must be (H,W), got {att.shape}")
         H, W = int(att.shape[0]), int(att.shape[1])
-        idx = torch.nonzero(valid, as_tuple=False).view(-1)
-        if int(idx.numel()) > 0:
-            uu = torch.round(uv[idx, 0]).long().clamp(0, W - 1)
-            vv = torch.round(uv[idx, 1]).long().clamp(0, H - 1)
-            out[idx] = att[vv, uu]
+        uu = torch.round(uv[valid, 0]).long().clamp(0, W - 1)
+        vv = torch.round(uv[valid, 1]).long().clamp(0, H - 1)
+        out[valid] = att[vv, uu]
         return out.clamp(0.0, 1.0)
 
     att_np = np.asarray(attenuation_map, dtype=np.float32)
     if att_np.ndim != 2:
         raise ValueError(f"attenuation_map must be (H,W), got {att_np.shape}")
     H, W = int(att_np.shape[0]), int(att_np.shape[1])
-    idx = torch.nonzero(valid, as_tuple=False).view(-1)
-    if int(idx.numel()) > 0:
-        uu = torch.round(uv[idx, 0]).long().clamp(0, W - 1).cpu().numpy()
-        vv = torch.round(uv[idx, 1]).long().clamp(0, H - 1).cpu().numpy()
-        vals = att_np[vv, uu]
-        out[idx] = torch.from_numpy(vals).to(device=dev, dtype=torch.float32)
+    uu = torch.round(uv[valid, 0]).long().clamp(0, W - 1).cpu().numpy()
+    vv = torch.round(uv[valid, 1]).long().clamp(0, H - 1).cpu().numpy()
+    vals = att_np[vv, uu]
+    out[valid] = torch.from_numpy(vals).to(device=dev, dtype=torch.float32)
     return out.clamp(0.0, 1.0)
 

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import math
@@ -997,6 +997,25 @@ def _composite_premultiplied(
     return fg_rgb + (1.0 - fg_alpha) * bg_rgb
 
 
+def _apply_white_edge_matte(
+    rgb: torch.Tensor,
+    alpha: torch.Tensor,
+    *,
+    threshold: float,
+    strength: float,
+    gamma: float = 1.0,
+) -> torch.Tensor:
+    if float(threshold) <= 0.0 or float(strength) <= 0.0:
+        return rgb
+    a = alpha.clamp(0.0, 1.0)
+    fringe = ((float(threshold) - a).clamp(min=0.0) / float(threshold)).clamp(0.0, 1.0)
+    if float(gamma) != 1.0:
+        fringe = fringe.pow(float(gamma))
+    fringe = fringe * (a > 0.0).to(dtype=fringe.dtype) * float(strength)
+    fringe3 = fringe.expand_as(rgb)
+    return (rgb * (1.0 - fringe3) + fringe3).clamp(0.0, 1.0)
+
+
 def _alpha_to_mask(
     alpha: torch.Tensor,
     threshold: float = 0.0,
@@ -1020,6 +1039,7 @@ def _select_gaussians(g: Gaussian3D, mask: torch.Tensor) -> Gaussian3D:
         bind_idx=g.bind_idx[mask] if g.bind_idx is not None else None,
         bind_offset=g.bind_offset[mask] if g.bind_offset is not None else None,
         bind_face_idx=g.bind_face_idx[mask] if g.bind_face_idx is not None else None,
+        effective_face_idx=g.effective_face_idx[mask] if g.effective_face_idx is not None else None,
         bind_bary=g.bind_bary[mask] if g.bind_bary is not None else None,
         bind_hybrid_w=g.bind_hybrid_w[mask] if g.bind_hybrid_w is not None else None,
         bind_face_offset_local=g.bind_face_offset_local[mask] if g.bind_face_offset_local is not None else None,
@@ -1043,6 +1063,7 @@ def _clone_gaussians(g: Gaussian3D) -> Gaussian3D:
         bind_idx=g.bind_idx.clone() if g.bind_idx is not None else None,
         bind_offset=g.bind_offset.clone() if g.bind_offset is not None else None,
         bind_face_idx=g.bind_face_idx.clone() if g.bind_face_idx is not None else None,
+        effective_face_idx=g.effective_face_idx.clone() if g.effective_face_idx is not None else None,
         bind_bary=g.bind_bary.clone() if g.bind_bary is not None else None,
         bind_hybrid_w=g.bind_hybrid_w.clone() if g.bind_hybrid_w is not None else None,
         bind_face_offset_local=g.bind_face_offset_local.clone() if g.bind_face_offset_local is not None else None,
@@ -1368,6 +1389,7 @@ def main():
       bind_idx=gsd["bind_idx"].to(device) if ("bind_idx" in gsd and gsd["bind_idx"] is not None) else None,
       bind_offset=gsd["bind_offset"].to(device) if ("bind_offset" in gsd and gsd["bind_offset"] is not None) else None,
       bind_face_idx=gsd["bind_face_idx"].to(device) if ("bind_face_idx" in gsd and gsd["bind_face_idx"] is not None) else None,
+      effective_face_idx=gsd["effective_face_idx"].to(device) if ("effective_face_idx" in gsd and gsd["effective_face_idx"] is not None) else None,
       bind_bary=gsd["bind_bary"].to(device) if ("bind_bary" in gsd and gsd["bind_bary"] is not None) else None,
       bind_hybrid_w=gsd["bind_hybrid_w"].to(device) if ("bind_hybrid_w" in gsd and gsd["bind_hybrid_w"] is not None) else None,
       bind_face_offset_local=gsd["bind_face_offset_local"].to(device) if ("bind_face_offset_local" in gsd and gsd["bind_face_offset_local"] is not None) else None,
@@ -1582,6 +1604,9 @@ def main():
     deform_alpha_gamma = float(render_cfg.get("deform_alpha_gamma", fg_only_alpha_gamma))
     fg_only_alpha_gain_max = float(render_cfg.get("fg_only_alpha_gain_max", 1.0))
     deform_alpha_gain_max = float(render_cfg.get("deform_alpha_gain_max", 1.0))
+    edge_matte_white_threshold = float(render_cfg.get("edge_matte_white_threshold", 0.0))
+    edge_matte_white_strength = float(render_cfg.get("edge_matte_white_strength", 0.0))
+    edge_matte_white_gamma = float(render_cfg.get("edge_matte_white_gamma", 1.0))
     deform_source = str(deform_input_cfg["source"]).strip().lower()
     deform_smplx_params_npz_cfg = str(deform_input_cfg["smplx_params_npz"]).strip()
     deform_smplx_frame_index = int(deform_input_cfg["frame_index"])
@@ -2500,6 +2525,13 @@ def main():
             fg_rgb_adj = (fg_nobg_rgb * gain).clamp(0.0, 1.0)
             bg_fill_fg = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(fg_nobg_rgb)
             pred_fg_only = _composite_premultiplied(fg_rgb=fg_rgb_adj, fg_alpha=fg_mask, bg_rgb=bg_fill_fg)
+            pred_fg_only = _apply_white_edge_matte(
+                pred_fg_only,
+                fg_mask,
+                threshold=edge_matte_white_threshold,
+                strength=edge_matte_white_strength,
+                gamma=edge_matte_white_gamma,
+            )
             if overlay_smpl_skeleton and smpl_joints_map is not None:
                 joints_vis = smpl_joints_map.get(frames[i], None)
                 if joints_vis is not None and bind_rigid_align_apply_cfg is not None:
@@ -2846,6 +2878,13 @@ def main():
             rgb_def_adj = (rgb_def * gain_def).clamp(0.0, 1.0)
             bg_fill_def = torch.tensor(bg, dtype=torch.float32, device=device).view(3, 1, 1).expand_as(rgb_def)
             pred_deform = _composite_premultiplied(fg_rgb=rgb_def_adj, fg_alpha=deform_mask, bg_rgb=bg_fill_def)
+            pred_deform = _apply_white_edge_matte(
+                pred_deform,
+                deform_mask,
+                threshold=edge_matte_white_threshold,
+                strength=edge_matte_white_strength,
+                gamma=edge_matte_white_gamma,
+            )
             if overlay_smpl_skeleton:
                 frame_name = str(deform_ctx["frame_name"])
                 joints_raw = deform_joints_cam_np if deform_joints_cam_np is not None else deform_default_joints_cam_np
@@ -2896,3 +2935,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

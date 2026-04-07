@@ -1,6 +1,6 @@
 deform:
   source: smplx_params
-  smplx_params_npz: outputs/stage1_sharedbeta/smpl_params_sequence.npz
+  smplx_params_npz: outputs/stage1/smpl_params_sequence.npz
   frame_index: -1
   frame_name: ""
   use_standard_pose: true

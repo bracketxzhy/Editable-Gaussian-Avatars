@@ -69,3 +69,13 @@ third_party/PyMAF-X/data/smpl/SMPLX_NEUTRAL_2020.npz
 
 
 src/avatar_gs/cli/_perm_test.tmp
+
+# ---- Runtime / build caches that must never enter Git ----
+.torch_extensions/
+assets/fashn_local/runtime/
+
+# ---- Commit curated training outputs and eval artifacts ----
+!outputs/
+!outputs/**
+!evaluation/eval_outputs/
+!evaluation/eval_outputs/**

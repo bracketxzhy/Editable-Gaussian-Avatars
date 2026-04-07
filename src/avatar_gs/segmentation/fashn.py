@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import importlib.util
 import sys
@@ -91,8 +91,41 @@ def _prefer_host_regex_package() -> None:
         return
 
 
+def _prefer_host_transformers_package() -> None:
+    if "transformers" in sys.modules:
+        return
+    try:
+        import transformers as host_transformers  # type: ignore
+        sys.modules.setdefault("transformers", host_transformers)
+    except Exception:
+        return
+
+
+def _prefer_host_tokenizers_package() -> None:
+    if "tokenizers" in sys.modules:
+        return
+    try:
+        import tokenizers as host_tokenizers  # type: ignore
+        sys.modules.setdefault("tokenizers", host_tokenizers)
+    except Exception:
+        return
+
+
+def _prefer_host_safetensors_package() -> None:
+    if "safetensors" in sys.modules:
+        return
+    try:
+        import safetensors as host_safetensors  # type: ignore
+        sys.modules.setdefault("safetensors", host_safetensors)
+    except Exception:
+        return
+
+
 def _ensure_runtime_importable(runtime_dir: Path) -> None:
     _prefer_host_regex_package()
+    _prefer_host_transformers_package()
+    _prefer_host_tokenizers_package()
+    _prefer_host_safetensors_package()
     runtime_str = str(runtime_dir)
     if runtime_str not in sys.path:
         sys.path.insert(0, runtime_str)
@@ -131,7 +164,7 @@ def get_fashn_label_maps(
         if cached is not None:
             return cached
         _ensure_runtime_importable(runtime_path)
-        from fashn_human_parser import IDS_TO_LABELS, LABELS_TO_IDS
+        from fashn_human_parser.labels import IDS_TO_LABELS, LABELS_TO_IDS
 
         ids_to_labels = {int(k): str(v) for k, v in dict(IDS_TO_LABELS).items()}
         labels_to_ids = {str(k): int(v) for k, v in dict(LABELS_TO_IDS).items()}

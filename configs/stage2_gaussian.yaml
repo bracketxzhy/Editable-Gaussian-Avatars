@@ -10,7 +10,7 @@ stage2:
   out_dir: outputs/stage2
   training_mode: inner_only
   init_ckpt: ""
-  inner_ckpt_path: outputs/stage2_inner_sharedbeta/gaussians3d_inner.pt
+  inner_ckpt_path: outputs/stage2/gaussians3d_inner.pt
   init_mesh_obj: ""
   enable_tf32: true
   cudnn_benchmark: true
@@ -35,7 +35,7 @@ stage2:
   # Foreground constraints: allow enough opacity while keeping splats small
   fg_opacity_logit_max: 3.2
   fg_log_scale_min: -7.2
-  fg_log_scale_max: -5.1
+  fg_log_scale_max: -4.9
   outer_log_scale_min: -7.6
   outer_log_scale_max: -5.3
   outer_prune_support_th: 0.03
@@ -59,7 +59,7 @@ stage2:
   use_alpha_mask: false
   alpha_threshold: 0.03
   # Generic training profile: avoid scene-specific part priors.
-  keypoints_json: outputs/stage1_sharedbeta/keypoints.json
+  keypoints_json: outputs/stage1/keypoints.json
   kpt_conf_min: 0.2
   kpt_box_pad: 0.12
   use_kpt_bbox_mask: false
@@ -67,6 +67,16 @@ stage2:
   face_conf_min: 0.35
   face_box_pad: 0.10
   face_use_ears: false
+  face_align_quality_enable: true
+  face_align_weight_low: 0.20
+  face_align_weight_high: 3.0
+  face_align_score_min: 0.86
+  face_align_score_max: 0.915
+  face_align_score_power: 2.0
+  face_frontal_quality_enable: true
+  face_frontal_weight_low: 0.85
+  face_frontal_weight_high: 1.5
+  face_frontal_power: 1.5
   hand_weight: 1.0
   hand_conf_min: 0.25
   hand_radius_scale: 0.45
@@ -89,28 +99,33 @@ stage2:
   # ---------- Dynamic binding to SMPL mesh sequence ----------
   # Require stage1.export_meshes=true to generate outputs/stage1
   bind_to_mesh: true
-  bind_mesh_sequence_dir: outputs/stage1_sharedbeta
+  bind_mesh_sequence_dir: outputs/stage1
   bind_cache_size: 32
   # auto: detect mesh OBJ coordinate space from stage1 metadata.
   bind_mesh_obj_space: auto
   bind_align_quat_to_mesh_normals: true
   bind_quat_normal_blend: 1.0
-  bind_surface_aniso_weight: 0.0001
-  bind_surface_aniso_margin: 0.10
-  inner_local_scale_cap_weight: 0.03
-  inner_local_scale_cap_ratio: 1.20
-  inner_local_scale_cap_normal_ratio: 0.75
+  bind_surface_aniso_weight: 0.0002
+  bind_surface_aniso_margin: 0.06
+  inner_local_scale_cap_weight: 0.025
+  inner_local_scale_cap_ratio: 1.12
+  inner_local_scale_cap_normal_ratio: 0.55
   smpl_face_semantics_npz: outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
   outer_block_exposed_faces: true
   inner_local_color_prior_enable: true
-  inner_local_color_prior_weight: 0.03
+  inner_local_color_prior_weight: 0.07
   inner_local_color_prior_start_iter: 200
-  inner_local_color_prior_target_conf_max: 0.30
-  inner_local_color_prior_donor_conf_min: 0.65
-  inner_local_color_prior_donor_opacity_min: 0.08
-  inner_local_color_prior_donor_vis_min: 0.05
+  inner_local_color_prior_target_conf_max: 0.40
+  inner_local_color_prior_target_vis_max: 0.18
+  inner_local_color_prior_target_support_max: 0.35
+  inner_local_color_prior_donor_conf_min: 0.50
+  inner_local_color_prior_donor_opacity_min: 0.05
+  inner_local_color_prior_donor_vis_min: 0.02
   inner_local_color_prior_semantic_conf_min: 0.55
-  inner_local_color_prior_min_donor_weight: 0.20
+  inner_local_color_prior_min_donor_weight: 0.06
+  inner_local_color_repair_enable: true
+  inner_local_color_repair_blend: 0.22
+  inner_local_color_repair_min_weight: 0.30
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset: [0.0, 0.0, 0.0]
@@ -251,7 +266,14 @@ stage2:
   use_border_attenuation: true
   border_attenuation_width: 4
   V_min: 8
-  densify_top_percent: 16.0
+  densify_top_percent: 20.0
+  inner_coverage_densify_enable: true
+  inner_coverage_eval_every: 100
+  inner_coverage_spawn_topk: 512
+  inner_coverage_stop_ratio: 0.82
+  inner_coverage_spawn_scale_mult: 0.82
+  inner_coverage_spawn_opacity_logit_init: -2.6
+  inner_coverage_spawn_opacity_logit_cap: -2.0
 
   phase0_ratio: 0.05
   phase2_ratio: 0.10
@@ -332,6 +354,14 @@ stage2:
   outer_trigger_face_ema_decay: 0.85
   outer_trigger_face_ema_weight: 0.60
   outer_trigger_face_topk_min_support: 0.02
+  outer_spawn_min_contrib_frames: 3
+  outer_spawn_min_frame_ratio: 0.03
+  outer_spawn_min_weight_sum: 2.0
+  outer_spawn_score_use_persistence: true
+  outer_prune_persist_protect_enable: true
+  outer_prune_persist_min_contrib_frames: 4
+  outer_prune_persist_min_frame_ratio: 0.05
+  outer_prune_persist_min_weight_sum: 2.8
   outer_airspace_penalty_weight: 0.04
   outer_airspace_main_support_scale: 1.5
   outer_airspace_sharp_allow_dot: 0.15

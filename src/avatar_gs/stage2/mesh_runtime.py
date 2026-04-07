@@ -345,26 +345,23 @@ class Stage2MeshRuntime:
             mesh_ids = seq_provider.get_frame_ids()
             mesh_ids_set = set(mesh_ids)
             if len(mesh_ids) > 0:
-                fallback_mesh_idx = int(mesh_ids[-1])
                 mesh_path_map = {int(i): seq_provider.get_path(int(i)) for i in mesh_ids}
-                first_mesh_idx = fallback_mesh_idx if not bind_mesh_indices else int(bind_mesh_indices[0])
+                first_mesh_idx = int(bind_mesh_indices[0]) if bind_mesh_indices else int(mesh_ids[0])
                 if first_mesh_idx not in mesh_ids_set:
-                    first_mesh_idx = fallback_mesh_idx
-                if first_mesh_idx is not None:
-                    try:
-                        _, bind_faces_np = load_obj_mesh(mesh_path_map[first_mesh_idx])
-                    except Exception:
-                        bind_faces_np = None
+                    raise FileNotFoundError(f"Bind mesh frame index not found: {first_mesh_idx}")
+                try:
+                    _, bind_faces_np = load_obj_mesh(mesh_path_map[first_mesh_idx])
+                except Exception:
+                    bind_faces_np = None
         verts_seq_np = None
         verts_seq_ids_set: set[int] = set()
-        verts_seq_fallback_idx = 0
+        verts_seq_fallback_idx = -1
         if bind_vertices_npz_path is not None and bind_vertices_npz_path.exists():
             vseq = np.load(bind_vertices_npz_path, allow_pickle=True)
             if "verts_cam" in vseq.files:
                 verts_seq_np = np.asarray(vseq["verts_cam"], dtype=np.float32)
                 if verts_seq_np.ndim == 3 and verts_seq_np.shape[-1] == 3:
                     verts_seq_ids_set = set(range(int(verts_seq_np.shape[0])))
-                    verts_seq_fallback_idx = int(max(int(verts_seq_np.shape[0]) - 1, 0))
                 else:
                     verts_seq_np = None
         context = Stage2MeshContext(
@@ -456,12 +453,10 @@ class Stage2MeshRuntime:
         mesh_idx_use = int(mesh_idx)
         if self.context.verts_seq_np is not None:
             if mesh_idx_use not in self.context.verts_seq_ids_set:
-                mesh_idx_use = self.context.verts_seq_fallback_idx
+                raise FileNotFoundError(f"Vertex sequence frame index not found: {mesh_idx_use}")
         elif self.context.mesh_ids_set:
             if mesh_idx_use not in self.context.mesh_ids_set:
-                if self.context.fallback_mesh_idx is None:
-                    raise FileNotFoundError(f"Mesh frame index not found: {mesh_idx_use}")
-                mesh_idx_use = self.context.fallback_mesh_idx
+                raise FileNotFoundError(f"Mesh frame index not found: {mesh_idx_use}")
         return mesh_idx_use
 
     def load_mesh_np_raw(self, mesh_idx: int) -> tuple[np.ndarray, int]:

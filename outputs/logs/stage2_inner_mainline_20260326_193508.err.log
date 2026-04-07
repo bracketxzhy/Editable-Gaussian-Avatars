@@ -1,0 +1,13 @@
+[2026-03-26 19:35:11] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-03-26 19:35:11] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-03-26 19:35:11] [INFO] Loaded 69 stage1 align score(s) from D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage1\smpl_params_sequence.npz for outer geometric accumulation.
+[2026-03-26 19:35:11] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage1\smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-03-26 19:35:11] [INFO] Mesh: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage1\sequence\frame_000075.obj
+[2026-03-26 19:35:11] [INFO] Frames: 69 used for training
+[2026-03-26 19:35:11] [INFO] Out dir: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage2
+[2026-03-26 19:35:11] [INFO] Stage2 training mode: inner_only
+[2026-03-26 19:35:11] [INFO] Initialized gaussians: N=140908
+[2026-03-26 19:35:11] [INFO] Using bind mesh sequence dir: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage1\sequence
+[2026-03-26 19:35:11] [INFO] Using dynamic bind vertices from: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage1\smpl_vertices_sequence.npz
+[2026-03-26 19:35:11] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-03-26 19:35:13] [INFO] Using prepared stage2 supervision cache: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage2\supervision_cache.npz

@@ -1,0 +1,65 @@
+project_root: .
+seed: 42
+log_dir: outputs/logs
+
+render:
+  stage1_dir: outputs/stage1
+  stage2_dir: outputs/stage2_exp_facecover_v2
+  prepared_supervision_cache_path: outputs/stage2/supervision_cache.npz
+  out_dir: outputs/renders_exp_facecover_v2
+  save_main_image: false
+  save_real_image: true
+  real_out_subdir: real
+  save_fg_nobg_skeleton: true
+  fg_nobg_out_subdir: fg_only
+  deform_render_image: true
+  deform_out_subdir: deform
+  clear_out_dir_pngs: true
+  frames_dir: data/frames/input
+  frame_select: last
+  max_frames: 1
+  bg: [1.0, 1.0, 1.0]
+  k_scale: 1.0
+  center_subject: false
+  subject_fit_enabled: false
+  six_views_enable: true
+  six_views_include_top_bottom: true
+  layer_keys: [inner]
+  fg_scale: 1.0
+  bg_scale: 1.0
+  split_by_bind: false
+  render_bound_only: true
+  fg_only_render_bound_only: true
+  deform_render_bound_only: true
+  bound_alpha_threshold: 0.0
+  bound_opacity_min: 0.04
+  fg_mask_mode: none
+  fg_mask_dilate_px: 0
+  fg_mask_erode_px: 0
+  fg_only_alpha_threshold: 0.02
+  fg_only_alpha_gamma: 1.0
+  fg_only_alpha_gain_max: 1.0
+  deform_alpha_threshold: 0.03
+  deform_alpha_gamma: 1.0
+  deform_alpha_gain_max: 1.0
+  overlay_smpl_skeleton: false
+  debug_overlay_keypoints: false
+  debug_bind_to_google_skeleton: false
+  smpl_skeleton_source: joints
+  smpl_skeleton_npz: outputs/stage1/smpl_skeleton_sequence.npz
+  smpl_joints_npz: outputs/stage1/smpl_joints_sequence.npz
+  smpl_skeleton_color_bgr: [0, 255, 0]
+  smpl_skeleton_line_thickness: 0
+  smpl_skeleton_joint_radius: 3
+  use_gt_background: true
+  person_masks_npz: outputs/stage1/person_masks.npz
+  bind_mesh_sequence_dir: outputs/stage1
+  bind_sequence_npz: outputs/stage1/smpl_params_sequence.npz
+  bind_mesh_obj_space: auto
+  deform_mesh_obj_space: auto
+  bind_rigid_align_auto_from_stage2: true
+  bind_align_quat_to_mesh_normals: true
+  bind_quat_normal_blend: 1.0
+  bind_mesh_to_camera: true
+  bind_inverse_export_upright: true
+  bind_mesh_offset: [0.0, 0.0, 0.0]

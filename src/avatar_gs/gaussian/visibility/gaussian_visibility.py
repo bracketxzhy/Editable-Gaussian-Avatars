@@ -11,11 +11,10 @@ def _project_points(xyz: torch.Tensor, K: torch.Tensor, R: torch.Tensor, t: torc
     valid = z > 1e-6
     u = torch.zeros_like(z)
     v = torch.zeros_like(z)
-    if bool(valid.any()):
-        xv = Xc[valid]
-        zv = z[valid]
-        u[valid] = K[0, 0] * (xv[:, 0] / zv) + K[0, 2]
-        v[valid] = K[1, 1] * (xv[:, 1] / zv) + K[1, 2]
+    xv = Xc[valid]
+    zv = z[valid]
+    u[valid] = K[0, 0] * (xv[:, 0] / zv) + K[0, 2]
+    v[valid] = K[1, 1] * (xv[:, 1] / zv) + K[1, 2]
     return u, v, valid
 
 
@@ -65,11 +64,9 @@ def compute_gaussian_visibility(
         a = alpha_map
         if a.ndim == 3 and a.shape[0] == 1:
             ai = torch.zeros((n,), dtype=torch.float32, device=dev)
-            idx = torch.nonzero(inside, as_tuple=False).view(-1)
-            if int(idx.numel()) > 0:
-                uu = torch.round(u[idx]).long().clamp(0, image_w - 1)
-                vv = torch.round(v[idx]).long().clamp(0, image_h - 1)
-                ai[idx] = a[0, vv, uu]
+            uu = torch.round(u[inside]).long().clamp(0, image_w - 1)
+            vv = torch.round(v[inside]).long().clamp(0, image_h - 1)
+            ai[inside] = a[0, vv, uu]
             vis = vis * torch.clamp(ai / max(float(min_alpha), 1e-6), 0.0, 1.0)
 
     if person_mask is not None:
@@ -77,11 +74,9 @@ def compute_gaussian_visibility(
         pm = person_mask
         if pm.ndim == 3 and pm.shape[0] == 1:
             mi = torch.zeros((n,), dtype=torch.float32, device=dev)
-            idx = torch.nonzero(inside, as_tuple=False).view(-1)
-            if int(idx.numel()) > 0:
-                uu = torch.round(u[idx]).long().clamp(0, image_w - 1)
-                vv = torch.round(v[idx]).long().clamp(0, image_h - 1)
-                mi[idx] = pm[0, vv, uu]
+            uu = torch.round(u[inside]).long().clamp(0, image_w - 1)
+            vv = torch.round(v[inside]).long().clamp(0, image_h - 1)
+            mi[inside] = pm[0, vv, uu]
             vis = vis * mi.clamp(0.0, 1.0)
 
     return vis.clamp(0.0, 1.0)

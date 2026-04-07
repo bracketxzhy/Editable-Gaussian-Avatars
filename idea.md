@@ -9,6 +9,10 @@ Document split:
 - `PROJECT_MAP.md`: file responsibilities, interfaces, and data flow.
 - `idea.md`: reality check, branch points, risks, and maintenance priorities.
 
+Naming rule:
+- Stable docs should point to role-based evaluation roots such as `evaluation/eval_outputs/stage2/current_inner_body_baseline_20260406/`, not transient experiment tags.
+- Experiment ids belong in run history, not in the repository's long-lived map.
+
 If these three files disagree, trust the code first and fix the docs second.
 
 ## What This Repository Really Is
@@ -184,6 +188,18 @@ So the default run is not a full dual-layer training pass.
 It is an inner-only path.
 
 If documentation or scripts still imply otherwise, they are lying.
+
+### Branch 6.1: inner training logic still contains legacy and fallback branches
+
+Do not pretend the inner-stage logic is now a clean-room minimal implementation.
+
+Current code still contains:
+- legacy binding modes in `src/avatar_gs/gaussian/binding_layers/inner_binding.py` and `frame_builder.py`
+- compatibility switches such as `inner_legacy_e526_compat_enable` in `src/avatar_gs/gaussian/train_loop.py`
+- fallback branches in mesh/runtime and outer-gap handling
+
+That means the code is functional, but not yet stripped of historical baggage.
+If someone claims the inner training path is already free of compatibility or fallback logic, they are either guessing or lying.
 
 ### Branch 7: supervision can be online or cached
 

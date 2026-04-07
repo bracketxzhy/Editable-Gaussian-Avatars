@@ -1,0 +1,30 @@
+{
+  "tag": "r130_facepostfit_4200c_000050_1000_innerrgb_fit",
+  "teacher_frames": [
+    "000050.jpg"
+  ],
+  "init_ckpt": "/data/work/Editable Gaussian Avatars/outputs/stage2_r130_facepostfit_4200c_000050_1000_innerrgb/gaussians3d.pt",
+  "face_semantics_npz": "/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz",
+  "frames_dir": "/data/work/Editable Gaussian Avatars/data/frames/input",
+  "train_dir": "/data/work/Editable Gaussian Avatars/outputs/stage2_face_fit_r130_facepostfit_4200c_000050_1000_innerrgb_fit",
+  "out_dir": "/data/work/Editable Gaussian Avatars/evaluation/eval_outputs/stage2_face_fit/r130_facepostfit_4200c_000050_1000_innerrgb_fit",
+  "device": "cuda",
+  "target_source": "inner_rgb",
+  "iters": 1000,
+  "out_size": 512,
+  "best_iter": 995,
+  "best_loss": 0.035184625536203384,
+  "face_gaussian_count": 2053,
+  "per_frame": [
+    {
+      "frame_name": "000050.jpg",
+      "mae": 0.012333829887211323,
+      "psnr": 32.09007440803674,
+      "ssim": 0.9850278894106547,
+      "symmetry_mae": 0.04685351252555847
+    }
+  ],
+  "mean_mae": 0.012333829887211323,
+  "mean_ssim": 0.9850278894106547,
+  "mean_symmetry_mae": 0.04685351252555847
+}

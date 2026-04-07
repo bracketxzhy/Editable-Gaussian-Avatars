@@ -5,15 +5,15 @@ data:
   frames_dir: data/frames/input
 stage2:
   stage1_dir: outputs/stage1
-  out_dir: outputs/stage2
+  out_dir: outputs/stage2_r26_facecrop_capacity_full_20260403_102712
   training_mode: inner_only
-  init_ckpt: null
-  inner_ckpt_path: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage2_inner_sharedbeta\gaussians3d_inner.pt
+  init_ckpt: outputs/stage2_r24_facecrop_rerender_full_20260403_101101/gaussians3d.pt
+  inner_ckpt_path: /data/work/Editable Gaussian Avatars/outputs/stage2_r26_facecrop_capacity_full_20260403_102712/gaussians3d_inner.pt
   init_mesh_obj: ''
   enable_tf32: true
   cudnn_benchmark: true
   n_frames: 48
-  n_gaussians: 120000
+  n_gaussians: 70000
   sample_on_surface: true
   n_gaussians_bg: 0
   bg_extent:
@@ -30,7 +30,7 @@ stage2:
   bg_log_scale_max: -2.0
   fg_opacity_logit_max: 3.2
   fg_log_scale_min: -7.2
-  fg_log_scale_max: -5.1
+  fg_log_scale_max: -6.1
   outer_log_scale_min: -7.6
   outer_log_scale_max: -5.3
   outer_prune_support_th: 0.03
@@ -41,8 +41,8 @@ stage2:
   outer_align_prune_protect_min_iou: 0.998
   outer_align_prune_protect_min_vis: 0.006
   outer_align_prune_protect_min_support: 0.006
-  iters: 4200
-  lr_gauss: 0.003
+  iters: 3000
+  lr_gauss: 0.0014
   lr_cam: 0.0
   camera_mode: fixed
   cam_t_prior:
@@ -54,14 +54,35 @@ stage2:
   l1_weight: 0.6
   use_alpha_mask: false
   alpha_threshold: 0.03
-  keypoints_json: outputs/stage1_sharedbeta/keypoints.json
+  keypoints_json: outputs/stage1/keypoints.json
   kpt_conf_min: 0.2
   kpt_box_pad: 0.12
   use_kpt_bbox_mask: false
-  face_weight: 1.0
+  face_weight: 1.2
   face_conf_min: 0.35
   face_box_pad: 0.1
   face_use_ears: false
+  inner_legacy_e526_compat_enable: false
+  face_align_quality_enable: true
+  face_align_weight_low: 1.0
+  face_align_weight_high: 1.55
+  face_align_score_min: 0.89
+  face_align_score_max: 0.915
+  face_align_score_power: 1.0
+  face_frontal_quality_enable: true
+  face_frontal_weight_low: 1.0
+  face_frontal_weight_high: 1.25
+  face_frontal_power: 1.0
+  face_hard_frame_select_enable: true
+  face_hard_frame_keep_topk: 18
+  face_hard_align_min: 0.89
+  face_hard_frontal_min: 0.95
+  face_hard_reject_weight: 0.0
+  face_hard_exclusive_enable: false
+  face_reference_frame_mode: name
+  face_reference_frame_name: 000024.jpg
+  face_reference_frame_index: -1
+  face_reference_weight: 1.45
   hand_weight: 1.0
   hand_conf_min: 0.25
   hand_radius_scale: 0.45
@@ -82,27 +103,35 @@ stage2:
   temporal_ref_window: 0
   temporal_ref_decay: 0.86
   bind_to_mesh: true
-  bind_mesh_sequence_dir: outputs/stage1_sharedbeta
+  bind_mesh_sequence_dir: outputs/stage1
   bind_cache_size: 32
   bind_mesh_obj_space: auto
   bind_align_quat_to_mesh_normals: true
   bind_quat_normal_blend: 1.0
-  bind_surface_aniso_weight: 0.0001
+  bind_surface_aniso_weight: 0.0035
   bind_surface_aniso_margin: 0.1
-  inner_local_scale_cap_weight: 0.03
+  inner_local_scale_cap_weight: 0.0
   inner_local_scale_cap_ratio: 1.2
   inner_local_scale_cap_normal_ratio: 0.75
+  inner_local_scale_clamp_enable: true
+  inner_local_scale_clamp_ratio: 0.82
+  inner_local_scale_clamp_normal_ratio: 0.3
   smpl_face_semantics_npz: outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
-  outer_block_exposed_faces: true
-  inner_local_color_prior_enable: true
-  inner_local_color_prior_weight: 0.03
+  outer_block_exposed_faces: false
+  inner_local_color_prior_enable: false
+  inner_local_color_prior_weight: 0.0
   inner_local_color_prior_start_iter: 200
   inner_local_color_prior_target_conf_max: 0.3
+  inner_local_color_prior_target_vis_max: 0.08
+  inner_local_color_prior_target_support_max: 0.15
   inner_local_color_prior_donor_conf_min: 0.65
   inner_local_color_prior_donor_opacity_min: 0.08
   inner_local_color_prior_donor_vis_min: 0.05
   inner_local_color_prior_semantic_conf_min: 0.55
   inner_local_color_prior_min_donor_weight: 0.2
+  inner_local_color_repair_enable: false
+  inner_local_color_repair_blend: 0.2
+  inner_local_color_repair_min_weight: 0.35
   bind_mesh_to_camera: true
   bind_inverse_export_upright: true
   bind_mesh_offset:
@@ -228,8 +257,8 @@ stage2:
   inner_count_auto: true
   inner_count_kV: 1.2
   inner_count_kF: 0.35
-  inner_count_min: 120000
-  inner_count_max: 260000
+  inner_count_min: 105000
+  inner_count_max: 280000
   tau_vis: 0.15
   frame_weight_k: 1.5
   use_robust_loss: true
@@ -243,9 +272,16 @@ stage2:
   use_border_attenuation: true
   border_attenuation_width: 4
   V_min: 8
-  densify_top_percent: 16.0
-  phase0_ratio: 0.05
-  phase2_ratio: 0.1
+  densify_top_percent: 10.0
+  inner_coverage_densify_enable: false
+  inner_coverage_eval_every: 200
+  inner_coverage_spawn_topk: 256
+  inner_coverage_stop_ratio: 0.82
+  inner_coverage_spawn_scale_mult: 0.82
+  inner_coverage_spawn_opacity_logit_init: -2.6
+  inner_coverage_spawn_opacity_logit_cap: -2.0
+  phase0_ratio: 0.08
+  phase2_ratio: 0.15
   phase_ratio_inner_only: 0.12
   phase_ratio_outer_only: 0.38
   phase_ratio_occlusion_simplify: 0.25
@@ -274,15 +310,15 @@ stage2:
   shell_offset_reg_weight: 0.001
   shell_offset_reg_phase0_scale: 0.2
   shell_offset_freeze_phase0: false
-  inner_dual_candidate_enable: true
+  inner_dual_candidate_enable: false
   inner_high_curv_dual_activate_th: 0.2
-  inner_face_candidate_ratio: 0.45
-  inner_vertex_candidate_ratio: 0.55
+  inner_face_candidate_ratio: 0.35
+  inner_vertex_candidate_ratio: 0.65
   inner_bind_mode_default: vertex
   inner_local_scale_init_enable: true
-  inner_local_scale_init_vertex_ratio: 0.4
-  inner_local_scale_init_face_ratio: 0.6
-  inner_local_scale_init_normal_ratio: 0.35
+  inner_local_scale_init_vertex_ratio: 0.44
+  inner_local_scale_init_face_ratio: 0.82
+  inner_local_scale_init_normal_ratio: 0.36
   inner_local_scale_init_min: 0.0008
   inner_local_scale_init_max: 0.012
   outer_trigger_face_activate_enable: true
@@ -322,6 +358,14 @@ stage2:
   outer_trigger_face_ema_decay: 0.85
   outer_trigger_face_ema_weight: 0.6
   outer_trigger_face_topk_min_support: 0.02
+  outer_spawn_min_contrib_frames: 3
+  outer_spawn_min_frame_ratio: 0.03
+  outer_spawn_min_weight_sum: 2.0
+  outer_spawn_score_use_persistence: true
+  outer_prune_persist_protect_enable: true
+  outer_prune_persist_min_contrib_frames: 4
+  outer_prune_persist_min_frame_ratio: 0.05
+  outer_prune_persist_min_weight_sum: 2.8
   outer_airspace_penalty_weight: 0.04
   outer_airspace_main_support_scale: 1.5
   outer_airspace_sharp_allow_dot: 0.15
@@ -368,7 +412,7 @@ stage2:
   inner_prune_protect_parts:
   - face
   - hands
-  inner_sparse_cleanup_enable: true
+  inner_sparse_cleanup_enable: false
   inner_sparse_cleanup_vis_th: 0.02
   inner_sparse_cleanup_opacity_th: 0.08
   inner_sparse_cleanup_warmup_iters: 800
@@ -398,4 +442,14 @@ stage2:
       recover_patience: 2
       outer_color_band_weight: 0.03
       layer_alpha_balance_weight: 0.01
+  face_hard_sample_prob: 0.45
+  face_local_loss_weight: 0.04
+  face_local_box_shrink: 0.32
+  face_local_view_min: 0.55
+  face_local_core_enable: true
+  face_patch_loss_weight: 0.18
+  face_patch_hf_weight: 0.06
+  face_patch_size: 224
+  face_patch_view_min: 0.58
+  detail_ms_weight: 0.0
   bind_rigid_align_effective: *id001

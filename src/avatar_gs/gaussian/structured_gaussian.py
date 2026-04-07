@@ -21,6 +21,8 @@ class Gaussian3D:
     bind_offset: torch.Tensor | None = None
     # (N,) optional bound face index for face-pinned binding
     bind_face_idx: torch.Tensor | None = None
+    # (N,) optional effective face index for semantics/local-scale policies
+    effective_face_idx: torch.Tensor | None = None
     # (N,3) optional barycentric coordinates on bound face
     bind_bary: torch.Tensor | None = None
     # (N,1) optional per-gaussian hybrid blend weight in [0,1]
@@ -52,6 +54,7 @@ class Gaussian3D:
             bind_idx=self.bind_idx.to(device) if self.bind_idx is not None else None,
             bind_offset=self.bind_offset.to(device) if self.bind_offset is not None else None,
             bind_face_idx=self.bind_face_idx.to(device) if self.bind_face_idx is not None else None,
+            effective_face_idx=self.effective_face_idx.to(device) if self.effective_face_idx is not None else None,
             bind_bary=self.bind_bary.to(device) if self.bind_bary is not None else None,
             bind_hybrid_w=self.bind_hybrid_w.to(device) if self.bind_hybrid_w is not None else None,
             bind_face_offset_local=self.bind_face_offset_local.to(device) if self.bind_face_offset_local is not None else None,
@@ -78,6 +81,8 @@ class Gaussian3D:
             sd["bind_offset"] = self.bind_offset
         if self.bind_face_idx is not None:
             sd["bind_face_idx"] = self.bind_face_idx
+        if self.effective_face_idx is not None:
+            sd["effective_face_idx"] = self.effective_face_idx
         if self.bind_bary is not None:
             sd["bind_bary"] = self.bind_bary
         if self.bind_hybrid_w is not None:
@@ -111,6 +116,7 @@ class Gaussian3D:
             bind_idx=sd.get("bind_idx", None),
             bind_offset=sd.get("bind_offset", None),
             bind_face_idx=sd.get("bind_face_idx", None),
+            effective_face_idx=sd.get("effective_face_idx", None),
             bind_bary=sd.get("bind_bary", None),
             bind_hybrid_w=sd.get("bind_hybrid_w", None),
             bind_face_offset_local=sd.get("bind_face_offset_local", None),

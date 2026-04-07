@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from avatar_gs.gaussian.effective_face import compute_effective_face_indices_np
 from avatar_gs.gaussian.structured_gaussian import Gaussian3D
 from avatar_gs.gaussian.shell_policy import estimate_inner_count
 
@@ -125,6 +126,7 @@ def _sample_face_centroids(
     n_samples: int,
     rng: np.random.Generator,
     allowed_face_ids: np.ndarray | None = None,
+    face_sampling_weight_by_face_id: np.ndarray | None = None,
     unique_faces: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if int(n_samples) <= 0 or faces is None or len(faces) == 0:
@@ -152,7 +154,12 @@ def _sample_face_centroids(
     face_ids_v = face_ids[valid]
     tri_v = verts[faces_all[face_ids_v]]
     area_v = area[valid]
-    probs = area_v / np.clip(area_v.sum(), 1e-8, None)
+    probs_raw = area_v.astype(np.float64, copy=True)
+    if face_sampling_weight_by_face_id is not None:
+        w_face = np.asarray(face_sampling_weight_by_face_id, dtype=np.float64).reshape(-1)
+        if int(w_face.shape[0]) >= int(faces_all.shape[0]):
+            probs_raw *= np.clip(w_face[face_ids_v], 1e-6, None)
+    probs = probs_raw / np.clip(probs_raw.sum(), 1e-8, None)
     n_pick = int(n_samples)
     replace = True
     if bool(unique_faces):
@@ -251,6 +258,27 @@ def _compute_face_half_scales_np(
     return s1, s2
 
 
+def _load_face_semantic_face_mask_np(
+    smpl_face_semantics_npz: str | Path | None,
+    n_faces: int,
+) -> np.ndarray | None:
+    if smpl_face_semantics_npz is None or int(n_faces) <= 0:
+        return None
+    try:
+        p = Path(smpl_face_semantics_npz)
+        if not p.exists():
+            return None
+        d = np.load(p, allow_pickle=True)
+        raw_ids = np.asarray(d["raw_label_ids"], dtype=np.int64).reshape(-1)
+        raw_names = [str(x) for x in np.asarray(d["raw_label_names"]).reshape(-1).tolist()]
+        if int(raw_ids.shape[0]) < int(n_faces) or "face" not in raw_names:
+            return None
+        face_id = int(raw_names.index("face"))
+        return np.asarray(raw_ids[:n_faces] == face_id, dtype=bool)
+    except Exception:
+        return None
+
+
 def init_gaussians_from_mesh_3d(
     mesh_obj: str | Path,
     n_keep: int = 3000,
@@ -281,6 +309,9 @@ def init_gaussians_from_mesh_3d(
     inner_local_scale_init_normal_ratio: float = 0.45,
     inner_local_scale_init_min: float = 8e-4,
     inner_local_scale_init_max: float = 1.2e-2,
+    smpl_face_semantics_npz: str | Path | None = None,
+    inner_face_semantic_sampling_boost: float = 1.0,
+    inner_face_semantic_scale_mult: float = 1.0,
     outer_init_from_inner: bool = False,
     outer_dormant_slot_ratio: float = 0.30,
     outer_dormant_face_ratio: float = 0.0,
@@ -289,6 +320,10 @@ def init_gaussians_from_mesh_3d(
 ) -> Gaussian3D:
     rng = np.random.default_rng(seed)
     V_all, F_all = load_obj_mesh(mesh_obj)
+    face_semantic_mask = _load_face_semantic_face_mask_np(
+        smpl_face_semantics_npz=smpl_face_semantics_npz,
+        n_faces=0 if F_all is None else int(F_all.shape[0]),
+    )
 
     if bool(inner_count_auto):
         n_keep_eff = estimate_inner_count(
@@ -336,6 +371,7 @@ def init_gaussians_from_mesh_3d(
             mode_v = np.zeros((0,), dtype=np.int64)
 
         face_allow = None
+        face_sampling_weights = None
         if n_face > 0:
             curv = _estimate_vertex_curvature_np(V_all, F_all)
             curv_th = float(np.clip(float(inner_high_curv_dual_activate_th), 0.0, 1.0))
@@ -345,12 +381,16 @@ def init_gaussians_from_mesh_3d(
                 face_allow = np.nonzero(
                     np.isin(tri[:, 0], high_v) | np.isin(tri[:, 1], high_v) | np.isin(tri[:, 2], high_v)
                 )[0].astype(np.int64)
+            if face_semantic_mask is not None and float(inner_face_semantic_sampling_boost) > 1.0:
+                face_sampling_weights = np.ones((int(F_all.shape[0]),), dtype=np.float32)
+                face_sampling_weights[face_semantic_mask] = float(inner_face_semantic_sampling_boost)
         V_f, idx_f, off_f, face_f, bary_f = _sample_face_centroids(
             verts=V_all,
             faces=F_all,
             n_samples=n_face,
             rng=rng,
             allowed_face_ids=face_allow,
+            face_sampling_weight_by_face_id=face_sampling_weights,
         )
         mode_f = np.ones((int(V_f.shape[0]),), dtype=np.int64)
 
@@ -540,11 +580,20 @@ def init_gaussians_from_mesh_3d(
         face_local_offset = np.concatenate([face_local_offset, np.zeros((int(n_bg), 3), dtype=np.float32)], axis=0)
         inner_bind_mode = np.concatenate([inner_bind_mode, -np.ones((int(n_bg),), dtype=np.int64)], axis=0)
 
+    effective_face_idx = compute_effective_face_indices_np(
+        bind_idx=np.asarray(idx, dtype=np.int64),
+        bind_face_idx=np.asarray(bind_face_idx, dtype=np.int64),
+        shell_layer=np.asarray(shell_layer, dtype=np.int64),
+        verts_np=V_all,
+        faces_np=F_all,
+    )
+
     N = V.shape[0]
     xyz = torch.from_numpy(V)
     bind_idx = torch.from_numpy(np.asarray(idx, dtype=np.int64))
     bind_offset_t = torch.from_numpy(np.asarray(bind_offset, dtype=np.float32))
     bind_face_idx_t = torch.from_numpy(np.asarray(bind_face_idx, dtype=np.int64))
+    effective_face_idx_t = torch.from_numpy(np.asarray(effective_face_idx, dtype=np.int64))
     bind_bary_t = torch.from_numpy(np.asarray(bind_bary, dtype=np.float32))
 
     log_scales = torch.full((N, 3), float(np.log(0.01)), dtype=torch.float32)
@@ -572,23 +621,42 @@ def init_gaussians_from_mesh_3d(
                 float(inner_local_scale_init_max),
             ).astype(np.float32)
 
-            face_idx_inner = np.asarray(bind_face_idx, dtype=np.int64)[inner_ids]
+            face_idx_inner = np.asarray(effective_face_idx, dtype=np.int64)[inner_ids]
             valid_face = (face_idx_inner >= 0) & (face_idx_inner < int(f_s1_ref.shape[0]))
             if bool(np.any(valid_face)):
                 inner_face_ids = inner_ids[valid_face]
                 face_sel = face_idx_inner[valid_face]
-                s1 = np.clip(
+                s1_base = np.clip(
                     float(inner_local_scale_init_face_ratio) * f_s1_ref[face_sel],
                     float(inner_local_scale_init_min),
                     float(inner_local_scale_init_max),
                 ).astype(np.float32)
-                s2 = np.clip(
+                s2_base = np.clip(
                     float(inner_local_scale_init_face_ratio) * f_s2_ref[face_sel],
                     float(inner_local_scale_init_min),
                     float(inner_local_scale_init_max),
                 ).astype(np.float32)
+                s1 = s1_base.copy()
+                s2 = s2_base.copy()
+                if (
+                    face_semantic_mask is not None
+                    and float(inner_face_semantic_scale_mult) > 0.0
+                    and abs(float(inner_face_semantic_scale_mult) - 1.0) > 1e-6
+                ):
+                    sem_face = face_semantic_mask[face_sel]
+                    if bool(np.any(sem_face)):
+                        s1[sem_face] = np.clip(
+                            float(inner_face_semantic_scale_mult) * s1[sem_face],
+                            float(inner_local_scale_init_min),
+                            float(inner_local_scale_init_max),
+                        ).astype(np.float32)
+                        s2[sem_face] = np.clip(
+                            float(inner_face_semantic_scale_mult) * s2[sem_face],
+                            float(inner_local_scale_init_min),
+                            float(inner_local_scale_init_max),
+                        ).astype(np.float32)
                 s_n = np.clip(
-                    float(inner_local_scale_init_normal_ratio) * np.minimum(s1, s2),
+                    float(inner_local_scale_init_normal_ratio) * np.minimum(s1_base, s2_base),
                     float(inner_local_scale_init_min),
                     float(inner_local_scale_init_max),
                 ).astype(np.float32)
@@ -623,6 +691,7 @@ def init_gaussians_from_mesh_3d(
         bind_idx=bind_idx,
         bind_offset=bind_offset_t,
         bind_face_idx=bind_face_idx_t,
+        effective_face_idx=effective_face_idx_t,
         bind_bary=bind_bary_t,
         bind_face_offset_local=torch.from_numpy(np.asarray(face_local_offset, dtype=np.float32)),
         shell_layer=torch.from_numpy(np.asarray(shell_layer, dtype=np.int64)),

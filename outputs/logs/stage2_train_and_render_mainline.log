@@ -1,0 +1,9 @@
+[2026/03/27 ÷‹ŒÂ 14:32:26.28] START stage2 train
+[2026-03-27 14:32:28] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-03-27 14:32:28] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-03-27 14:32:28] [INFO] Loaded 69 stage1 align score(s) from D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage1\smpl_params_sequence.npz for outer geometric accumulation.
+[2026-03-27 14:32:28] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage1\smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-03-27 14:32:28] [INFO] Mesh: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage1\sequence\frame_000075.obj
+[2026-03-27 14:32:28] [INFO] Frames: 69 used for training
+[2026-03-27 14:32:28] [INFO] Out dir: D:\project\Projects-zhy\Editable Gaussian Avatars\outputs\stage2
+[2026-03-27 14:32:28] [INFO] Stage2 training mode: inner_only

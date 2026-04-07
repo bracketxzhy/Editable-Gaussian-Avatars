@@ -1,0 +1,10 @@
+[2026-02-23 17:11:57] [INFO] Video: D:\project\Projects-zhy\Editable Gaussian Avatars\data\videos\input.mp4
+[2026-02-23 17:11:57] [INFO] Output frames dir: D:\project\Projects-zhy\Editable Gaussian Avatars\data\frames\input
+[2026-02-23 17:11:57] [INFO] frame_step=10, max_frames=-1, FORCE_ORIG_SIZE=True
+[2026-02-23 17:11:59] [INFO] Saved 50 frames...
+[2026-02-23 17:12:00] [INFO] Done. Saved frames: 76. Metadata: D:\project\Projects-zhy\Editable Gaussian Avatars\data\frames\input\metadata.json
+[2026-02-23 17:13:01] [INFO] Video: D:\project\Projects-zhy\Editable Gaussian Avatars\data\videos\input.mp4
+[2026-02-23 17:13:01] [INFO] Output frames dir: D:\project\Projects-zhy\Editable Gaussian Avatars\data\frames\input
+[2026-02-23 17:13:01] [INFO] frame_step=10, max_frames=-1, FORCE_ORIG_SIZE=True
+[2026-02-23 17:13:03] [INFO] Saved 50 frames...
+[2026-02-23 17:13:04] [INFO] Done. Saved frames: 76. Metadata: D:\project\Projects-zhy\Editable Gaussian Avatars\data\frames\input\metadata.json

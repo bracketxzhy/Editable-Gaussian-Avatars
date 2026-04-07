@@ -183,6 +183,14 @@ Core file:
 
 - `src/avatar_gs/cli/render.py`
 
+### 5.5 Stage2 Evaluation
+
+Current stable inner-body baseline evaluation output is tracked under:
+
+- `evaluation/eval_outputs/stage2/current_inner_body_baseline_20260406/`
+
+This path is intentionally role-based instead of experiment-id-based. If you keep writing docs around transient tags like `r154`, you are building future confusion on purpose.
+
 ## 6. Directory Layout
 
 Additional paths introduced by the current stage1 update:
@@ -389,7 +397,7 @@ $env:PYTHONPATH = "src"
 python -m avatar_gs.cli.stage1_bestof_merge --project_root . --base_stage1_dir outputs/stage1 --candidate_stage1_dirs outputs/stage1_try_a outputs/stage1_try_b --out_dir outputs/stage1_bestof
 ```
 
-That CLI reads `evaluation/output_images/**/stage1_eval_report_all.json` and writes a stage2-compatible merged root under `outputs/stage1_bestof/`.
+That CLI reads `evaluation/eval_outputs/**/stage1_eval_report_all.json` and writes a stage2-compatible merged root under `outputs/stage1_bestof/`.
 
 ### 9.4 Optional: Evaluate Stage1 Alignment
 

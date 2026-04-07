@@ -262,7 +262,7 @@ def parse_binding_mode_config(
 ) -> BindingModeConfig:
     d = {} if cfg_dict is None else dict(cfg_dict)
     mode = str(d.get("mode", default_mode)).strip().lower()
-    if mode not in ("games_face", "vertex_curv", "hybrid", "legacy"):
+    if mode not in ("games_face", "vertex_curv", "hybrid"):
         mode = default_mode
     return BindingModeConfig(
         mode=mode,
@@ -312,6 +312,6 @@ def choose_default_binding_mode(
     if has_face_binding:
         return "games_face"
     if "bind_idx" in set(available_fields):
-        return "legacy"
-    return "legacy"
+        return "vertex_curv"
+    return "vertex_curv"
 
