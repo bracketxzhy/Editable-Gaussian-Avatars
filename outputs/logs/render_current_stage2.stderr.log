@@ -1,0 +1,111 @@
+[2026-04-08 15:58:11] [INFO] Six-view mode enabled (dual-layer bound-only): ['front', 'back', 'left', 'right', 'top', 'bottom']
+[2026-04-08 15:58:11] [INFO] Six-view render [1/6]: front
+[2026-04-08 15:58:13] [INFO] Cleared 13 existing render image(s) in output folders
+[2026-04-08 15:58:13] [INFO] Stage2 dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-08 15:58:13] [INFO] Checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-08 15:58:13] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/renders
+[2026-04-08 15:58:14] [INFO] Loaded frame-wise intrinsics for render from checkpoint: matched 1/1 frame(s)
+[2026-04-08 15:58:14] [INFO] Frames dir: /data/work/Editable Gaussian Avatars/data/frames/input
+[2026-04-08 15:58:14] [INFO] Frame select: last; selected=1/69; bg=(1.0, 1.0, 1.0)
+[2026-04-08 15:58:14] [INFO] Selected frame names: ['000075.jpg']
+[2026-04-08 15:58:14] [INFO] Render outputs: main=False, real=True, fg_only=True, deform=True
+[2026-04-08 15:58:14] [INFO] Bind-only flags: real=True, fg_only=True, deform=True
+[2026-04-08 15:58:14] [INFO] Deform source: smplx_params
+[2026-04-08 15:58:14] [INFO] Deform render input: cfg=/data/work/Editable Gaussian Avatars/configs/deform_input.yaml npz=outputs/stage1/smpl_params_sequence.npz name= idx=-1 standard_pose=true
+[2026-04-08 15:58:14] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 15:58:14] [INFO] Loaded frame-wise SMPL alignment for render: matched 1/1 frame(s) from /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 15:58:14] [INFO] Loaded camera-space canonical verts from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=verts_canonical_cam, V=10475)
+[2026-04-08 15:58:14] [INFO] Loaded camera-space canonical joints from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=joints_canonical_cam, J=127)
+[2026-04-08 15:58:15] [INFO] Deform render source=smplx_standard_pose_rebuild row=75 model=smplx/neutral sign=[1.0, 1.0, 1.0]
+[2026-04-08 15:58:15] [INFO] Done.
+[2026-04-08 15:58:16] [INFO] Six-view render [2/6]: back
+[2026-04-08 15:58:18] [INFO] Stage2 dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-08 15:58:18] [INFO] Checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-08 15:58:18] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/renders
+[2026-04-08 15:58:18] [INFO] Loaded frame-wise intrinsics for render from checkpoint: matched 1/1 frame(s)
+[2026-04-08 15:58:18] [INFO] Frames dir: /data/work/Editable Gaussian Avatars/data/frames/input
+[2026-04-08 15:58:18] [INFO] Frame select: last; selected=1/69; bg=(1.0, 1.0, 1.0)
+[2026-04-08 15:58:18] [INFO] Selected frame names: ['000075.jpg']
+[2026-04-08 15:58:18] [INFO] Render outputs: main=False, real=False, fg_only=True, deform=True
+[2026-04-08 15:58:18] [INFO] Bind-only flags: real=True, fg_only=True, deform=True
+[2026-04-08 15:58:18] [INFO] Deform source: smplx_params
+[2026-04-08 15:58:18] [INFO] Deform render input: cfg=/data/work/Editable Gaussian Avatars/configs/deform_input.yaml npz=outputs/stage1/smpl_params_sequence.npz name= idx=-1 standard_pose=true
+[2026-04-08 15:58:18] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 15:58:18] [INFO] Loaded frame-wise SMPL alignment for render: matched 1/1 frame(s) from /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 15:58:18] [INFO] Loaded camera-space canonical verts from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=verts_canonical_cam, V=10475)
+[2026-04-08 15:58:18] [INFO] Loaded camera-space canonical joints from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=joints_canonical_cam, J=127)
+[2026-04-08 15:58:20] [INFO] Deform render source=smplx_standard_pose_rebuild row=75 model=smplx/neutral sign=[1.0, 1.0, 1.0]
+[2026-04-08 15:58:20] [INFO] Done.
+[2026-04-08 15:58:21] [INFO] Six-view render [3/6]: left
+[2026-04-08 15:58:23] [INFO] Stage2 dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-08 15:58:23] [INFO] Checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-08 15:58:23] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/renders
+[2026-04-08 15:58:23] [INFO] Loaded frame-wise intrinsics for render from checkpoint: matched 1/1 frame(s)
+[2026-04-08 15:58:23] [INFO] Frames dir: /data/work/Editable Gaussian Avatars/data/frames/input
+[2026-04-08 15:58:23] [INFO] Frame select: last; selected=1/69; bg=(1.0, 1.0, 1.0)
+[2026-04-08 15:58:23] [INFO] Selected frame names: ['000075.jpg']
+[2026-04-08 15:58:23] [INFO] Render outputs: main=False, real=False, fg_only=True, deform=True
+[2026-04-08 15:58:23] [INFO] Bind-only flags: real=True, fg_only=True, deform=True
+[2026-04-08 15:58:23] [INFO] Deform source: smplx_params
+[2026-04-08 15:58:23] [INFO] Deform render input: cfg=/data/work/Editable Gaussian Avatars/configs/deform_input.yaml npz=outputs/stage1/smpl_params_sequence.npz name= idx=-1 standard_pose=true
+[2026-04-08 15:58:23] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 15:58:23] [INFO] Loaded frame-wise SMPL alignment for render: matched 1/1 frame(s) from /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 15:58:23] [INFO] Loaded camera-space canonical verts from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=verts_canonical_cam, V=10475)
+[2026-04-08 15:58:23] [INFO] Loaded camera-space canonical joints from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=joints_canonical_cam, J=127)
+[2026-04-08 15:58:25] [INFO] Deform render source=smplx_standard_pose_rebuild row=75 model=smplx/neutral sign=[1.0, 1.0, 1.0]
+[2026-04-08 15:58:25] [INFO] Done.
+[2026-04-08 15:58:26] [INFO] Six-view render [4/6]: right
+[2026-04-08 15:58:28] [INFO] Stage2 dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-08 15:58:28] [INFO] Checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-08 15:58:28] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/renders
+[2026-04-08 15:58:28] [INFO] Loaded frame-wise intrinsics for render from checkpoint: matched 1/1 frame(s)
+[2026-04-08 15:58:28] [INFO] Frames dir: /data/work/Editable Gaussian Avatars/data/frames/input
+[2026-04-08 15:58:28] [INFO] Frame select: last; selected=1/69; bg=(1.0, 1.0, 1.0)
+[2026-04-08 15:58:28] [INFO] Selected frame names: ['000075.jpg']
+[2026-04-08 15:58:28] [INFO] Render outputs: main=False, real=False, fg_only=True, deform=True
+[2026-04-08 15:58:28] [INFO] Bind-only flags: real=True, fg_only=True, deform=True
+[2026-04-08 15:58:28] [INFO] Deform source: smplx_params
+[2026-04-08 15:58:28] [INFO] Deform render input: cfg=/data/work/Editable Gaussian Avatars/configs/deform_input.yaml npz=outputs/stage1/smpl_params_sequence.npz name= idx=-1 standard_pose=true
+[2026-04-08 15:58:28] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 15:58:28] [INFO] Loaded frame-wise SMPL alignment for render: matched 1/1 frame(s) from /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 15:58:28] [INFO] Loaded camera-space canonical verts from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=verts_canonical_cam, V=10475)
+[2026-04-08 15:58:28] [INFO] Loaded camera-space canonical joints from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=joints_canonical_cam, J=127)
+[2026-04-08 15:58:30] [INFO] Deform render source=smplx_standard_pose_rebuild row=75 model=smplx/neutral sign=[1.0, 1.0, 1.0]
+[2026-04-08 15:58:30] [INFO] Done.
+[2026-04-08 15:58:30] [INFO] Six-view render [5/6]: top
+[2026-04-08 15:58:32] [INFO] Stage2 dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-08 15:58:32] [INFO] Checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-08 15:58:32] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/renders
+[2026-04-08 15:58:33] [INFO] Loaded frame-wise intrinsics for render from checkpoint: matched 1/1 frame(s)
+[2026-04-08 15:58:33] [INFO] Frames dir: /data/work/Editable Gaussian Avatars/data/frames/input
+[2026-04-08 15:58:33] [INFO] Frame select: last; selected=1/69; bg=(1.0, 1.0, 1.0)
+[2026-04-08 15:58:33] [INFO] Selected frame names: ['000075.jpg']
+[2026-04-08 15:58:33] [INFO] Render outputs: main=False, real=False, fg_only=True, deform=True
+[2026-04-08 15:58:33] [INFO] Bind-only flags: real=True, fg_only=True, deform=True
+[2026-04-08 15:58:33] [INFO] Deform source: smplx_params
+[2026-04-08 15:58:33] [INFO] Deform render input: cfg=/data/work/Editable Gaussian Avatars/configs/deform_input.yaml npz=outputs/stage1/smpl_params_sequence.npz name= idx=-1 standard_pose=true
+[2026-04-08 15:58:33] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 15:58:33] [INFO] Loaded frame-wise SMPL alignment for render: matched 1/1 frame(s) from /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 15:58:33] [INFO] Loaded camera-space canonical verts from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=verts_canonical_cam, V=10475)
+[2026-04-08 15:58:33] [INFO] Loaded camera-space canonical joints from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=joints_canonical_cam, J=127)
+[2026-04-08 15:58:35] [INFO] Deform render source=smplx_standard_pose_rebuild row=75 model=smplx/neutral sign=[1.0, 1.0, 1.0]
+[2026-04-08 15:58:35] [INFO] Done.
+[2026-04-08 15:58:35] [INFO] Six-view render [6/6]: bottom
+[2026-04-08 15:58:37] [INFO] Stage2 dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-08 15:58:37] [INFO] Checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-08 15:58:37] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/renders
+[2026-04-08 15:58:37] [INFO] Loaded frame-wise intrinsics for render from checkpoint: matched 1/1 frame(s)
+[2026-04-08 15:58:37] [INFO] Frames dir: /data/work/Editable Gaussian Avatars/data/frames/input
+[2026-04-08 15:58:37] [INFO] Frame select: last; selected=1/69; bg=(1.0, 1.0, 1.0)
+[2026-04-08 15:58:37] [INFO] Selected frame names: ['000075.jpg']
+[2026-04-08 15:58:37] [INFO] Render outputs: main=False, real=False, fg_only=True, deform=True
+[2026-04-08 15:58:37] [INFO] Bind-only flags: real=True, fg_only=True, deform=True
+[2026-04-08 15:58:37] [INFO] Deform source: smplx_params
+[2026-04-08 15:58:37] [INFO] Deform render input: cfg=/data/work/Editable Gaussian Avatars/configs/deform_input.yaml npz=outputs/stage1/smpl_params_sequence.npz name= idx=-1 standard_pose=true
+[2026-04-08 15:58:37] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 15:58:38] [INFO] Loaded frame-wise SMPL alignment for render: matched 1/1 frame(s) from /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 15:58:38] [INFO] Loaded camera-space canonical verts from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=verts_canonical_cam, V=10475)
+[2026-04-08 15:58:38] [INFO] Loaded camera-space canonical joints from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz (source=joints_canonical_cam, J=127)
+[2026-04-08 15:58:39] [INFO] Deform render source=smplx_standard_pose_rebuild row=75 model=smplx/neutral sign=[1.0, 1.0, 1.0]
+[2026-04-08 15:58:40] [INFO] Done.
+[2026-04-08 15:58:40] [INFO] Done.

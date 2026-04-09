@@ -1,0 +1,27 @@
+2026-04-08 15:39:36,852 | INFO | start face-only two-frame fit: stage2_facefit_sweep_lr005_002_001_it1000
+2026-04-08 15:39:36,852 | INFO | device=cuda
+2026-04-08 15:39:37,244 | INFO | face gaussian count=23298 / total=140908
+2026-04-08 15:39:38,198 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 15:39:39,884 | INFO | teacher 000050.jpg | target_source=inner_rgb | face_pixels=4992 | box=(509, 184, 625, 301) | visible_face_gauss=22119
+2026-04-08 15:39:40,413 | INFO | iter 0001/1000 | total=0.099400 | render_l1_avg=0.061415
+2026-04-08 15:39:40,800 | INFO | iter 0050/1000 | total=0.044431 | render_l1_avg=0.018033
+2026-04-08 15:39:41,350 | INFO | iter 0100/1000 | total=0.035690 | render_l1_avg=0.012491
+2026-04-08 15:39:41,930 | INFO | iter 0150/1000 | total=0.032874 | render_l1_avg=0.010886
+2026-04-08 15:39:42,509 | INFO | iter 0200/1000 | total=0.031551 | render_l1_avg=0.010129
+2026-04-08 15:39:43,086 | INFO | iter 0250/1000 | total=0.030717 | render_l1_avg=0.009642
+2026-04-08 15:39:43,666 | INFO | iter 0300/1000 | total=0.030174 | render_l1_avg=0.009300
+2026-04-08 15:39:44,239 | INFO | iter 0350/1000 | total=0.029790 | render_l1_avg=0.009041
+2026-04-08 15:39:44,816 | INFO | iter 0400/1000 | total=0.029493 | render_l1_avg=0.008866
+2026-04-08 15:39:45,389 | INFO | iter 0450/1000 | total=0.029305 | render_l1_avg=0.008733
+2026-04-08 15:39:45,962 | INFO | iter 0500/1000 | total=0.029133 | render_l1_avg=0.008635
+2026-04-08 15:39:46,536 | INFO | iter 0550/1000 | total=0.029016 | render_l1_avg=0.008552
+2026-04-08 15:39:47,109 | INFO | iter 0600/1000 | total=0.028906 | render_l1_avg=0.008493
+2026-04-08 15:39:47,686 | INFO | iter 0650/1000 | total=0.028813 | render_l1_avg=0.008441
+2026-04-08 15:39:48,258 | INFO | iter 0700/1000 | total=0.028728 | render_l1_avg=0.008400
+2026-04-08 15:39:48,830 | INFO | iter 0750/1000 | total=0.028653 | render_l1_avg=0.008359
+2026-04-08 15:39:49,406 | INFO | iter 0800/1000 | total=0.028602 | render_l1_avg=0.008331
+2026-04-08 15:39:49,977 | INFO | iter 0850/1000 | total=0.028548 | render_l1_avg=0.008309
+2026-04-08 15:39:50,552 | INFO | iter 0900/1000 | total=0.028515 | render_l1_avg=0.008294
+2026-04-08 15:39:51,121 | INFO | iter 0950/1000 | total=0.028486 | render_l1_avg=0.008272
+2026-04-08 15:39:51,694 | INFO | iter 1000/1000 | total=0.028450 | render_l1_avg=0.008257
+2026-04-08 15:39:51,879 | INFO | done | best_iter=997 | mean_mae=0.008264 | mean_ssim=0.990066 | mean_symmetry_mae=0.051854

@@ -1,0 +1,37 @@
+2026-04-08 00:50:48,274 | INFO | start face-only two-frame fit: det_surface_main_facefit
+2026-04-08 00:50:48,274 | INFO | device=cuda
+2026-04-08 00:50:48,575 | INFO | face gaussian count=2053 / total=110908
+2026-04-08 00:50:49,290 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 00:50:50,708 | INFO | teacher 000050.jpg | target_source=inner_rgb | face_pixels=4992 | box=(509, 184, 625, 301) | visible_face_gauss=1853
+2026-04-08 00:50:50,858 | INFO | done | best_iter=0 | mean_mae=0.123683 | mean_ssim=0.859587 | mean_symmetry_mae=0.109313
+{"out_dir": "/data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/det_surface_main_bank", "parts": ["face", "hair", "top", "dress", "skirt", "pants", "belt", "bag", "hat", "scarf", "glasses", "arms", "hands", "legs", "feet", "torso", "jewelry"]}
+2026-04-08 00:52:28,094 | INFO | start part-teacher postfit: det_surface_main_partfit
+2026-04-08 00:52:28,127 | INFO | device=cuda
+2026-04-08 00:52:29,378 | INFO | active teacher parts=top
+2026-04-08 00:52:29,378 | INFO | fixed parts from fixed_source_ckpt=face, hair
+2026-04-08 00:52:29,378 | INFO | train parts=top
+2026-04-08 00:52:29,378 | INFO | selected gaussians=37497 / total=110908
+2026-04-08 00:52:29,380 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 00:52:29,459 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 00:52:31,143 | INFO | fixed box frame=000050.jpg box=(448,118,673,343) fixed_extra=9142 active_train_overlap_blocked=3449
+2026-04-08 00:52:33,570 | INFO | target part=top role=base frame=000023.jpg part_pixels=56462 visible_part_gauss=31389
+2026-04-08 00:52:34,674 | INFO | target part=top role=base frame=000026.jpg part_pixels=57424 visible_part_gauss=29827
+2026-04-08 00:52:35,760 | INFO | target part=top role=base frame=000016.jpg part_pixels=34418 visible_part_gauss=31678
+2026-04-08 00:52:36,851 | INFO | target part=top role=base frame=000013.jpg part_pixels=57683 visible_part_gauss=33463
+2026-04-08 00:52:37,957 | INFO | target part=top role=base frame=000035.jpg part_pixels=53898 visible_part_gauss=34075
+2026-04-08 00:52:39,053 | INFO | target part=top role=base frame=000034.jpg part_pixels=50201 visible_part_gauss=34121
+2026-04-08 00:52:40,564 | INFO | target part=top role=base frame=000009.jpg part_pixels=52184 visible_part_gauss=34127
+2026-04-08 00:52:41,969 | INFO | target part=top role=extra frame=000071.jpg part_pixels=56157 visible_part_gauss=30251
+2026-04-08 00:52:43,369 | INFO | target part=top role=extra frame=000059.jpg part_pixels=59702 visible_part_gauss=34977
+2026-04-08 00:52:44,761 | INFO | target part=top role=extra frame=000011.jpg part_pixels=58096 visible_part_gauss=34285
+2026-04-08 00:52:46,154 | INFO | target part=top role=extra frame=000039.jpg part_pixels=51875 visible_part_gauss=32569
+2026-04-08 00:52:47,549 | INFO | target part=top role=extra frame=000036.jpg part_pixels=56376 visible_part_gauss=34350
+2026-04-08 00:52:48,890 | INFO | target part=top role=extra frame=000014.jpg part_pixels=52896 visible_part_gauss=33459
+2026-04-08 00:52:49,975 | INFO | target part=top role=extra frame=000063.jpg part_pixels=53678 visible_part_gauss=34101
+2026-04-08 00:52:51,057 | INFO | target part=top role=extra frame=000038.jpg part_pixels=59650 visible_part_gauss=33803
+2026-04-08 00:52:52,138 | INFO | target part=top role=extra frame=000062.jpg part_pixels=58072 visible_part_gauss=33659
+2026-04-08 00:52:52,148 | INFO | support stats | any_visible=36738 / 37497 | base_visible=37305 | base_core=36502 | base_supported=36502 | base_deficit=236 | selected_extra=7 | remain_deficit=29 | min_support=2 | core_support=3 | use_cloth_core=true
+2026-04-08 00:52:52,148 | INFO | extra greedy picks=[('000014.jpg', 125), ('000036.jpg', 55), ('000062.jpg', 50), ('000071.jpg', 25), ('000011.jpg', 21), ('000063.jpg', 12), ('000038.jpg', 5)]
+2026-04-08 00:52:52,158 | INFO | filtered targets=14 after base/extra gating | base=7 extra=7 extra_phase=true extra_start_iter=240
+2026-04-08 00:52:52,164 | INFO | deterministic teacher transfer | supported=36738 / 36738
+2026-04-08 00:52:52,965 | INFO | done | active_parts=1 | selected_gaussians=36738 | targets=14

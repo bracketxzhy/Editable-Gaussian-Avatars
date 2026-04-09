@@ -1,0 +1,40 @@
+2026-04-08 02:32:48,167 | INFO | start part-teacher postfit: stage2_lrI
+2026-04-08 02:32:48,222 | INFO | device=cuda
+2026-04-08 02:32:49,523 | INFO | active teacher parts=top
+2026-04-08 02:32:49,524 | INFO | fixed parts from fixed_source_ckpt=face, hair
+2026-04-08 02:32:49,524 | INFO | train parts=top
+2026-04-08 02:32:49,524 | INFO | selected gaussians=37497 / total=110908
+2026-04-08 02:32:49,526 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 02:32:49,606 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 02:32:51,396 | INFO | fixed box frame=000050.jpg box=(448,118,673,343) fixed_extra=9142 active_train_overlap_blocked=3449
+2026-04-08 02:32:56,969 | INFO | target part=top role=base frame=000023.jpg part_pixels=56462 visible_part_gauss=31389
+2026-04-08 02:32:58,466 | INFO | target part=top role=base frame=000026.jpg part_pixels=57424 visible_part_gauss=29827
+2026-04-08 02:32:59,929 | INFO | target part=top role=base frame=000016.jpg part_pixels=34418 visible_part_gauss=31678
+2026-04-08 02:33:01,403 | INFO | target part=top role=base frame=000013.jpg part_pixels=57683 visible_part_gauss=33463
+2026-04-08 02:33:02,884 | INFO | target part=top role=base frame=000035.jpg part_pixels=53898 visible_part_gauss=34075
+2026-04-08 02:33:04,373 | INFO | target part=top role=base frame=000034.jpg part_pixels=50201 visible_part_gauss=34121
+2026-04-08 02:33:05,863 | INFO | target part=top role=base frame=000009.jpg part_pixels=52184 visible_part_gauss=34127
+2026-04-08 02:33:07,364 | INFO | target part=top role=extra frame=000071.jpg part_pixels=56157 visible_part_gauss=30251
+2026-04-08 02:33:08,847 | INFO | target part=top role=extra frame=000059.jpg part_pixels=59702 visible_part_gauss=34977
+2026-04-08 02:33:10,406 | INFO | target part=top role=extra frame=000011.jpg part_pixels=58096 visible_part_gauss=34285
+2026-04-08 02:33:11,959 | INFO | target part=top role=extra frame=000039.jpg part_pixels=51875 visible_part_gauss=32569
+2026-04-08 02:33:13,517 | INFO | target part=top role=extra frame=000036.jpg part_pixels=56376 visible_part_gauss=34350
+2026-04-08 02:33:15,002 | INFO | target part=top role=extra frame=000014.jpg part_pixels=52896 visible_part_gauss=33459
+2026-04-08 02:33:16,474 | INFO | target part=top role=extra frame=000063.jpg part_pixels=53678 visible_part_gauss=34101
+2026-04-08 02:33:17,965 | INFO | target part=top role=extra frame=000038.jpg part_pixels=59650 visible_part_gauss=33803
+2026-04-08 02:33:19,440 | INFO | target part=top role=extra frame=000062.jpg part_pixels=58072 visible_part_gauss=33659
+2026-04-08 02:33:19,452 | INFO | support stats | any_visible=36738 / 37497 | base_visible=37305 | base_core=36502 | base_supported=36502 | base_deficit=236 | selected_extra=7 | remain_deficit=29 | min_support=2 | core_support=3 | use_cloth_core=true
+2026-04-08 02:33:19,452 | INFO | extra greedy picks=[('000014.jpg', 125), ('000036.jpg', 55), ('000062.jpg', 50), ('000071.jpg', 25), ('000011.jpg', 21), ('000063.jpg', 12), ('000038.jpg', 5)]
+2026-04-08 02:33:19,464 | INFO | filtered targets=14 after base/extra gating | base=7 extra=7 extra_phase=true extra_start_iter=400
+2026-04-08 02:33:20,351 | INFO | iter 0001/0500 | total=1.008390
+2026-04-08 02:33:22,492 | INFO | iter 0050/0500 | total=0.853580
+2026-04-08 02:33:25,303 | INFO | iter 0100/0500 | total=0.742853
+2026-04-08 02:33:28,061 | INFO | iter 0150/0500 | total=0.664302
+2026-04-08 02:33:30,851 | INFO | iter 0200/0500 | total=0.610759
+2026-04-08 02:33:33,509 | INFO | iter 0250/0500 | total=0.576080
+2026-04-08 02:33:36,097 | INFO | iter 0300/0500 | total=0.555478
+2026-04-08 02:33:38,994 | INFO | iter 0350/0500 | total=0.544498
+2026-04-08 02:33:41,586 | INFO | iter 0400/0500 | total=0.538648
+2026-04-08 02:33:45,355 | INFO | iter 0450/0500 | total=3.494007
+2026-04-08 02:33:49,001 | INFO | iter 0500/0500 | total=3.401758
+2026-04-08 02:33:49,502 | INFO | done | active_parts=1 | selected_gaussians=36738 | targets=14

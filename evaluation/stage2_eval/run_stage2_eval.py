@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import argparse, json, logging, math, shutil, sys, time
+import argparse, json, logging, math, os, shutil, subprocess, sys, time
 from pathlib import Path
 import cv2, numpy as np, torch, torch.nn.functional as F
 
@@ -19,7 +19,7 @@ from avatar_gs.segmentation.fashn import FASHN_COARSE_GROUPS, build_fashn_raw_to
 from avatar_gs.stage2 import Stage2MeshRuntime, load_stage2_supervision_cache
 from avatar_gs.stage2.fashn_semantics import load_stage2_face_semantics
 from avatar_gs.stage2.mesh_runtime import compute_vertex_normals_np
-from avatar_gs.utils.cfg import load_yaml
+from avatar_gs.utils.cfg import load_yaml, save_yaml
 from evaluation.fashn_face_semantics.export_artifacts import RAW_PALETTE, save_fashn_2d_preview
 
 MIN_PART_PIXELS = 64
@@ -78,6 +78,76 @@ def save_u8(path: Path, img: np.ndarray):
         raise RuntimeError(f'Failed to write {path}')
 
 
+def build_render_preview_map(
+    *,
+    project_root: Path,
+    stage1_dir: Path,
+    stage2_dir: Path,
+    ckpt_path: Path,
+    out_dir: Path,
+    target_layer: str,
+    frame_names: list[str],
+    ckpt_frames: list[str],
+    logger: logging.Logger,
+) -> dict[str, Path]:
+    tmp_root = out_dir / '_render_preview'
+    tmp_root.mkdir(parents=True, exist_ok=True)
+
+    cfg = load_yaml(project_root / 'configs' / 'render.yaml')
+    render_cfg = dict(cfg.get('render', {}) if isinstance(cfg, dict) else {})
+    render_cfg['stage1_dir'] = str(stage1_dir)
+    render_cfg['out_dir'] = str(tmp_root)
+    render_cfg['save_main_image'] = False
+    render_cfg['save_real_image'] = False
+    render_cfg['save_fg_nobg_skeleton'] = True
+    render_cfg['deform_render_image'] = False
+    render_cfg['clear_out_dir_pngs'] = True
+    render_cfg['frame_select'] = 'indices'
+    render_cfg['max_frames'] = -1
+    render_cfg['layer_keys'] = [str(target_layer).strip().lower()]
+    render_cfg['six_views_enable'] = True
+    render_cfg['six_views_include_top_bottom'] = False
+
+    frame_to_idx = {str(fn): i for i, fn in enumerate(ckpt_frames)}
+    indices = [int(frame_to_idx[fn]) for fn in frame_names if fn in frame_to_idx]
+    if len(indices) != len(frame_names):
+        missing = [fn for fn in frame_names if fn not in frame_to_idx]
+        raise RuntimeError(f'render preview frame mapping failed, missing frames: {missing[:5]}')
+    render_cfg['frame_indices'] = indices
+
+    stage2_dir_use = Path(stage2_dir)
+    default_ckpt = (stage2_dir_use / 'gaussians3d.pt').resolve() if stage2_dir_use.exists() else None
+    if default_ckpt is None or ckpt_path.resolve() != default_ckpt:
+        ckpt_stage2_dir = tmp_root / '_stage2_ckpt'
+        ckpt_stage2_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(ckpt_path), str(ckpt_stage2_dir / 'gaussians3d.pt'))
+        render_cfg['stage2_dir'] = str(ckpt_stage2_dir)
+    else:
+        render_cfg['stage2_dir'] = str(stage2_dir_use)
+
+    tmp_cfg = tmp_root / 'render_eval_tmp.yaml'
+    payload = {'project_root': str(project_root), 'seed': 42, 'log_dir': 'outputs/logs', 'render': render_cfg}
+    save_yaml(payload, tmp_cfg)
+
+    env = os.environ.copy()
+    py_path = str(project_root / 'src')
+    env['PYTHONPATH'] = py_path if not env.get('PYTHONPATH') else py_path + os.pathsep + env['PYTHONPATH']
+    cmd = [sys.executable, '-m', 'avatar_gs.cli.render', '--config', str(tmp_cfg)]
+    logger.info('Building render previews for overlay via render CLI: %d frames', len(indices))
+    proc = subprocess.run(cmd, cwd=str(project_root), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f'render preview subprocess failed\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}')
+
+    fg_dir = tmp_root / 'fg_only' / str(target_layer).strip().lower()
+    out = {}
+    for fn in frame_names:
+        p = fg_dir / f'{Path(fn).stem}_front.png'
+        if not p.exists():
+            raise RuntimeError(f'missing render preview for {fn}: {p}')
+        out[str(fn)] = p
+    return out
+
+
 def rgb_np(x: torch.Tensor) -> np.ndarray:
     return np.asarray(x.detach().cpu().permute(1, 2, 0).numpy(), dtype=np.float32).clip(0.0, 1.0)
 
@@ -101,19 +171,6 @@ def axis_angle_to_rotmat(v: torch.Tensor) -> torch.Tensor:
     K = torch.stack([torch.stack([zero, -z, y]), torch.stack([z, zero, -x]), torch.stack([-y, x, zero])])
     I = torch.eye(3, dtype=v.dtype, device=v.device)
     return I + torch.sin(th) * K + (1.0 - torch.cos(th)) * (K @ K)
-
-
-def alpha_to_mask(alpha: torch.Tensor, th: float, gamma: float) -> torch.Tensor:
-    a = alpha.clamp(0.0, 1.0)
-    if float(gamma) != 1.0:
-        a = torch.pow(a, float(gamma))
-    if float(th) > 0.0:
-        a = (a > float(th)).to(dtype=a.dtype)
-    return a
-
-
-def composite(fg_rgb: torch.Tensor, fg_alpha: torch.Tensor, bg_rgb: torch.Tensor) -> torch.Tensor:
-    return fg_rgb + (1.0 - fg_alpha) * bg_rgb
 
 
 def clone_g(g: Gaussian3D) -> Gaussian3D:
@@ -304,8 +361,11 @@ class EvalRenderer:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         cfg_root = load_yaml(project_root / 'configs' / 'render.yaml') if (project_root / 'configs' / 'render.yaml').exists() else {}
         self.cfg = dict(cfg_root.get('render', {})) if isinstance(cfg_root, dict) else {}
-        self.deform_alpha_gamma = float(self.cfg.get('deform_alpha_gamma', 1.0))
-        self.deform_alpha_gain_max = float(self.cfg.get('deform_alpha_gain_max', 1.0))
+        self.deform_alpha_gamma = float(self.cfg.get('fg_only_alpha_gamma', self.cfg.get('deform_alpha_gamma', 1.0)))
+        self.deform_alpha_gain_max = float(self.cfg.get('fg_only_alpha_gain_max', self.cfg.get('deform_alpha_gain_max', 1.0)))
+        self.edge_matte_white_threshold = float(self.cfg.get('edge_matte_white_threshold', 0.18))
+        self.edge_matte_white_strength = float(self.cfg.get('edge_matte_white_strength', 0.75))
+        self.edge_matte_white_gamma = float(self.cfg.get('edge_matte_white_gamma', 1.0))
         self.bound_opacity_min = float(self.cfg.get('bound_opacity_min', 0.04))
         self.bind_align_quat_to_mesh_normals = bool(self.cfg.get('bind_align_quat_to_mesh_normals', True))
         self.bind_quat_normal_blend = float(np.clip(self.cfg.get('bind_quat_normal_blend', 1.0), 0.0, 1.0))
@@ -431,9 +491,18 @@ class EvalRenderer:
         gr = select_g(gd, lm)
         H, W = int(self.sup['inner_rgb_targets'].shape[1]), int(self.sup['inner_rgb_targets'].shape[2])
         rgb, alpha = render_gaussians_3d(g=gr, K=K, R=R, t=t, H=H, W=W, bg=None, return_alpha=True)
-        m = alpha_to_mask(alpha, self.alpha_threshold, self.deform_alpha_gamma)
+        m = alpha.clamp(0.0, 1.0)
+        if float(self.deform_alpha_gamma) != 1.0:
+            m = torch.pow(m, float(self.deform_alpha_gamma))
+        if float(self.alpha_threshold) > 0.0:
+            m = (m > float(self.alpha_threshold)).to(dtype=m.dtype)
         gain = (m / alpha.clamp(min=1e-4)).clamp(min=0.0, max=self.deform_alpha_gain_max)
-        pred = composite((rgb * gain).clamp(0.0, 1.0), m, torch.ones_like(rgb))
+        pred = (rgb * gain).clamp(0.0, 1.0) + (1.0 - m) * torch.ones_like(rgb)
+        fringe = ((float(self.edge_matte_white_threshold) - m.clamp(0.0, 1.0)).clamp(min=0.0) / float(self.edge_matte_white_threshold)).clamp(0.0, 1.0) if float(self.edge_matte_white_threshold) > 0.0 else torch.zeros_like(m)
+        if float(self.edge_matte_white_gamma) != 1.0:
+            fringe = fringe.pow(float(self.edge_matte_white_gamma))
+        fringe = fringe * (m > 0.0).to(dtype=fringe.dtype) * float(self.edge_matte_white_strength)
+        pred = (pred * (1.0 - fringe.expand_as(pred)) + fringe.expand_as(pred)).clamp(0.0, 1.0)
         return pred, m, float(lm.float().mean().item()) if int(lm.numel()) > 0 else 0.0
 
 
@@ -536,6 +605,18 @@ def main():
     face_raw_id = next((int(rid) for rid, name in ids_to_labels.items() if str(name) == 'face'), None)
     parser = load_fashn_parser(runtime_dir=None, model_dir=None, device='cuda' if torch.cuda.is_available() else 'cpu')
     renderer = EvalRenderer(project_root, stage1_dir, stage2_dir, ckpt_path, frames, sup, args.target_layer, args.alpha_threshold, logger)
+    render_preview_map = build_render_preview_map(
+        project_root=project_root,
+        stage1_dir=stage1_dir,
+        stage2_dir=stage2_dir,
+        ckpt_path=ckpt_path,
+        out_dir=out_dir,
+        target_layer=args.target_layer,
+        frame_names=frames,
+        ckpt_frames=[str(x) for x in renderer.ckpt.get('frames', [])],
+        logger=logger,
+    )
+    temp_render_preview_dir = out_dir / '_render_preview'
 
     jsonl = (out_dir / 'frame_metrics.jsonl').open('w', encoding='utf-8')
     badlog = (out_dir / 'bad_regions.log').open('w', encoding='utf-8')
@@ -588,7 +669,10 @@ def main():
             if bool(valid.any()):
                 seg_color[valid] = RAW_PALETTE[seg[valid].astype(np.int64)]
             gt_overlay = (0.55 * np.asarray(gt_u8, dtype=np.float32) + 0.45 * seg_color.astype(np.float32)).clip(0, 255).astype(np.uint8)
-            top = np.concatenate([cv2.cvtColor(gt_u8, cv2.COLOR_RGB2BGR), cv2.cvtColor(pred_u8, cv2.COLOR_RGB2BGR)], axis=1)
+            pred_vis_bgr = cv2.imread(str(render_preview_map[frame_name]), cv2.IMREAD_COLOR)
+            if pred_vis_bgr is None:
+                raise RuntimeError(f'failed to load render preview for overlay: {render_preview_map[frame_name]}')
+            top = np.concatenate([cv2.cvtColor(gt_u8, cv2.COLOR_RGB2BGR), pred_vis_bgr], axis=1)
             bottom = np.concatenate([cv2.cvtColor(gt_overlay, cv2.COLOR_RGB2BGR), dmap], axis=1)
             overlay = np.concatenate([top, bottom], axis=0)
             overlay_path = out_dir / 'overlays' / f'{stem}_overlay.png'
@@ -625,6 +709,7 @@ def main():
     summary = {'frame_count': len(frame_reports), 'target_layer': str(args.target_layer), 'stage1_dir': str(stage1_dir), 'stage2_dir': str(stage2_dir), 'stage2_ckpt': str(ckpt_path), 'supervision_cache': str(sup_path), 'semantics_frame_match': bool(sem_match), 'global_metrics': {'mae_mean': float(gm_mae.mean()), 'psnr_mean': float(gm_psnr[np.isfinite(gm_psnr)].mean()) if bool(np.isfinite(gm_psnr).any()) else None, 'ssim_mean': float(gm_ssim.mean()), 'mask_iou_mean': float(gm_iou.mean())}, 'worst_part_name': str(worst_part_name), 'worst_frames': [{'frame_name': r['frame_name'], 'frame_badness': float(r['frame_badness']), 'worst_parts': [str(x['part_name']) for x in r['worst_parts']]} for r in worst_frames[:10]], 'part_summary': part_summary}
     (out_dir / 'summary.json').write_text(json.dumps(jfix(summary), indent=2, ensure_ascii=False), encoding='utf-8')
     write_report(out_dir / 'report.md', summary, part_summary, worst_frames)
+    shutil.rmtree(temp_render_preview_dir, ignore_errors=True)
     logger.info('Stage2 eval done: %s', out_dir / 'summary.json')
 
 

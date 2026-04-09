@@ -1,0 +1,36 @@
+2026-04-07 14:37:02,320 | INFO | start part-teacher postfit: stage2_current_top_postfit
+2026-04-07 14:37:02,405 | INFO | device=cuda
+2026-04-07 14:37:03,481 | INFO | active teacher parts=top
+2026-04-07 14:37:03,481 | INFO | fixed parts from fixed_source_ckpt=face, hair
+2026-04-07 14:37:03,481 | INFO | train parts=top
+2026-04-07 14:37:03,482 | INFO | selected gaussians=28531 / total=140908
+2026-04-07 14:37:03,483 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-07 14:37:03,545 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-07 14:37:05,147 | INFO | fixed box frame=000050.jpg box=(448,118,673,343) fixed_extra=40260 active_train_overlap_blocked=1771
+2026-04-07 14:37:07,715 | INFO | target part=top role=base frame=000023.jpg part_pixels=56462 visible_part_gauss=25396
+2026-04-07 14:37:09,146 | INFO | target part=top role=base frame=000026.jpg part_pixels=57424 visible_part_gauss=24337
+2026-04-07 14:37:10,548 | INFO | target part=top role=base frame=000016.jpg part_pixels=34418 visible_part_gauss=24627
+2026-04-07 14:37:11,956 | INFO | target part=top role=base frame=000013.jpg part_pixels=57683 visible_part_gauss=25889
+2026-04-07 14:37:13,082 | INFO | target part=top role=base frame=000035.jpg part_pixels=53898 visible_part_gauss=26005
+2026-04-07 14:37:14,179 | INFO | target part=top role=base frame=000034.jpg part_pixels=50201 visible_part_gauss=25516
+2026-04-07 14:37:15,279 | INFO | target part=top role=base frame=000009.jpg part_pixels=52184 visible_part_gauss=25672
+2026-04-07 14:37:16,371 | INFO | target part=top role=extra frame=000071.jpg part_pixels=56157 visible_part_gauss=24747
+2026-04-07 14:37:17,632 | INFO | target part=top role=extra frame=000059.jpg part_pixels=59702 visible_part_gauss=26307
+2026-04-07 14:37:18,756 | INFO | target part=top role=extra frame=000011.jpg part_pixels=58096 visible_part_gauss=26437
+2026-04-07 14:37:19,865 | INFO | target part=top role=extra frame=000039.jpg part_pixels=51875 visible_part_gauss=25517
+2026-04-07 14:37:20,980 | INFO | target part=top role=extra frame=000036.jpg part_pixels=56376 visible_part_gauss=26506
+2026-04-07 14:37:22,087 | INFO | target part=top role=extra frame=000014.jpg part_pixels=52896 visible_part_gauss=25889
+2026-04-07 14:37:23,204 | INFO | target part=top role=extra frame=000063.jpg part_pixels=53678 visible_part_gauss=25951
+2026-04-07 14:37:24,317 | INFO | target part=top role=extra frame=000038.jpg part_pixels=59650 visible_part_gauss=25832
+2026-04-07 14:37:25,731 | INFO | target part=top role=extra frame=000062.jpg part_pixels=58072 visible_part_gauss=26058
+2026-04-07 14:37:25,744 | INFO | support stats | any_visible=27531 / 28531 | base_visible=28012 | base_core=27020 | base_supported=27020 | base_deficit=511 | selected_extra=6 | remain_deficit=70 | min_support=2 | core_support=3 | use_cloth_core=true
+2026-04-07 14:37:25,744 | INFO | extra greedy picks=[('000011.jpg', 360), ('000036.jpg', 169), ('000014.jpg', 23), ('000071.jpg', 12), ('000038.jpg', 9), ('000063.jpg', 5)]
+2026-04-07 14:37:25,757 | INFO | filtered targets=13 after base/extra gating | base=7 extra=6 extra_phase=true extra_start_iter=240
+2026-04-07 14:37:26,724 | INFO | iter 0001/0300 | total=2.322952
+2026-04-07 14:37:28,823 | INFO | iter 0050/0300 | total=1.708190
+2026-04-07 14:37:31,233 | INFO | iter 0100/0300 | total=1.472620
+2026-04-07 14:37:34,020 | INFO | iter 0150/0300 | total=1.388901
+2026-04-07 14:37:36,382 | INFO | iter 0200/0300 | total=1.272397
+2026-04-07 14:37:39,267 | INFO | iter 0250/0300 | total=3.304962
+2026-04-07 14:37:42,562 | INFO | iter 0300/0300 | total=3.005458
+2026-04-07 14:37:42,972 | INFO | done | active_parts=1 | selected_gaussians=27531 | targets=13

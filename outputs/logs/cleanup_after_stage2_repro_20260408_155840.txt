@@ -1,0 +1,108 @@
+cleanup after promoted clean stage2 20260408_155840
+before outputs
+outputs
+outputs/logs
+outputs/logs/r154_restore
+outputs/renders
+outputs/renders/deform
+outputs/renders/fg_only
+outputs/renders/real
+outputs/stage1
+outputs/stage1/fashn_face_semantics
+outputs/stage1/final
+outputs/stage1/sequence
+outputs/stage1/smplestx
+outputs/stage2
+outputs/stage2/supervision_preview
+outputs/stage2_face_fit
+outputs/stage2_face_fit/stage2_facefit_from_inner_110908
+outputs/stage2_face_fit/stage2_facefit_sweep_lr005_002_001_it1000
+outputs/stage2_face_fit/stage2_facefit_sweep_lr006_002_001_it1500
+outputs/stage2_face_fit/stage2_facefit_sweep_lr010_004_002_it1000
+outputs/stage2_headfixed_restored
+outputs/stage2_old_innerrollback_repro
+outputs/stage2_part_fit
+outputs/stage2_part_fit/stage2_inner_toppostfit_r154bank
+outputs/stage2_teacher_bank
+outputs/stage2_teacher_bank/current
+outputs/stage2_teacher_bank/r154_restore
+before evals
+evaluation/eval_outputs
+evaluation/eval_outputs/fashn_face_semantics
+evaluation/eval_outputs/stage1
+evaluation/eval_outputs/stage2
+evaluation/eval_outputs/stage2_facefit_from_inner_110908_eval
+evaluation/eval_outputs/stage2_facefit_sweep_lr005_002_001_it1000_eval
+evaluation/eval_outputs/stage2_facefit_sweep_lr006_002_001_it1500_eval
+evaluation/eval_outputs/stage2_facefit_sweep_lr010_004_002_it1000_eval
+evaluation/eval_outputs/stage2_headfixed_eval
+evaluation/eval_outputs/stage2_inner_candidate_eval
+evaluation/eval_outputs/stage2_inner_toppostfit_r154bank_eval
+evaluation/eval_outputs/stage2_old_innerrollback_repro_eval
+evaluation/eval_outputs/stage2_verify_promoted
+DELETE outputs/stage2_old_innerrollback_repro
+DELETE outputs/stage2_headfixed_restored
+DELETE outputs/stage2_teacher_bank
+DELETE outputs/stage2_face_fit
+DELETE outputs/stage2_part_fit
+KEEP evaluation/eval_outputs/fashn_face_semantics
+KEEP evaluation/eval_outputs/stage1
+KEEP evaluation/eval_outputs/stage2
+DELETE evaluation/eval_outputs/stage2_facefit_from_inner_110908_eval
+DELETE evaluation/eval_outputs/stage2_facefit_sweep_lr005_002_001_it1000_eval
+DELETE evaluation/eval_outputs/stage2_facefit_sweep_lr006_002_001_it1500_eval
+DELETE evaluation/eval_outputs/stage2_facefit_sweep_lr010_004_002_it1000_eval
+DELETE evaluation/eval_outputs/stage2_headfixed_eval
+DELETE evaluation/eval_outputs/stage2_inner_candidate_eval
+DELETE evaluation/eval_outputs/stage2_inner_toppostfit_r154bank_eval
+DELETE evaluation/eval_outputs/stage2_old_innerrollback_repro_eval
+DELETE evaluation/eval_outputs/stage2_verify_promoted
+after outputs
+outputs
+outputs/logs
+outputs/logs/r154_restore
+outputs/renders
+outputs/renders/deform
+outputs/renders/fg_only
+outputs/renders/real
+outputs/stage1
+outputs/stage1/fashn_face_semantics
+outputs/stage1/final
+outputs/stage1/sequence
+outputs/stage1/smplestx
+outputs/stage2
+outputs/stage2/supervision_preview
+after evals
+evaluation/eval_outputs
+evaluation/eval_outputs/fashn_face_semantics
+evaluation/eval_outputs/stage1
+evaluation/eval_outputs/stage2
+key md5
+f657649998a335f7709749c2c1fc2bb5  outputs/stage2/gaussians3d.pt
+9f84705c08931d3c2e31003553c2b5b6  outputs/stage2/gaussians3d_inner.pt
+summary
+/data/work/Editable Gaussian Avatars/outputs/stage2_old_innerrollback_repro/gaussians3d.pt
+{'mae_mean': 0.05615437403321266, 'psnr_mean': 17.210176467895508, 'ssim_mean': 0.883877694606781, 'mask_iou_mean': 0.8959800004959106}
+{'face': 0.23660527169704437, 'hair': 0.178305521607399, 'top': 0.17896369099617004, 'torso': 0.17103497684001923, 'pants': 0.14494609832763672, 'arms': 0.14495238661766052, 'hands': 0.20487482845783234}
+renders
+outputs/renders/deform/inner/back.png
+outputs/renders/deform/inner/bottom.png
+outputs/renders/deform/inner/front.png
+outputs/renders/deform/inner/left.png
+outputs/renders/deform/inner/right.png
+outputs/renders/deform/inner/top.png
+outputs/renders/fg_only/inner/000075_back.png
+outputs/renders/fg_only/inner/000075_bottom.png
+outputs/renders/fg_only/inner/000075_front.png
+outputs/renders/fg_only/inner/000075_left.png
+outputs/renders/fg_only/inner/000075_right.png
+outputs/renders/fg_only/inner/000075_top.png
+outputs/renders/real/inner/000075_front.png
+sizes
+2.8M	outputs/renders
+6.0M	outputs/logs
+51M	evaluation/eval_outputs/stage2
+59M	evaluation/eval_outputs/stage1
+94M	outputs/stage2
+119M	evaluation/eval_outputs/fashn_face_semantics
+181M	outputs/stage1

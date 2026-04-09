@@ -1,0 +1,30 @@
+{
+  "tag": "stage2_facepostfit",
+  "teacher_frames": [
+    "000050.jpg"
+  ],
+  "init_ckpt": "/data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt",
+  "face_semantics_npz": "/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz",
+  "frames_dir": "/data/work/Editable Gaussian Avatars/data/frames/input",
+  "train_dir": "/data/work/Editable Gaussian Avatars/outputs/stage2/face_fit/stage2_facepostfit/train",
+  "out_dir": "/data/work/Editable Gaussian Avatars/outputs/stage2/face_fit/stage2_facepostfit",
+  "device": "cuda",
+  "target_source": "inner_rgb",
+  "iters": 1000,
+  "out_size": 512,
+  "best_iter": 1000,
+  "best_loss": 0.03525148704648018,
+  "face_gaussian_count": 2053,
+  "per_frame": [
+    {
+      "frame_name": "000050.jpg",
+      "mae": 0.012355674058198929,
+      "psnr": 32.054307062239396,
+      "ssim": 0.984959065914154,
+      "symmetry_mae": 0.047058604657649994
+    }
+  ],
+  "mean_mae": 0.012355674058198929,
+  "mean_ssim": 0.984959065914154,
+  "mean_symmetry_mae": 0.047058604657649994
+}

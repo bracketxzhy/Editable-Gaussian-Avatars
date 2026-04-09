@@ -1,0 +1,62 @@
+cleanup_20260408_stage2_repro
+preserve outputs/stage2, outputs/stage2_headfixed_restored, outputs/stage2_part_fit/stage2_part_postfit_r154_replay_verify3, outputs/stage2_teacher_bank/current, outputs/stage2_teacher_bank/r154_restore
+DELETE outputs/renders_r154_latest_20260407
+DELETE outputs/stage2_base_restored
+DELETE outputs/stage2_exp_innerrollback_e526_v3
+DELETE outputs/stage2_r154_partteacher_toponly_v15_greedyextra_headboxfixed_300
+outputs/stage2_part_fit/stage2_current_top_postfit
+outputs/stage2_part_fit/stage2_r154_restore
+outputs/stage2_part_fit/stage2_part_postfit_from_oldfacefit
+outputs/stage2_part_fit/stage2_part_postfit_from_oldfacefit_b
+outputs/stage2_part_fit/stage2_baseonly_ms2_cs3
+outputs/stage2_part_fit/stage2_baseonly_ms2_cs4
+outputs/stage2_teacher_bank/replay_current
+outputs/stage2_teacher_bank/rebuild_current
+outputs/stage2_teacher_bank/r154_replay_verify2
+outputs/stage2_teacher_bank/repro_attempt1
+outputs/stage2_teacher_bank/det_surface_main_bank
+outputs/stage2_teacher_bank/r154_fromgit_manual_bank
+outputs/stage2_teacher_bank/r154_fromgit_manual_bank_b
+outputs/stage2_teacher_bank/r154_restore_baseonly
+evaluation/eval_outputs/stage2_recheck
+evaluation/eval_outputs/stage2_base_restored_eval
+evaluation/eval_outputs/stage2_trainonly_truth_eval
+evaluation/eval_outputs/stage2_facefit_truth_eval
+
+AFTER outputs:
+outputs/logs
+outputs/logs/r154_restore
+outputs/renders
+outputs/renders/deform
+outputs/renders/fg_only
+outputs/renders/real
+outputs/stage1
+outputs/stage1/fashn_face_semantics
+outputs/stage1/final
+outputs/stage1/sequence
+outputs/stage1/smplestx
+outputs/stage2
+outputs/stage2/supervision_preview
+outputs/stage2_face_fit
+outputs/stage2_headfixed_restored
+outputs/stage2_part_fit
+outputs/stage2_teacher_bank
+outputs/stage2_teacher_bank/current
+outputs/stage2_teacher_bank/r154_restore
+
+AFTER eval_outputs:
+evaluation/eval_outputs/fashn_face_semantics
+evaluation/eval_outputs/fashn_face_semantics/fashn_2d_labels
+evaluation/eval_outputs/fashn_face_semantics/group_face_labels
+evaluation/eval_outputs/fashn_face_semantics/raw_face_labels
+evaluation/eval_outputs/stage1
+evaluation/eval_outputs/stage2
+evaluation/eval_outputs/stage2/overlays
+evaluation/eval_outputs/stage2_headfixed_eval
+evaluation/eval_outputs/stage2_headfixed_eval/overlays
+evaluation/eval_outputs/stage2_replay_verify3_eval
+evaluation/eval_outputs/stage2_replay_verify3_eval/overlays
+DELETE failed histbase trial Wed Apr  8 09:37:39 UTC 2026
+outputs/stage2_part_fit/stage2_histbase_top_postfit
+evaluation/eval_outputs/stage2_histbase_top_postfit_eval
+DELETE failed histbase teacher bank outputs/stage2_teacher_bank/r154_restore_histbase

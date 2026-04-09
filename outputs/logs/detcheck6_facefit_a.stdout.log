@@ -1,0 +1,9 @@
+2026-04-07 16:13:33,246 | INFO | start face-only two-frame fit: detcheck6_facefit_a
+2026-04-07 16:13:33,246 | INFO | device=cuda
+2026-04-07 16:13:33,646 | INFO | face gaussian count=2053 / total=110908
+2026-04-07 16:13:34,557 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-07 16:13:36,623 | INFO | teacher 000050.jpg | target_source=inner_rgb | face_pixels=4992 | box=(509, 184, 625, 301) | visible_face_gauss=1853
+2026-04-07 16:13:37,309 | INFO | iter 0001/0100 | total=0.181915 | render_l1_avg=0.123683
+2026-04-07 16:13:37,643 | INFO | iter 0050/0100 | total=0.068958 | render_l1_avg=0.027486
+2026-04-07 16:13:38,002 | INFO | iter 0100/0100 | total=0.050781 | render_l1_avg=0.018364
+2026-04-07 16:13:38,179 | INFO | done | best_iter=100 | mean_mae=0.018286 | mean_ssim=0.972142 | mean_symmetry_mae=0.049068

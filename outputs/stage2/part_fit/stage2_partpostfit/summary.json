@@ -1,0 +1,26 @@
+{
+  "tag": "stage2_partpostfit",
+  "target_source": "inner_rgb",
+  "teacher_bank_json": "/data/work/Editable Gaussian Avatars/outputs/stage2/teacher_bank/stage2/teacher_bank.json",
+  "fixed_source_ckpt": "/data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt",
+  "fixed_parts": [
+    "face",
+    "hair"
+  ],
+  "fixed_box_frame": "000050.jpg",
+  "fixed_box_extra_count": 6310,
+  "active_parts": [
+    "arms",
+    "feet",
+    "hands",
+    "pants",
+    "top",
+    "torso"
+  ],
+  "selected_gaussian_count": 81081,
+  "target_count": 49,
+  "best_iter": 240,
+  "best_loss": 3.5168566703796387,
+  "train_dir": "/data/work/Editable Gaussian Avatars/outputs/stage2/part_fit/stage2_partpostfit/train",
+  "out_dir": "/data/work/Editable Gaussian Avatars/outputs/stage2/part_fit/stage2_partpostfit"
+}

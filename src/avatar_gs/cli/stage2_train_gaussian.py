@@ -33,32 +33,137 @@ except Exception:
     resolve_h36m_image_paths = None
 
 
-def _maybe_run_face_postfit(*, project_root: Path, stage1_dir: Path, ckpt_path: Path, out_dir: Path, stage2_cfg: dict, logger) -> None:
-    if not bool(stage2_cfg.get("face_postfit_enable", False)):
+
+def _cfg_string_list(value, default: list[str]) -> list[str]:
+    if value is None:
+        items = default
+    elif isinstance(value, str):
+        stripped = value.strip()
+        if len(stripped) <= 0:
+            items = []
+        elif "," in stripped:
+            items = [x.strip() for x in stripped.split(",")]
+        else:
+            items = [stripped]
+    else:
+        items = list(value)
+    return [str(x).strip() for x in items if str(x).strip()]
+
+
+def _cfg_list_is_auto(value) -> bool:
+    items = _cfg_string_list(value, [])
+    if len(items) <= 0:
+        return True
+    return len(items) == 1 and items[0].strip().lower() == 'auto'
+
+
+def _run_part_teacher_bank(*, project_root: Path, stage1_dir: Path, out_dir: Path, stage2_cfg: dict, logger) -> Path | None:
+    if not (bool(stage2_cfg.get('face_postfit_enable', False)) or bool(stage2_cfg.get('part_postfit_enable', False))):
+        return None
+    select_script = project_root / 'src' / 'avatar_gs' / 'cli' / 'stage2_select_part_teachers.py'
+    if not select_script.exists():
+        raise FileNotFoundError(f"part teacher selection script missing: {select_script}")
+    frames_dir = _resolve_project_path(project_root, stage2_cfg.get('part_postfit_frames_dir', project_root / 'data' / 'frames' / 'input'))
+    supervision_cache = _resolve_project_path(project_root, stage2_cfg.get('prepared_supervision_cache_path', out_dir / 'supervision_cache.npz'))
+    semantics_npz = _resolve_project_path(project_root, stage2_cfg.get('smpl_face_semantics_npz', stage1_dir / 'fashn_face_semantics' / 'smpl_face_semantics.npz'))
+    if frames_dir is None or not frames_dir.exists():
+        raise FileNotFoundError(f"part teacher selection requires frames_dir: {frames_dir}")
+    if supervision_cache is None or not supervision_cache.exists():
+        raise FileNotFoundError(f"part teacher selection requires supervision_cache: {supervision_cache}")
+    if semantics_npz is None or not semantics_npz.exists():
+        raise FileNotFoundError(f"part teacher selection requires semantics_npz: {semantics_npz}")
+    bank_tag = str(stage2_cfg.get('part_teacher_bank_tag', '')).strip() or out_dir.name
+    bank_dir = project_root / 'outputs' / 'stage2' / 'teacher_bank' / bank_tag
+    select_cmd = [
+        sys.executable, str(select_script),
+        '--project_root', str(project_root),
+        '--stage1_dir', str(stage1_dir),
+        '--frames_dir', str(frames_dir),
+        '--supervision_cache', str(supervision_cache),
+        '--semantics_npz', str(semantics_npz),
+        '--out_dir', str(bank_dir),
+    ]
+    for key, cli_name in [
+        ('part_teacher_min_pixels', '--min_pixels'),
+        ('part_teacher_min_score', '--min_score'),
+        ('part_teacher_cluster_gap', '--cluster_gap'),
+        ('part_teacher_max_keep_per_part', '--max_keep_per_part'),
+        ('part_teacher_body_bucket_count', '--body_bucket_count'),
+        ('part_teacher_body_min_keep', '--body_min_keep'),
+        ('part_teacher_extra_score_margin', '--extra_score_margin'),
+        ('part_teacher_extra_min_iou', '--extra_min_iou'),
+        ('part_teacher_extra_min_precision', '--extra_min_precision'),
+        ('part_teacher_extra_min_recall', '--extra_min_recall'),
+    ]:
+        if key in stage2_cfg:
+            select_cmd.extend([cli_name, str(stage2_cfg[key])])
+    view_bucket_parts = str(stage2_cfg.get('part_teacher_view_bucket_parts', '')).strip()
+    if view_bucket_parts:
+        select_cmd.extend(['--view_bucket_parts', view_bucket_parts])
+    logger.info('Running part teacher bank: %s', ' '.join(select_cmd))
+    subprocess.run(select_cmd, cwd=str(project_root), check=True)
+    teacher_bank_json = bank_dir / 'teacher_bank.json'
+    if not teacher_bank_json.exists():
+        raise FileNotFoundError(f"part teacher bank missing: {teacher_bank_json}")
+    return teacher_bank_json
+
+
+def _load_teacher_bank(teacher_bank_json: Path | None) -> dict | None:
+    if teacher_bank_json is None or (not teacher_bank_json.exists()):
+        return None
+    return json.loads(teacher_bank_json.read_text(encoding='utf-8'))
+
+
+def _select_auto_face_teachers(*, stage2_cfg: dict, teacher_bank_json: Path | None) -> list[str]:
+    manual = _cfg_string_list(stage2_cfg.get('face_postfit_teacher_frames', []), [])
+    if len(manual) > 0 and not _cfg_list_is_auto(stage2_cfg.get('face_postfit_teacher_frames', [])):
+        return manual
+    bank = _load_teacher_bank(teacher_bank_json)
+    if bank is None:
+        raise RuntimeError('face_postfit_enable=true but no teacher bank is available for automatic face teacher selection')
+    face_payload = (bank.get('teacher_bank', {}) or {}).get('face', {})
+    teachers = [str(x.get('frame_name', '')).strip() for x in list(face_payload.get('teachers', [])) if str(x.get('frame_name', '')).strip()]
+    if len(teachers) <= 0:
+        raise RuntimeError('automatic face teacher selection found no usable face teacher in teacher bank')
+    return [teachers[0]]
+
+
+def _select_auto_train_parts(*, stage2_cfg: dict, teacher_bank_json: Path | None, fixed_parts: list[str]) -> list[str]:
+    manual = _cfg_string_list(stage2_cfg.get('part_postfit_train_parts', []), [])
+    if len(manual) > 0 and not _cfg_list_is_auto(stage2_cfg.get('part_postfit_train_parts', [])):
+        return manual
+    bank = _load_teacher_bank(teacher_bank_json)
+    if bank is None:
+        raise RuntimeError('part_postfit_enable=true but no teacher bank is available for automatic train_parts selection')
+    fixed = {str(x).strip() for x in fixed_parts if str(x).strip()}
+    parts = []
+    for part_name, payload in (bank.get('teacher_bank', {}) or {}).items():
+        part_name = str(part_name).strip()
+        if (not part_name) or (part_name in fixed) or part_name == 'background':
+            continue
+        teachers = list((payload or {}).get('teachers', []))
+        if len(teachers) > 0:
+            parts.append(part_name)
+    if len(parts) <= 0:
+        raise RuntimeError('automatic train_parts selection found no usable non-fixed parts in teacher bank')
+    return parts
+
+
+def _maybe_run_face_postfit(*, project_root: Path, stage1_dir: Path, ckpt_path: Path, out_dir: Path, stage2_cfg: dict, teacher_bank_json: Path | None, logger) -> None:
+    if not bool(stage2_cfg.get('face_postfit_enable', False)):
         return
-    teacher_frames = [str(x) for x in stage2_cfg.get("face_postfit_teacher_frames", ["000050.jpg"]) if str(x).strip()]
-    if len(teacher_frames) <= 0:
-        teacher_frames = ["000050.jpg"]
-    iters = int(max(int(stage2_cfg.get("face_postfit_iters", 1000)), 1))
-    target_source = str(stage2_cfg.get("face_postfit_target_source", "inner_rgb")).strip() or "inner_rgb"
-    tag = str(stage2_cfg.get("face_postfit_tag", "")).strip() or f"{out_dir.name}_facepostfit"
+    teacher_frames = _select_auto_face_teachers(stage2_cfg=stage2_cfg, teacher_bank_json=teacher_bank_json)
+    iters = int(max(int(stage2_cfg.get('face_postfit_iters', 1000)), 1))
+    target_source = str(stage2_cfg.get('face_postfit_target_source', 'inner_rgb')).strip() or 'inner_rgb'
+    tag = str(stage2_cfg.get('face_postfit_tag', '')).strip() or f"{out_dir.name}_facepostfit"
     fit_script = project_root / 'src' / 'avatar_gs' / 'cli' / 'stage2_face_fit.py'
     if not fit_script.exists():
         raise FileNotFoundError(f"face postfit script missing: {fit_script}")
-    cmd = [
-        sys.executable, str(fit_script),
-        '--project_root', str(project_root),
-        '--stage1_dir', str(stage1_dir),
-        '--stage2_ckpt', str(ckpt_path),
-        '--teacher_frames', *teacher_frames,
-        '--target_source', str(target_source),
-        '--iters', str(iters),
-        '--tag', tag,
-    ]
+    cmd = [sys.executable, str(fit_script), '--project_root', str(project_root), '--stage1_dir', str(stage1_dir), '--stage2_ckpt', str(ckpt_path), '--teacher_frames', *teacher_frames, '--target_source', str(target_source), '--iters', str(iters), '--tag', tag]
     logger.info('Running face postfit: %s', ' '.join(cmd))
     subprocess.run(cmd, cwd=str(project_root), check=True)
-    fit_train_dir = project_root / 'outputs' / 'stage2_face_fit' / tag / 'train'
-    fit_eval_dir = project_root / 'outputs' / 'stage2_face_fit' / tag
+    fit_train_dir = project_root / 'outputs' / 'stage2' / 'face_fit' / tag / 'train'
+    fit_eval_dir = project_root / 'outputs' / 'stage2' / 'face_fit' / tag
     preview_ckpt = fit_train_dir / 'gaussians3d_facefit_preview.pt'
     if not preview_ckpt.exists():
         raise FileNotFoundError(f"face postfit preview checkpoint missing: {preview_ckpt}")
@@ -69,6 +174,46 @@ def _maybe_run_face_postfit(*, project_root: Path, stage1_dir: Path, ckpt_path: 
     if summary_src.exists():
         shutil.copy2(summary_src, out_dir / 'face_postfit_summary.json')
     logger.info('Applied face postfit to main checkpoint: teachers=%s | target_source=%s | iters=%d | backup=%s', teacher_frames, target_source, iters, backup_ckpt)
+
+
+def _maybe_run_part_teacher_postfit(*, project_root: Path, stage1_dir: Path, ckpt_path: Path, out_dir: Path, stage2_cfg: dict, teacher_bank_json: Path | None, logger) -> None:
+    if not bool(stage2_cfg.get('part_postfit_enable', False)):
+        return
+    fit_script = project_root / 'src' / 'avatar_gs' / 'cli' / 'stage2_part_postfit.py'
+    if not fit_script.exists():
+        raise FileNotFoundError(f"part postfit script missing: {fit_script}")
+    if teacher_bank_json is None or not teacher_bank_json.exists():
+        raise FileNotFoundError(f"part teacher bank missing: {teacher_bank_json}")
+    frames_dir = _resolve_project_path(project_root, stage2_cfg.get('part_postfit_frames_dir', project_root / 'data' / 'frames' / 'input'))
+    supervision_cache = _resolve_project_path(project_root, stage2_cfg.get('prepared_supervision_cache_path', out_dir / 'supervision_cache.npz'))
+    semantics_npz = _resolve_project_path(project_root, stage2_cfg.get('smpl_face_semantics_npz', stage1_dir / 'fashn_face_semantics' / 'smpl_face_semantics.npz'))
+    if frames_dir is None or not frames_dir.exists():
+        raise FileNotFoundError(f"part postfit requires frames_dir: {frames_dir}")
+    if supervision_cache is None or not supervision_cache.exists():
+        raise FileNotFoundError(f"part postfit requires supervision_cache: {supervision_cache}")
+    if semantics_npz is None or not semantics_npz.exists():
+        raise FileNotFoundError(f"part postfit requires semantics_npz: {semantics_npz}")
+    fixed_parts = _cfg_string_list(stage2_cfg.get('part_postfit_fixed_parts', ['face', 'hair']), ['face', 'hair'])
+    train_parts = _select_auto_train_parts(stage2_cfg=stage2_cfg, teacher_bank_json=teacher_bank_json, fixed_parts=fixed_parts)
+    iters = int(max(int(stage2_cfg.get('part_postfit_iters', 300)), 1))
+    target_source = str(stage2_cfg.get('part_postfit_target_source', 'inner_rgb')).strip() or 'inner_rgb'
+    tag = str(stage2_cfg.get('part_postfit_tag', '')).strip() or f"{out_dir.name}_partpostfit"
+    fixed_source_ckpt = _resolve_project_path(project_root, stage2_cfg.get('part_postfit_fixed_source_ckpt', str(ckpt_path))) or ckpt_path
+    auto_face_teacher = _select_auto_face_teachers(stage2_cfg=stage2_cfg, teacher_bank_json=teacher_bank_json)[0]
+    fixed_box_frame = str(stage2_cfg.get('part_postfit_fixed_box_frame', '')).strip() or auto_face_teacher
+    fit_cmd = [sys.executable, str(fit_script), '--project_root', str(project_root), '--stage1_dir', str(stage1_dir), '--stage2_ckpt', str(ckpt_path), '--teacher_bank_json', str(teacher_bank_json), '--supervision_cache', str(supervision_cache), '--frames_dir', str(frames_dir), '--smpl_face_semantics_npz', str(semantics_npz), '--target_source', target_source, '--iters', str(iters), '--cloth_min_support', str(int(stage2_cfg.get('part_postfit_cloth_min_support', 2))), '--cloth_core_support', str(int(stage2_cfg.get('part_postfit_cloth_core_support', 3))), '--fixed_source_ckpt', str(fixed_source_ckpt), '--fixed_box_frame', fixed_box_frame, '--face_teacher_override', auto_face_teacher, '--tag', tag, '--face_force_single_teacher', '--fixed_parts', *fixed_parts, '--train_parts', *train_parts]
+    if 'part_postfit_cloth_core_erode_px' in stage2_cfg:
+        fit_cmd.extend(['--cloth_core_erode_px', str(int(stage2_cfg['part_postfit_cloth_core_erode_px']))])
+    logger.info('Running part postfit: %s', ' '.join(fit_cmd))
+    subprocess.run(fit_cmd, cwd=str(project_root), check=True)
+    fit_train_dir = project_root / 'outputs' / 'stage2' / 'part_fit' / tag / 'train'
+    preview_ckpt = fit_train_dir / 'gaussians3d_partfit_preview.pt'
+    if not preview_ckpt.exists():
+        raise FileNotFoundError(f"part postfit preview checkpoint missing: {preview_ckpt}")
+    backup_ckpt = out_dir / 'gaussians3d_pre_partpostfit.pt'
+    shutil.copy2(ckpt_path, backup_ckpt)
+    shutil.copy2(preview_ckpt, ckpt_path)
+    logger.info('Applied part postfit to main checkpoint: teacher_bank=%s | fixed_source=%s | train_parts=%s | fixed_parts=%s | backup=%s', teacher_bank_json, fixed_source_ckpt, train_parts, fixed_parts, backup_ckpt)
 
 
 def _resolve_project_path(project_root: Path, path_like: str | Path | None) -> Path | None:
@@ -976,12 +1121,31 @@ def main():
     )
     train_gaussians_3d_learnable_camera(g=g, train_cfg=train_loop_cfg)
 
+    teacher_bank_json = _run_part_teacher_bank(
+        project_root=project_root,
+        stage1_dir=stage1_dir,
+        out_dir=out_dir,
+        stage2_cfg=stage2_cfg,
+        logger=logger,
+    )
+
     _maybe_run_face_postfit(
         project_root=project_root,
         stage1_dir=stage1_dir,
         ckpt_path=ckpt_path,
         out_dir=out_dir,
         stage2_cfg=stage2_cfg,
+        teacher_bank_json=teacher_bank_json,
+        logger=logger,
+    )
+
+    _maybe_run_part_teacher_postfit(
+        project_root=project_root,
+        stage1_dir=stage1_dir,
+        ckpt_path=ckpt_path,
+        out_dir=out_dir,
+        stage2_cfg=stage2_cfg,
+        teacher_bank_json=teacher_bank_json,
         logger=logger,
     )
 

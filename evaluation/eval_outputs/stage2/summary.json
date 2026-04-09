@@ -3,20 +3,20 @@
   "target_layer": "inner",
   "stage1_dir": "/data/work/Editable Gaussian Avatars/outputs/stage1",
   "stage2_dir": "/data/work/Editable Gaussian Avatars/outputs/stage2",
-  "stage2_ckpt": "/data/work/Editable Gaussian Avatars/outputs/stage2_part_fit_r154_partteacher_toponly_v15_greedyextra_from_r130_headboxfixed_300/gaussians3d_partfit_preview.pt",
+  "stage2_ckpt": "/data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt",
   "supervision_cache": "/data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz",
   "semantics_frame_match": 1,
   "global_metrics": {
-    "mae_mean": 0.058596305549144745,
-    "psnr_mean": 16.966663360595703,
-    "ssim_mean": 0.8811336755752563,
-    "mask_iou_mean": 0.8952986598014832
+    "mae_mean": 0.06429051607847214,
+    "psnr_mean": 16.573612213134766,
+    "ssim_mean": 0.8737291097640991,
+    "mask_iou_mean": 0.8899009227752686
   },
   "worst_part_name": "face",
   "worst_frames": [
     {
-      "frame_name": "000055.jpg",
-      "frame_badness": 0.3201448445518812,
+      "frame_name": "000043.jpg",
+      "frame_badness": 0.36358555406332016,
       "worst_parts": [
         "hands",
         "arms",
@@ -24,26 +24,17 @@
       ]
     },
     {
-      "frame_name": "000043.jpg",
-      "frame_badness": 0.3160240103801092,
+      "frame_name": "000055.jpg",
+      "frame_badness": 0.3367403273781141,
       "worst_parts": [
-        "arms",
         "hands",
-        "feet"
+        "arms",
+        "top"
       ]
     },
     {
       "frame_name": "000017.jpg",
-      "frame_badness": 0.2935065726439158,
-      "worst_parts": [
-        "hands",
-        "arms",
-        "hair"
-      ]
-    },
-    {
-      "frame_name": "000032.jpg",
-      "frame_badness": 0.2764487390716871,
+      "frame_badness": 0.32523841659228003,
       "worst_parts": [
         "hands",
         "arms",
@@ -52,56 +43,65 @@
     },
     {
       "frame_name": "000067.jpg",
-      "frame_badness": 0.2699902281165123,
+      "frame_badness": 0.31982672711213433,
       "worst_parts": [
         "arms",
         "hands",
         "face"
+      ]
+    },
+    {
+      "frame_name": "000032.jpg",
+      "frame_badness": 0.30883368104696274,
+      "worst_parts": [
+        "hands",
+        "arms",
+        "torso"
       ]
     },
     {
       "frame_name": "000007.jpg",
-      "frame_badness": 0.2593706535796324,
+      "frame_badness": 0.29158533116181695,
       "worst_parts": [
         "hands",
         "arms",
-        "top"
+        "torso"
+      ]
+    },
+    {
+      "frame_name": "000046.jpg",
+      "frame_badness": 0.2657838389289856,
+      "worst_parts": [
+        "face",
+        "pants",
+        "torso"
       ]
     },
     {
       "frame_name": "000031.jpg",
-      "frame_badness": 0.22885520135362947,
+      "frame_badness": 0.2628357795377573,
       "worst_parts": [
         "hands",
-        "arms",
+        "torso",
+        "arms"
+      ]
+    },
+    {
+      "frame_name": "000020.jpg",
+      "frame_badness": 0.2604301884127904,
+      "worst_parts": [
+        "face",
+        "pants",
         "torso"
       ]
     },
     {
-      "frame_name": "000006.jpg",
-      "frame_badness": 0.2255573719739914,
+      "frame_name": "000019.jpg",
+      "frame_badness": 0.25729782472026674,
       "worst_parts": [
         "hands",
-        "arms",
-        "torso"
-      ]
-    },
-    {
-      "frame_name": "000066.jpg",
-      "frame_badness": 0.21380093569556868,
-      "worst_parts": [
-        "hands",
-        "arms",
+        "top",
         "face"
-      ]
-    },
-    {
-      "frame_name": "000044.jpg",
-      "frame_badness": 0.21285368377963698,
-      "worst_parts": [
-        "hands",
-        "jewelry",
-        "torso"
       ]
     }
   ],
@@ -111,35 +111,35 @@
       "group_id": 1,
       "group_name": "exposed",
       "frame_hits": 69,
-      "pixel_count_total": 189843,
-      "badness_mean": 0.25321897864341736,
-      "badness_p90": 0.40565600991249084,
-      "mae_mean": 0.09167496860027313,
-      "ssim_mean": 0.8384838700294495,
-      "render_coverage_ratio_mean": 0.9999721646308899
+      "pixel_count_total": 189877,
+      "badness_mean": 0.25508055090904236,
+      "badness_p90": 0.4066187679767609,
+      "mae_mean": 0.09228979051113129,
+      "ssim_mean": 0.8372259140014648,
+      "render_coverage_ratio_mean": 0.9999834299087524
     },
     "hair": {
       "part_id": 2,
       "group_id": 2,
       "group_name": "covered",
       "frame_hits": 69,
-      "pixel_count_total": 351514,
-      "badness_mean": 0.18639032542705536,
-      "badness_p90": 0.23127062618732452,
-      "mae_mean": 0.05259884521365166,
-      "ssim_mean": 0.8662211298942566,
-      "render_coverage_ratio_mean": 0.9999874234199524
+      "pixel_count_total": 351512,
+      "badness_mean": 0.18642103672027588,
+      "badness_p90": 0.23118094205856324,
+      "mae_mean": 0.05260103940963745,
+      "ssim_mean": 0.8661853671073914,
+      "render_coverage_ratio_mean": 0.999994695186615
     },
     "top": {
       "part_id": 3,
       "group_id": 2,
       "group_name": "covered",
       "frame_hits": 69,
-      "pixel_count_total": 3306878,
-      "badness_mean": 0.1830773651599884,
-      "badness_p90": 0.23551214933395387,
-      "mae_mean": 0.03912251815199852,
-      "ssim_mean": 0.856045126914978,
+      "pixel_count_total": 3306866,
+      "badness_mean": 0.19685187935829163,
+      "badness_p90": 0.26898745894432075,
+      "mae_mean": 0.04400864988565445,
+      "ssim_mean": 0.847156822681427,
       "render_coverage_ratio_mean": 1.0
     },
     "pants": {
@@ -147,11 +147,11 @@
       "group_id": 2,
       "group_name": "covered",
       "frame_hits": 69,
-      "pixel_count_total": 2499865,
-      "badness_mean": 0.14799627661705017,
-      "badness_p90": 0.18126607537269593,
-      "mae_mean": 0.03630172461271286,
-      "ssim_mean": 0.8883054852485657,
+      "pixel_count_total": 2499804,
+      "badness_mean": 0.16494868695735931,
+      "badness_p90": 0.220497864484787,
+      "mae_mean": 0.044312186539173126,
+      "ssim_mean": 0.879363477230072,
       "render_coverage_ratio_mean": 1.0
     },
     "arms": {
@@ -159,11 +159,11 @@
       "group_id": 1,
       "group_name": "exposed",
       "frame_hits": 69,
-      "pixel_count_total": 358901,
-      "badness_mean": 0.14806358516216278,
-      "badness_p90": 0.31888605952262883,
-      "mae_mean": 0.0768161416053772,
-      "ssim_mean": 0.9287525415420532,
+      "pixel_count_total": 358900,
+      "badness_mean": 0.17009848356246948,
+      "badness_p90": 0.3781052112579346,
+      "mae_mean": 0.08612510561943054,
+      "ssim_mean": 0.9160265922546387,
       "render_coverage_ratio_mean": 1.0
     },
     "hands": {
@@ -171,23 +171,23 @@
       "group_id": 1,
       "group_name": "exposed",
       "frame_hits": 69,
-      "pixel_count_total": 218881,
-      "badness_mean": 0.20415917038917542,
-      "badness_p90": 0.44257618188858033,
-      "mae_mean": 0.1069057509303093,
-      "ssim_mean": 0.903307318687439,
-      "render_coverage_ratio_mean": 0.9994391798973083
+      "pixel_count_total": 218886,
+      "badness_mean": 0.23045411705970764,
+      "badness_p90": 0.5239204764366151,
+      "mae_mean": 0.12404190003871918,
+      "ssim_mean": 0.8944724202156067,
+      "render_coverage_ratio_mean": 0.9991153478622437
     },
     "feet": {
       "part_id": 15,
       "group_id": 1,
       "group_name": "exposed",
       "frame_hits": 69,
-      "pixel_count_total": 208575,
-      "badness_mean": 0.0914648175239563,
-      "badness_p90": 0.12834091782569884,
-      "mae_mean": 0.03776475787162781,
-      "ssim_mean": 0.9462999105453491,
+      "pixel_count_total": 208684,
+      "badness_mean": 0.10338754206895828,
+      "badness_p90": 0.14148077070713044,
+      "mae_mean": 0.043562524020671844,
+      "ssim_mean": 0.94017493724823,
       "render_coverage_ratio_mean": 1.0
     },
     "torso": {
@@ -195,11 +195,11 @@
       "group_id": 1,
       "group_name": "exposed",
       "frame_hits": 69,
-      "pixel_count_total": 245674,
-      "badness_mean": 0.17715685069561005,
-      "badness_p90": 0.2323746740818024,
-      "mae_mean": 0.05420437455177307,
-      "ssim_mean": 0.8770474791526794,
+      "pixel_count_total": 245648,
+      "badness_mean": 0.19486527144908905,
+      "badness_p90": 0.2649851977825165,
+      "mae_mean": 0.061103545129299164,
+      "ssim_mean": 0.8662382364273071,
       "render_coverage_ratio_mean": 1.0
     },
     "dress": {
@@ -207,11 +207,11 @@
       "group_id": 2,
       "group_name": "covered",
       "frame_hits": 10,
-      "pixel_count_total": 30874,
-      "badness_mean": 0.059875745326280594,
-      "badness_p90": 0.09678546413779257,
-      "mae_mean": 0.035067200660705566,
-      "ssim_mean": 0.9751914143562317,
+      "pixel_count_total": 30885,
+      "badness_mean": 0.05146421119570732,
+      "badness_p90": 0.07153069600462912,
+      "mae_mean": 0.029908418655395508,
+      "ssim_mean": 0.9784442186355591,
       "render_coverage_ratio_mean": 1.0
     },
     "jewelry": {
@@ -220,10 +220,10 @@
       "group_name": "covered",
       "frame_hits": 2,
       "pixel_count_total": 199,
-      "badness_mean": 0.21464839577674866,
-      "badness_p90": 0.26485598683357237,
-      "mae_mean": 0.1284625232219696,
-      "ssim_mean": 0.913814127445221,
+      "badness_mean": 0.23450836539268494,
+      "badness_p90": 0.257804699242115,
+      "mae_mean": 0.14714621007442474,
+      "ssim_mean": 0.9126378297805786,
       "render_coverage_ratio_mean": 1.0
     },
     "skirt": {
@@ -231,11 +231,11 @@
       "group_id": 2,
       "group_name": "covered",
       "frame_hits": 1,
-      "pixel_count_total": 2663,
-      "badness_mean": 0.09114328026771545,
-      "badness_p90": 0.09114328026771545,
-      "mae_mean": 0.044568631798028946,
-      "ssim_mean": 0.9534253478050232,
+      "pixel_count_total": 2673,
+      "badness_mean": 0.10492945462465286,
+      "badness_p90": 0.10492945462465286,
+      "mae_mean": 0.05004547908902168,
+      "ssim_mean": 0.9451160430908203,
       "render_coverage_ratio_mean": 1.0
     }
   }

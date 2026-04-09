@@ -1,0 +1,37 @@
+2026-04-08 02:44:45,252 | INFO | start face-only two-frame fit: facefit_fD
+2026-04-08 02:44:45,253 | INFO | device=cuda
+2026-04-08 02:44:45,598 | INFO | face gaussian count=2053 / total=110908
+2026-04-08 02:44:46,509 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 02:44:48,491 | INFO | teacher 000050.jpg | target_source=inner_rgb | face_pixels=4992 | box=(509, 184, 625, 301) | visible_face_gauss=1853
+2026-04-08 02:44:49,237 | INFO | iter 0001/1500 | total=0.181915 | render_l1_avg=0.123683
+2026-04-08 02:44:49,621 | INFO | iter 0050/1500 | total=0.120294 | render_l1_avg=0.060456
+2026-04-08 02:44:50,111 | INFO | iter 0100/1500 | total=0.089882 | render_l1_avg=0.040180
+2026-04-08 02:44:50,663 | INFO | iter 0150/1500 | total=0.072800 | render_l1_avg=0.030438
+2026-04-08 02:44:51,092 | INFO | iter 0200/1500 | total=0.062734 | render_l1_avg=0.025019
+2026-04-08 02:44:51,471 | INFO | iter 0250/1500 | total=0.056513 | render_l1_avg=0.021745
+2026-04-08 02:44:51,961 | INFO | iter 0300/1500 | total=0.052448 | render_l1_avg=0.019688
+2026-04-08 02:44:52,475 | INFO | iter 0350/1500 | total=0.049683 | render_l1_avg=0.018350
+2026-04-08 02:44:52,995 | INFO | iter 0400/1500 | total=0.047689 | render_l1_avg=0.017420
+2026-04-08 02:44:53,537 | INFO | iter 0450/1500 | total=0.046164 | render_l1_avg=0.016774
+2026-04-08 02:44:54,078 | INFO | iter 0500/1500 | total=0.044946 | render_l1_avg=0.016272
+2026-04-08 02:44:54,621 | INFO | iter 0550/1500 | total=0.043946 | render_l1_avg=0.015883
+2026-04-08 02:44:55,159 | INFO | iter 0600/1500 | total=0.043107 | render_l1_avg=0.015559
+2026-04-08 02:44:55,679 | INFO | iter 0650/1500 | total=0.042384 | render_l1_avg=0.015296
+2026-04-08 02:44:56,193 | INFO | iter 0700/1500 | total=0.041746 | render_l1_avg=0.015056
+2026-04-08 02:44:56,735 | INFO | iter 0750/1500 | total=0.041179 | render_l1_avg=0.014847
+2026-04-08 02:44:57,275 | INFO | iter 0800/1500 | total=0.040661 | render_l1_avg=0.014652
+2026-04-08 02:44:57,714 | INFO | iter 0850/1500 | total=0.040192 | render_l1_avg=0.014472
+2026-04-08 02:44:58,121 | INFO | iter 0900/1500 | total=0.039758 | render_l1_avg=0.014319
+2026-04-08 02:44:58,613 | INFO | iter 0950/1500 | total=0.039364 | render_l1_avg=0.014177
+2026-04-08 02:44:59,127 | INFO | iter 1000/1500 | total=0.038996 | render_l1_avg=0.014057
+2026-04-08 02:44:59,611 | INFO | iter 1050/1500 | total=0.038656 | render_l1_avg=0.013955
+2026-04-08 02:45:00,126 | INFO | iter 1100/1500 | total=0.038337 | render_l1_avg=0.013852
+2026-04-08 02:45:00,646 | INFO | iter 1150/1500 | total=0.038037 | render_l1_avg=0.013766
+2026-04-08 02:45:01,159 | INFO | iter 1200/1500 | total=0.037763 | render_l1_avg=0.013678
+2026-04-08 02:45:01,674 | INFO | iter 1250/1500 | total=0.037500 | render_l1_avg=0.013607
+2026-04-08 02:45:02,190 | INFO | iter 1300/1500 | total=0.037256 | render_l1_avg=0.013549
+2026-04-08 02:45:02,705 | INFO | iter 1350/1500 | total=0.037030 | render_l1_avg=0.013481
+2026-04-08 02:45:03,219 | INFO | iter 1400/1500 | total=0.036809 | render_l1_avg=0.013410
+2026-04-08 02:45:03,729 | INFO | iter 1450/1500 | total=0.036609 | render_l1_avg=0.013363
+2026-04-08 02:45:04,246 | INFO | iter 1500/1500 | total=0.036416 | render_l1_avg=0.013306
+2026-04-08 02:45:04,412 | INFO | done | best_iter=1500 | mean_mae=0.013308 | mean_ssim=0.983299 | mean_symmetry_mae=0.047043

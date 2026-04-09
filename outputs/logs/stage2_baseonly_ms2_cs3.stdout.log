@@ -1,0 +1,26 @@
+2026-04-08 02:19:32,110 | INFO | start part-teacher postfit: stage2_baseonly_ms2_cs3
+2026-04-08 02:19:32,202 | INFO | device=cuda
+2026-04-08 02:19:33,466 | INFO | active teacher parts=top
+2026-04-08 02:19:33,466 | INFO | fixed parts from fixed_source_ckpt=face, hair
+2026-04-08 02:19:33,466 | INFO | train parts=top
+2026-04-08 02:19:33,467 | INFO | selected gaussians=37497 / total=110908
+2026-04-08 02:19:33,469 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 02:19:33,545 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-08 02:19:35,509 | INFO | fixed box frame=000050.jpg box=(448,118,673,343) fixed_extra=9142 active_train_overlap_blocked=3449
+2026-04-08 02:19:38,112 | INFO | target part=top role=base frame=000023.jpg part_pixels=56462 visible_part_gauss=31389
+2026-04-08 02:19:39,545 | INFO | target part=top role=base frame=000026.jpg part_pixels=57424 visible_part_gauss=29827
+2026-04-08 02:19:40,999 | INFO | target part=top role=base frame=000016.jpg part_pixels=34418 visible_part_gauss=31678
+2026-04-08 02:19:42,406 | INFO | target part=top role=base frame=000013.jpg part_pixels=57683 visible_part_gauss=33463
+2026-04-08 02:19:43,702 | INFO | target part=top role=base frame=000035.jpg part_pixels=53898 visible_part_gauss=34075
+2026-04-08 02:19:44,825 | INFO | target part=top role=base frame=000034.jpg part_pixels=50201 visible_part_gauss=34121
+2026-04-08 02:19:45,948 | INFO | target part=top role=base frame=000009.jpg part_pixels=52184 visible_part_gauss=34127
+2026-04-08 02:19:45,955 | INFO | support stats | any_visible=36502 / 37497 | base_visible=37305 | base_core=36502 | base_supported=36502 | base_deficit=0 | selected_extra=0 | remain_deficit=0 | min_support=2 | core_support=3 | use_cloth_core=true
+2026-04-08 02:19:45,964 | INFO | filtered targets=7 after base/extra gating | base=7 extra=0 extra_phase=false extra_start_iter=240
+2026-04-08 02:19:46,773 | INFO | iter 0001/0300 | total=1.008390
+2026-04-08 02:19:49,105 | INFO | iter 0050/0300 | total=0.579050
+2026-04-08 02:19:51,816 | INFO | iter 0100/0300 | total=0.533847
+2026-04-08 02:19:54,536 | INFO | iter 0150/0300 | total=0.524292
+2026-04-08 02:19:57,263 | INFO | iter 0200/0300 | total=0.517938
+2026-04-08 02:19:59,971 | INFO | iter 0250/0300 | total=0.512718
+2026-04-08 02:20:02,592 | INFO | iter 0300/0300 | total=0.508848
+2026-04-08 02:20:02,924 | INFO | done | active_parts=1 | selected_gaussians=36502 | targets=7

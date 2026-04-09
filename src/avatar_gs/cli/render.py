@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 import math
@@ -1027,6 +1027,51 @@ def _alpha_to_mask(
     if float(threshold) > 0.0:
         a = (a > float(threshold)).to(dtype=a.dtype)
     return a
+
+
+def render_whitebg_preview(
+    *,
+    g: Gaussian3D,
+    K: torch.Tensor,
+    R: torch.Tensor,
+    t: torch.Tensor,
+    H: int,
+    W: int,
+    bg: tuple[float, float, float] | list[float] | torch.Tensor = (1.0, 1.0, 1.0),
+    alpha_threshold: float = 0.0,
+    alpha_gamma: float = 1.0,
+    alpha_gain_max: float = 1.0,
+    edge_matte_white_threshold: float = 0.0,
+    edge_matte_white_strength: float = 0.0,
+    edge_matte_white_gamma: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    rgb, alpha = render_gaussians_3d(
+        g=g,
+        K=K,
+        R=R,
+        t=t,
+        H=H,
+        W=W,
+        bg=None,
+        return_alpha=True,
+    )
+    mask = _alpha_to_mask(alpha, threshold=alpha_threshold, gamma=alpha_gamma)
+    alpha_src = alpha.clamp(min=1e-4)
+    gain = (mask / alpha_src).clamp(min=0.0, max=float(alpha_gain_max))
+    rgb_adj = (rgb * gain).clamp(0.0, 1.0)
+    if torch.is_tensor(bg):
+        bg_fill = bg.to(device=rgb.device, dtype=rgb.dtype).view(3, 1, 1).expand_as(rgb)
+    else:
+        bg_fill = torch.tensor(bg, dtype=rgb.dtype, device=rgb.device).view(3, 1, 1).expand_as(rgb)
+    pred = _composite_premultiplied(fg_rgb=rgb_adj, fg_alpha=mask, bg_rgb=bg_fill)
+    pred = _apply_white_edge_matte(
+        pred,
+        mask,
+        threshold=edge_matte_white_threshold,
+        strength=edge_matte_white_strength,
+        gamma=edge_matte_white_gamma,
+    )
+    return pred, mask, alpha
 
 
 def _select_gaussians(g: Gaussian3D, mask: torch.Tensor) -> Gaussian3D:

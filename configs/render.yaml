@@ -42,6 +42,9 @@ render:
   deform_alpha_threshold: 0.03
   deform_alpha_gamma: 1.0
   deform_alpha_gain_max: 1.0
+  edge_matte_white_threshold: 0.18
+  edge_matte_white_strength: 0.75
+  edge_matte_white_gamma: 1.0
   overlay_smpl_skeleton: false
   debug_overlay_keypoints: false
   debug_bind_to_google_skeleton: false

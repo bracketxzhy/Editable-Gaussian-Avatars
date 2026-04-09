@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/data/miniconda3/envs/ega/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/data/miniconda3/envs/ega/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_part_postfit.py", line 742, in <module>
+    main()
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_part_postfit.py", line 139, in main
+    raise RuntimeError('fixed_source_ckpt gaussian count mismatch')
+RuntimeError: fixed_source_ckpt gaussian count mismatch

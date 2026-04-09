@@ -1,0 +1,25 @@
+promote old_innerrollback_repro -> outputs/stage2 at 20260408_155626
+before md5:
+f657649998a335f7709749c2c1fc2bb5  outputs/stage2_old_innerrollback_repro/gaussians3d.pt
+9f84705c08931d3c2e31003553c2b5b6  outputs/stage2_old_innerrollback_repro/gaussians3d_inner.pt
+2941a4e9938f61fe175ceedc407923c8  outputs/stage2/gaussians3d.pt
+15b1c3ed9f1963bd89b1061faf2f80f5  outputs/stage2/gaussians3d_inner.pt
+after md5:
+f657649998a335f7709749c2c1fc2bb5  outputs/stage2/gaussians3d.pt
+9f84705c08931d3c2e31003553c2b5b6  outputs/stage2/gaussians3d_inner.pt
+config key lines:
+10:  out_dir: outputs/stage2
+20:  n_gaussians: 70000
+52:  lr_gauss: 0.0022
+70:  inner_legacy_e526_compat_enable: true
+71:  face_align_quality_enable: false
+77:  face_frontal_quality_enable: false
+129:  inner_local_color_prior_enable: false
+267:  inner_count_min: 90000
+268:  inner_count_max: 280000
+284:  inner_coverage_densify_enable: false
+292:  phase0_ratio: 0.08
+323:  inner_dual_candidate_enable: false
+metrics:
+stage2 0.05615437403321266 0.883877694606781 0.8959800004959106 {'face': 0.23660527169704437, 'hair': 0.178305521607399, 'top': 0.17896369099617004, 'torso': 0.17103497684001923, 'pants': 0.14494609832763672, 'arms': 0.14495238661766052, 'hands': 0.20487482845783234}
+stage2_verify_promoted 0.05615437403321266 0.883877694606781 0.8959800004959106 {'face': 0.23660527169704437, 'hair': 0.178305521607399, 'top': 0.17896369099617004, 'torso': 0.17103497684001923, 'pants': 0.14494609832763672, 'arms': 0.14495238661766052, 'hands': 0.20487482845783234}

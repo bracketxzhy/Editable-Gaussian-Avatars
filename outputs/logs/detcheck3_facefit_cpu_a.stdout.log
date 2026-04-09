@@ -1,0 +1,5 @@
+2026-04-07 16:09:12,244 | INFO | start face-only two-frame fit: detcheck3_facefit_cpu_a
+2026-04-07 16:09:12,244 | INFO | device=cpu
+2026-04-07 16:09:12,685 | INFO | face gaussian count=2053 / total=110908
+2026-04-07 16:09:13,624 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-07 16:09:15,566 | INFO | teacher 000050.jpg | target_source=inner_rgb | face_pixels=4992 | box=(509, 184, 625, 301) | visible_face_gauss=1853

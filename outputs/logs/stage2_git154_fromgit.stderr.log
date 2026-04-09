@@ -1,0 +1,31 @@
+[2026-04-08 01:15:08] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 01:15:08] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 01:15:08] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 01:15:08] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 01:15:08] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 01:15:08] [INFO] Frames: 69 used for training
+[2026-04-08 01:15:08] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_git154_fromgit
+[2026-04-08 01:15:08] [INFO] Stage2 training mode: inner_only
+[2026-04-08 01:15:09] [INFO] Initialized gaussians: N=140908
+[2026-04-08 01:15:09] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 01:15:09] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 01:15:09] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 01:15:12] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 01:15:15] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 01:15:15] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 01:15:16] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 01:15:16] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 01:15:17] [INFO] Loaded SMPL face semantics: faces=20908 asset=/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
+[2026-04-08 01:15:17] [INFO] Enabled inner local color prior.
+[2026-04-08 01:15:17] [INFO] Enabled outer exposed-face block: blocked_faces=11539
+Stage2 3DGS (learnable camera):   0%|          | 0/4200 [00:00<?, ?it/s]Stage2 3DGS (learnable camera):   0%|          | 0/4200 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_train_gaussian.py", line 997, in <module>
+    main()
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_train_gaussian.py", line 977, in main
+    train_gaussians_3d_learnable_camera(g=g, train_cfg=train_loop_cfg)
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/gaussian/train_loop.py", line 1663, in train_gaussians_3d_learnable_camera
+    return _train_gaussians_3d_learnable_camera_impl(g=g, **train_cfg.to_train_kwargs())
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/gaussian/train_loop.py", line 4480, in _train_gaussians_3d_learnable_camera_impl
+    if face_priority_core_ids_np is not None and int(face_priority_core_ids_np.size) > 0:
+UnboundLocalError: local variable 'face_priority_core_ids_np' referenced before assignment

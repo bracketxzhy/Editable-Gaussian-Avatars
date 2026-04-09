@@ -354,7 +354,7 @@ def main() -> None:
     ap.add_argument('--frames_dir', default='data/frames/input')
     ap.add_argument('--supervision_cache', default='outputs/stage2/supervision_cache.npz')
     ap.add_argument('--semantics_npz', default='outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz')
-    ap.add_argument('--out_dir', default='outputs/stage2_teacher_bank/part_teacher_bank_20260406')
+    ap.add_argument('--out_dir', default='outputs/stage2/teacher_bank/default')
     ap.add_argument('--max_edge', type=int, default=768)
     ap.add_argument('--min_pixels', type=int, default=128)
     ap.add_argument('--min_score', type=float, default=0.35)

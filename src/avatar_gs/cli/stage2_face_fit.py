@@ -333,11 +333,11 @@ def main() -> None:
     ap = argparse.ArgumentParser('Two-frame face-only fitter')
     ap.add_argument('--project_root', default='.')
     ap.add_argument('--stage1_dir', default='outputs/stage1')
-    ap.add_argument('--stage2_ckpt', default='outputs/stage2_r111_twoframe_surfacecolor_full_20260406_0505/gaussians3d.pt')
+    ap.add_argument('--stage2_ckpt', required=True)
     ap.add_argument('--supervision_cache', default='outputs/stage2/supervision_cache.npz')
     ap.add_argument('--frames_dir', default='data/frames/input')
     ap.add_argument('--smpl_face_semantics_npz', default='outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz')
-    ap.add_argument('--teacher_frames', nargs='+', default=['000050.jpg'])
+    ap.add_argument('--teacher_frames', nargs='+', default=[])
     ap.add_argument('--target_source', default='inner_rgb')
     ap.add_argument('--iters', type=int, default=1000)
     ap.add_argument('--out_size', type=int, default=512)
@@ -356,9 +356,11 @@ def main() -> None:
     frames_dir = (project_root / args.frames_dir).resolve() if not Path(args.frames_dir).is_absolute() else Path(args.frames_dir).resolve()
     semantics_path = (project_root / args.smpl_face_semantics_npz).resolve() if not Path(args.smpl_face_semantics_npz).is_absolute() else Path(args.smpl_face_semantics_npz).resolve()
 
-    teacher_frames = [str(x) for x in args.teacher_frames]
+    teacher_frames = [str(x).strip() for x in (args.teacher_frames or []) if str(x).strip()]
+    if len(teacher_frames) <= 0:
+        raise RuntimeError('stage2_face_fit requires explicit --teacher_frames; silent fallback is forbidden')
     tag = str(args.tag).strip() or f"twoframe_facefit_{'_'.join(Path(x).stem for x in teacher_frames)}_{time.strftime('%Y%m%d_%H%M%S')}"
-    out_dir = (project_root / 'outputs' / 'stage2_face_fit' / tag).resolve()
+    out_dir = (project_root / 'outputs' / 'stage2' / 'face_fit' / tag).resolve()
     train_dir = (out_dir / 'train').resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     train_dir.mkdir(parents=True, exist_ok=True)

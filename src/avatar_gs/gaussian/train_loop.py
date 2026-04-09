@@ -2876,6 +2876,7 @@ def _train_gaussians_3d_learnable_camera_impl(
     face_selected_weight_np = None
     face_selected_ids_np = None
     face_priority_ids_np = None
+    face_priority_core_ids_np = None
     face_teacher_bank_ids_np = None
     canonical_face_prior_template = None
     canonical_face_prior_mask = None

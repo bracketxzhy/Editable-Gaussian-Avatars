@@ -1,0 +1,21 @@
+No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+Traceback (most recent call last):
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py", line 690, in <module>
+    main()
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py", line 572, in main
+    pred_crop, alpha_crop = render_box_resized(g_face, teacher.K, teacher.R, teacher.t, teacher.box_xyxy, int(args.out_size), bg_rgb=(1.0, 1.0, 1.0))
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py", line 157, in render_box_resized
+    return render_gaussians_3d(g=g, K=Kc, R=R, t=t, H=out_size, W=out_size, bg=bg_rgb, return_alpha=True)
+  File "/data/work/Editable Gaussian Avatars/src/avatar_gs/renderer/gaussian_renderer.py", line 224, in render_gaussians_3d
+    render_colors, render_alphas, meta = gsplat.rasterization(
+  File "/data/miniconda3/envs/ega/lib/python3.10/site-packages/gsplat/rendering.py", line 409, in rasterization
+    proj_results = fully_fused_projection(
+  File "/data/miniconda3/envs/ega/lib/python3.10/site-packages/gsplat/cuda/_wrapper.py", line 404, in fully_fused_projection
+    return _FullyFusedProjectionPacked.apply(
+  File "/data/miniconda3/envs/ega/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/data/miniconda3/envs/ega/lib/python3.10/site-packages/gsplat/cuda/_wrapper.py", line 1620, in forward
+    ) = _make_lazy_cuda_func("projection_ewa_3dgs_packed_fwd")(
+  File "/data/miniconda3/envs/ega/lib/python3.10/site-packages/gsplat/cuda/_wrapper.py", line 17, in call_cuda
+    return getattr(_C, name)(*args, **kwargs)
+RuntimeError: t == DeviceType::CUDA INTERNAL ASSERT FAILED at "/data/miniconda3/envs/ega/lib/python3.10/site-packages/torch/include/c10/cuda/impl/CUDAGuardImpl.h":25, please report a bug to PyTorch. 

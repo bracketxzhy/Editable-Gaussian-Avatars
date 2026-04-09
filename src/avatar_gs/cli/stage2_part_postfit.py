@@ -93,8 +93,8 @@ def main() -> None:
     ap.add_argument('--cloth_min_support', type=int, default=2)
     ap.add_argument('--cloth_core_support', type=int, default=3)
     ap.add_argument('--cloth_core_erode_px', type=int, default=0)
-    ap.add_argument('--face_teacher_override', default='000050.jpg')
-    ap.add_argument('--face_force_single_teacher', action='store_true', default=True)
+    ap.add_argument('--face_teacher_override', default='')
+    ap.add_argument('--face_force_single_teacher', action='store_true', default=False)
     ap.add_argument('--fixed_source_ckpt', default='')
     ap.add_argument('--fixed_parts', nargs='*', default=[])
     ap.add_argument('--train_parts', nargs='*', default=[])
@@ -112,7 +112,7 @@ def main() -> None:
     semantics_path = (project_root / args.smpl_face_semantics_npz).resolve() if not Path(args.smpl_face_semantics_npz).is_absolute() else Path(args.smpl_face_semantics_npz).resolve()
 
     tag = str(args.tag).strip() or f"part_teacher_postfit_{time.strftime('%Y%m%d_%H%M%S')}"
-    out_dir = (project_root / 'outputs' / 'stage2_part_fit' / tag).resolve()
+    out_dir = (project_root / 'outputs' / 'stage2' / 'part_fit' / tag).resolve()
     train_dir = (out_dir / 'train').resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     train_dir.mkdir(parents=True, exist_ok=True)

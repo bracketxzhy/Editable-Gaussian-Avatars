@@ -1,0 +1,95 @@
+cleanup stamp=20260408_153258
+before outputs:
+outputs
+outputs/logs
+outputs/logs/r154_restore
+outputs/renders
+outputs/renders/deform
+outputs/renders/fg_only
+outputs/renders/real
+outputs/stage1
+outputs/stage1/fashn_face_semantics
+outputs/stage1/final
+outputs/stage1/sequence
+outputs/stage1/smplestx
+outputs/stage2
+outputs/stage2/supervision_preview
+outputs/stage2_clean_oldcfg_train
+outputs/stage2_clean_repro_v1
+outputs/stage2_exp_innerrollback_e526_v3
+outputs/stage2_face_fit
+outputs/stage2_face_fit/stage2_clean_repro_v1_facefit
+outputs/stage2_headfixed_restored
+outputs/stage2_part_fit
+outputs/stage2_teacher_bank
+outputs/stage2_teacher_bank/current
+outputs/stage2_teacher_bank/r154_restore
+before evals:
+evaluation/eval_outputs
+evaluation/eval_outputs/ckscan_gaussians3d_
+evaluation/eval_outputs/ckscan_gaussians3d_facefit_preview_
+evaluation/eval_outputs/ckscan_gaussians3d_inner_
+evaluation/eval_outputs/ckscan_gaussians3d_train_only_
+evaluation/eval_outputs/ckscan_stage2_final
+evaluation/eval_outputs/ckscan_stage2_headfixed
+evaluation/eval_outputs/ckscan_stage2_inner
+evaluation/eval_outputs/fashn_face_semantics
+evaluation/eval_outputs/stage1
+evaluation/eval_outputs/stage2
+evaluation/eval_outputs/stage2_clean_oldcfg_train_eval
+evaluation/eval_outputs/stage2_headfixed_eval
+evaluation/eval_outputs/stage2_replay_verify3_eval
+DELETE outputs/stage2_clean_oldcfg_train
+DELETE outputs/stage2_clean_repro_v1
+DELETE outputs/stage2_exp_innerrollback_e526_v3
+DELETE outputs/stage2_face_fit
+DELETE outputs/stage2_part_fit
+DELETE evaluation/eval_outputs/ckscan_gaussians3d_
+DELETE evaluation/eval_outputs/ckscan_gaussians3d_facefit_preview_
+DELETE evaluation/eval_outputs/ckscan_gaussians3d_inner_
+DELETE evaluation/eval_outputs/ckscan_gaussians3d_train_only_
+DELETE evaluation/eval_outputs/ckscan_stage2_final
+DELETE evaluation/eval_outputs/ckscan_stage2_headfixed
+DELETE evaluation/eval_outputs/ckscan_stage2_inner
+KEEP evaluation/eval_outputs/fashn_face_semantics
+KEEP evaluation/eval_outputs/stage1
+KEEP evaluation/eval_outputs/stage2
+DELETE evaluation/eval_outputs/stage2_clean_oldcfg_train_eval
+KEEP evaluation/eval_outputs/stage2_headfixed_eval
+DELETE evaluation/eval_outputs/stage2_replay_verify3_eval
+after outputs:
+outputs
+outputs/logs
+outputs/logs/r154_restore
+outputs/renders
+outputs/renders/deform
+outputs/renders/fg_only
+outputs/renders/real
+outputs/stage1
+outputs/stage1/fashn_face_semantics
+outputs/stage1/final
+outputs/stage1/sequence
+outputs/stage1/smplestx
+outputs/stage2
+outputs/stage2/supervision_preview
+outputs/stage2_headfixed_restored
+outputs/stage2_teacher_bank
+outputs/stage2_teacher_bank/current
+outputs/stage2_teacher_bank/r154_restore
+after evals:
+evaluation/eval_outputs
+evaluation/eval_outputs/fashn_face_semantics
+evaluation/eval_outputs/stage1
+evaluation/eval_outputs/stage2
+evaluation/eval_outputs/stage2_headfixed_eval
+sizes:
+1.8M	outputs/stage2_teacher_bank
+2.7M	outputs/renders
+5.7M	outputs/logs
+17M	outputs/stage2_headfixed_restored
+50M	evaluation/eval_outputs/stage2
+51M	evaluation/eval_outputs/stage2_headfixed_eval
+59M	evaluation/eval_outputs/stage1
+119M	evaluation/eval_outputs/fashn_face_semantics
+153M	outputs/stage2
+181M	outputs/stage1

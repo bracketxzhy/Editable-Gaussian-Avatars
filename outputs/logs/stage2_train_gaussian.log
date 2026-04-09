@@ -4123,3 +4123,660 @@
 [2026-04-03 10:30:17] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_r26_facecrop_capacity_full_20260403_102712/gaussians3d.pt
 [2026-04-03 10:30:17] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_r26_facecrop_capacity_full_20260403_102712/gaussians3d_inner.pt
 [2026-04-03 10:30:17] [INFO] Init checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_r24_facecrop_rerender_full_20260403_101101/gaussians3d.pt
+[2026-04-07 13:38:25] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 13:38:25] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 13:38:25] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 13:38:25] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 13:38:25] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 13:38:25] [INFO] Frames: 69 used for training
+[2026-04-07 13:38:25] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-07 13:38:25] [INFO] Stage2 training mode: inner_only
+[2026-04-07 13:38:26] [INFO] Initialized gaussians: N=140908
+[2026-04-07 13:38:26] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 13:38:26] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 13:38:26] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 13:38:26] [INFO] Stage2 supervision cache not found, fallback to online supervision: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 13:38:36] [INFO] stage2 precompute: GT contours cache saved: /data/work/Editable Gaussian Avatars/outputs/stage2/outer_gt_contours_cache_563c486bce3119cd.npz
+[2026-04-07 13:38:37] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-07 13:38:38] [INFO] Loaded SMPL face semantics: faces=20908 asset=/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
+[2026-04-07 13:38:38] [INFO] Enabled inner local color prior.
+[2026-04-07 13:38:38] [INFO] Enabled outer exposed-face block: blocked_faces=11539
+[2026-04-07 13:46:44] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 13:46:44] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 13:46:44] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 13:46:44] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 13:46:44] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 13:46:44] [INFO] Frames: 69 used for training
+[2026-04-07 13:46:44] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-07 13:46:44] [INFO] Stage2 training mode: inner_only
+[2026-04-07 13:46:45] [INFO] Initialized gaussians: N=140908
+[2026-04-07 13:46:45] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 13:46:45] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 13:46:45] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 13:46:45] [INFO] Stage2 supervision cache not found, fallback to online supervision: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 13:46:55] [INFO] stage2 precompute: GT contours cache saved: /data/work/Editable Gaussian Avatars/outputs/stage2/outer_gt_contours_cache_563c486bce3119cd.npz
+[2026-04-07 13:46:56] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-07 13:46:57] [INFO] Loaded SMPL face semantics: faces=20908 asset=/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
+[2026-04-07 13:46:57] [INFO] Enabled inner local color prior.
+[2026-04-07 13:46:57] [INFO] Enabled outer exposed-face block: blocked_faces=11539
+[2026-04-07 13:46:58] [INFO] [Iter 1/4200] phase=phase_inner inner_active=120000 outer_active=0 outer_pruned=20908
+[2026-04-07 13:50:18] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 13:50:18] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 13:50:18] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 13:50:18] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 13:50:18] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 13:50:18] [INFO] Frames: 69 used for training
+[2026-04-07 13:50:18] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-07 13:50:18] [INFO] Stage2 training mode: inner_only
+[2026-04-07 13:50:19] [INFO] Initialized gaussians: N=140908
+[2026-04-07 13:50:19] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 13:50:19] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 13:50:19] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 13:50:19] [INFO] Stage2 supervision cache not found, fallback to online supervision: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 13:50:28] [INFO] stage2 precompute: GT contours cache saved: /data/work/Editable Gaussian Avatars/outputs/stage2/outer_gt_contours_cache_563c486bce3119cd.npz
+[2026-04-07 13:50:29] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-07 13:50:30] [INFO] Loaded SMPL face semantics: faces=20908 asset=/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
+[2026-04-07 13:50:30] [INFO] Enabled inner local color prior.
+[2026-04-07 13:50:30] [INFO] Enabled outer exposed-face block: blocked_faces=11539
+[2026-04-07 13:50:31] [INFO] [Iter 1/4200] phase=phase_inner inner_active=120000 outer_active=0 outer_pruned=20908
+[2026-04-07 13:51:14] [INFO] [Iter 200/4200] phase=phase_inner inner_active=121024 outer_active=0 outer_pruned=19884
+[2026-04-07 13:51:27] [INFO] [Iter 400/4200] phase=phase_inner inner_active=122048 outer_active=0 outer_pruned=18860
+[2026-04-07 13:51:39] [INFO] [Iter 600/4200] phase=phase_inner inner_active=123072 outer_active=0 outer_pruned=17836
+[2026-04-07 13:51:50] [INFO] [Iter 800/4200] phase=phase_inner inner_active=124096 outer_active=0 outer_pruned=16812
+[2026-04-07 13:52:00] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=124970 outer_active=0 outer_pruned=15788
+[2026-04-07 13:52:11] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=125950 outer_active=0 outer_pruned=14764
+[2026-04-07 13:52:22] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=126974 outer_active=0 outer_pruned=13740
+[2026-04-07 13:52:33] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=127869 outer_active=0 outer_pruned=12716
+[2026-04-07 13:52:44] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=128540 outer_active=0 outer_pruned=11692
+[2026-04-07 13:52:54] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=129560 outer_active=0 outer_pruned=10668
+[2026-04-07 13:53:05] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=130578 outer_active=0 outer_pruned=9644
+[2026-04-07 13:53:14] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=131584 outer_active=0 outer_pruned=8620
+[2026-04-07 13:53:24] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=132475 outer_active=0 outer_pruned=7596
+[2026-04-07 13:53:36] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=133496 outer_active=0 outer_pruned=6572
+[2026-04-07 13:53:47] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=134492 outer_active=0 outer_pruned=5548
+[2026-04-07 13:53:58] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=135479 outer_active=0 outer_pruned=4524
+[2026-04-07 13:54:08] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=136414 outer_active=0 outer_pruned=3500
+[2026-04-07 13:54:17] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=136332 outer_active=0 outer_pruned=3500
+[2026-04-07 13:54:29] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=136332 outer_active=0 outer_pruned=3500
+[2026-04-07 13:54:39] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=136332 outer_active=0 outer_pruned=3500
+[2026-04-07 13:54:50] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=136099 outer_active=0 outer_pruned=3500
+[2026-04-07 13:54:50] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_inner.pt
+[2026-04-07 13:54:50] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-07 13:54:50] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-07 13:54:50] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_inner.pt
+[2026-04-07 13:57:47] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 13:57:47] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 13:57:47] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 13:57:47] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 13:57:47] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 13:57:47] [INFO] Frames: 69 used for training
+[2026-04-07 13:57:47] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-07 13:57:47] [INFO] Stage2 training mode: inner_only
+[2026-04-07 13:57:48] [INFO] Initialized gaussians: N=140908
+[2026-04-07 13:57:48] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 13:57:48] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 13:57:48] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 14:28:50] [INFO] Saved stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 14:28:50] [INFO] Saved stage2 supervision preview: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_preview
+[2026-04-07 14:28:50] [INFO] prepare_supervision_only=true; skip stage2 training.
+[2026-04-07 15:22:20] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 15:22:20] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 15:22:20] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 15:22:20] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 15:22:20] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 15:22:20] [INFO] Frames: 69 used for training
+[2026-04-07 15:22:20] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke
+[2026-04-07 15:22:20] [INFO] Stage2 training mode: inner_only
+[2026-04-07 15:22:21] [INFO] Initialized gaussians: N=110908
+[2026-04-07 15:22:21] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 15:22:21] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 15:22:21] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 15:22:24] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 15:22:27] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-07 15:22:27] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-07 15:22:27] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-07 15:22:27] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-07 15:22:29] [INFO] [Iter 1/1] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:22:29] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_inner.pt
+[2026-04-07 15:22:29] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d.pt
+[2026-04-07 15:22:29] [INFO] Running face postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d.pt --teacher_frames 000050.jpg --target_source inner_rgb --iters 1 --tag stage2_replay_facefit
+[2026-04-07 15:22:35] [INFO] Applied face postfit to main checkpoint: teachers=['000050.jpg'] | target_source=inner_rgb | iters=1 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_pre_facepostfit.pt | preview=/data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_facefit_preview.pt
+[2026-04-07 15:22:35] [INFO] Running part teacher bank: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_select_part_teachers.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --frames_dir /data/work/Editable Gaussian Avatars/data/frames/input --supervision_cache /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/supervision_cache.npz --semantics_npz /data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz --out_dir /data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/replay_current
+[2026-04-07 15:23:56] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 15:23:56] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 15:23:56] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 15:23:56] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 15:23:56] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 15:23:56] [INFO] Frames: 69 used for training
+[2026-04-07 15:23:56] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke
+[2026-04-07 15:23:56] [INFO] Stage2 training mode: inner_only
+[2026-04-07 15:23:57] [INFO] Initialized gaussians: N=110908
+[2026-04-07 15:23:57] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 15:23:57] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 15:23:57] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 15:24:00] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 15:24:04] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-07 15:24:04] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-07 15:24:04] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-07 15:24:04] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-07 15:24:06] [INFO] [Iter 1/1] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:24:06] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_inner.pt
+[2026-04-07 15:24:06] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d.pt
+[2026-04-07 15:24:06] [INFO] Running face postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d.pt --teacher_frames 000050.jpg --target_source inner_rgb --iters 1 --tag stage2_replay_facefit
+[2026-04-07 15:24:12] [INFO] Applied face postfit to main checkpoint: teachers=['000050.jpg'] | target_source=inner_rgb | iters=1 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_pre_facepostfit.pt | preview=/data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_facefit_preview.pt
+[2026-04-07 15:24:12] [INFO] Running part teacher bank: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_select_part_teachers.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --frames_dir /data/work/Editable Gaussian Avatars/data/frames/input --supervision_cache /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz --semantics_npz /data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz --out_dir /data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/replay_current
+[2026-04-07 15:25:42] [INFO] Running part postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_part_postfit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d.pt --teacher_bank_json /data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/replay_current/teacher_bank.json --supervision_cache /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz --frames_dir /data/work/Editable Gaussian Avatars/data/frames/input --smpl_face_semantics_npz /data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz --target_source inner_rgb --iters 1 --cloth_min_support 2 --cloth_core_support 3 --fixed_source_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_facefit_preview.pt --fixed_box_frame 000050.jpg --face_teacher_override 000050.jpg --tag stage2_replay_top_postfit --face_force_single_teacher --fixed_parts face hair --train_parts top
+[2026-04-07 15:26:11] [INFO] Applied part postfit to main checkpoint: teacher_bank=/data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/replay_current/teacher_bank.json | fixed_source=/data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_facefit_preview.pt | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_pre_partfit.pt
+[2026-04-07 15:26:11] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d.pt
+[2026-04-07 15:26:11] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_replay_smoke/gaussians3d_inner.pt
+[2026-04-07 15:30:35] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 15:30:35] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 15:30:35] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 15:30:35] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 15:30:35] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 15:30:35] [INFO] Frames: 69 used for training
+[2026-04-07 15:30:35] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current
+[2026-04-07 15:30:35] [INFO] Stage2 training mode: inner_only
+[2026-04-07 15:30:35] [INFO] Initialized gaussians: N=110908
+[2026-04-07 15:30:35] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 15:30:35] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 15:30:35] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 15:30:38] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 15:30:42] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-07 15:30:42] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-07 15:30:42] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-07 15:30:42] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-07 15:30:44] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:30:54] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:31:02] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:31:10] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:31:17] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:31:26] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:31:34] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:31:42] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:31:50] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:31:58] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:32:06] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:32:14] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:32:22] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:32:30] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:32:38] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:32:46] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:32:54] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:33:02] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:33:10] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:33:18] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:33:26] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:33:34] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 15:33:34] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d_inner.pt
+[2026-04-07 15:33:34] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d.pt
+[2026-04-07 15:33:34] [INFO] Running face postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d.pt --teacher_frames 000050.jpg --target_source inner_rgb --iters 1000 --tag stage2_rebuild_facefit
+[2026-04-07 15:33:50] [INFO] Applied face postfit to main checkpoint: teachers=['000050.jpg'] | target_source=inner_rgb | iters=1000 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d_pre_facepostfit.pt | preview=/data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d_facefit_preview.pt
+[2026-04-07 15:33:50] [INFO] Running part teacher bank: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_select_part_teachers.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --frames_dir /data/work/Editable Gaussian Avatars/data/frames/input --supervision_cache /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz --semantics_npz /data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz --out_dir /data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/rebuild_current
+[2026-04-07 15:35:18] [INFO] Running part postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_part_postfit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d.pt --teacher_bank_json /data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/rebuild_current/teacher_bank.json --supervision_cache /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz --frames_dir /data/work/Editable Gaussian Avatars/data/frames/input --smpl_face_semantics_npz /data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz --target_source inner_rgb --iters 300 --cloth_min_support 2 --cloth_core_support 3 --fixed_source_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d_facefit_preview.pt --fixed_box_frame 000050.jpg --face_teacher_override 000050.jpg --tag stage2_rebuild_top_postfit --face_force_single_teacher --fixed_parts face hair --train_parts top
+[2026-04-07 15:36:05] [INFO] Applied part postfit to main checkpoint: teacher_bank=/data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/rebuild_current/teacher_bank.json | fixed_source=/data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d_facefit_preview.pt | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d_pre_partfit.pt
+[2026-04-07 15:36:05] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d.pt
+[2026-04-07 15:36:05] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_rebuild_current/gaussians3d_inner.pt
+[2026-04-07 16:25:22] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 16:25:22] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 16:25:22] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 16:25:22] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 16:25:22] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 16:25:22] [INFO] Frames: 69 used for training
+[2026-04-07 16:25:22] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_replay_20260408
+[2026-04-07 16:25:22] [INFO] Stage2 training mode: inner_only
+[2026-04-07 16:25:22] [INFO] Initialized gaussians: N=140908
+[2026-04-07 16:25:22] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 16:25:22] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 16:25:22] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 16:25:25] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 16:25:28] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-07 16:25:28] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-07 16:25:29] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-07 16:25:29] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-07 16:25:29] [INFO] Loaded SMPL face semantics: faces=20908 asset=/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
+[2026-04-07 16:25:29] [INFO] Enabled inner local color prior.
+[2026-04-07 16:25:29] [INFO] Enabled outer exposed-face block: blocked_faces=11539
+[2026-04-07 16:28:09] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-07 16:28:09] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-07 16:28:09] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-07 16:28:09] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-07 16:28:09] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-07 16:28:09] [INFO] Frames: 69 used for training
+[2026-04-07 16:28:09] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_replay_verify
+[2026-04-07 16:28:09] [INFO] Stage2 training mode: inner_only
+[2026-04-07 16:28:10] [INFO] Initialized gaussians: N=110908
+[2026-04-07 16:28:10] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-07 16:28:10] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-07 16:28:10] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-07 16:28:12] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-07 16:28:16] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-07 16:28:16] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-07 16:28:16] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-07 16:28:16] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-07 16:28:18] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:28:28] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:28:36] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:28:44] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:28:52] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:28:59] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:29:09] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:29:18] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:29:26] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:29:34] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:29:42] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:29:51] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:30:00] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:30:09] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:30:17] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:30:25] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:30:33] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:30:40] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:30:48] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:30:57] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:31:04] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:31:12] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-07 16:31:12] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_inner.pt
+[2026-04-07 16:31:12] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_replay_verify/gaussians3d.pt
+[2026-04-07 16:31:12] [INFO] Running face postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_r154_replay_verify/gaussians3d.pt --teacher_frames 000050.jpg --target_source inner_rgb --iters 1000 --tag stage2_face_fit_r154_replay_verify
+[2026-04-07 16:31:28] [INFO] Applied face postfit to main checkpoint: teachers=['000050.jpg'] | target_source=inner_rgb | iters=1000 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_r154_replay_verify/gaussians3d_pre_facepostfit.pt
+[2026-04-07 16:31:28] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_replay_verify/gaussians3d.pt
+[2026-04-07 16:31:28] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_inner.pt
+[2026-04-08 00:21:37] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 00:21:37] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 00:21:37] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 00:21:37] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 00:21:37] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 00:21:37] [INFO] Frames: 69 used for training
+[2026-04-08 00:21:37] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1
+[2026-04-08 00:21:37] [INFO] Stage2 training mode: inner_only
+[2026-04-08 00:21:38] [INFO] Initialized gaussians: N=110908
+[2026-04-08 00:21:38] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 00:21:38] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 00:21:38] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 00:21:41] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 00:21:44] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 00:21:44] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 00:21:45] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 00:21:45] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 00:21:47] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:21:58] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:22:08] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:22:17] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:22:26] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:22:36] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:22:45] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:22:55] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:23:04] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:23:13] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:23:23] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:23:32] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:23:41] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:23:51] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:23:59] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:24:07] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:24:15] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:24:23] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:24:32] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:24:41] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:24:51] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:25:00] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:25:00] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d_inner.pt
+[2026-04-08 00:25:00] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d.pt
+[2026-04-08 00:25:00] [INFO] Running face postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d.pt --teacher_frames 000050.jpg --target_source inner_rgb --iters 1000 --tag stage2_face_fit_repro_attempt1
+[2026-04-08 00:25:16] [INFO] Applied face postfit to main checkpoint: teachers=['000050.jpg'] | target_source=inner_rgb | iters=1000 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d_pre_facepostfit.pt
+[2026-04-08 00:25:16] [INFO] Running part teacher bank: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_select_part_teachers.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --supervision_cache outputs/stage2/supervision_cache.npz --out_dir outputs/stage2_teacher_bank/repro_attempt1
+[2026-04-08 00:26:55] [INFO] Running part postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_part_postfit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d.pt --teacher_bank_json /data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/repro_attempt1/teacher_bank.json --target_source inner_rgb --iters 300 --fixed_source_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d.pt --tag stage2_part_postfit_repro_attempt1 --fixed_parts face hair --train_parts top --fixed_box_frame 000050.jpg --face_teacher_override 000050.jpg --face_force_single_teacher --cloth_min_support 2 --cloth_core_support 3
+[2026-04-08 00:27:42] [INFO] Applied part postfit to main checkpoint: train_parts=['top'] | fixed_parts=['face', 'hair'] | target_source=inner_rgb | iters=300 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d_pre_partpostfit.pt
+[2026-04-08 00:27:42] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d.pt
+[2026-04-08 00:27:42] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_attempt1/gaussians3d_inner.pt
+[2026-04-08 00:47:43] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 00:47:43] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 00:47:43] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 00:47:43] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 00:47:43] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 00:47:43] [INFO] Frames: 69 used for training
+[2026-04-08 00:47:43] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface
+[2026-04-08 00:47:43] [INFO] Stage2 training mode: inner_only
+[2026-04-08 00:47:43] [INFO] Initialized gaussians: N=110908
+[2026-04-08 00:47:43] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 00:47:44] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 00:47:44] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 00:47:47] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 00:47:50] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 00:47:50] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 00:47:51] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 00:47:51] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 00:47:53] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:48:03] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:48:11] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:48:19] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:48:27] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:48:35] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:48:43] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:48:51] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:49:00] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:49:08] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:49:16] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:49:24] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:49:33] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:49:41] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:49:48] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:49:56] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:50:05] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:50:13] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:50:21] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:50:29] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:50:38] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:50:46] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 00:50:46] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d_inner.pt
+[2026-04-08 00:50:46] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d.pt
+[2026-04-08 00:50:46] [INFO] Running face postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d.pt --teacher_frames 000050.jpg --target_source inner_rgb --iters 1000 --tag det_surface_main_facefit
+[2026-04-08 00:50:51] [INFO] Applied face postfit to main checkpoint: teachers=['000050.jpg'] | target_source=inner_rgb | iters=1000 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d_pre_facepostfit.pt
+[2026-04-08 00:50:51] [INFO] Running part teacher bank: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_select_part_teachers.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --supervision_cache outputs/stage2/supervision_cache.npz --out_dir outputs/stage2_teacher_bank/det_surface_main_bank
+[2026-04-08 00:52:26] [INFO] Running part postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_part_postfit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d.pt --teacher_bank_json /data/work/Editable Gaussian Avatars/outputs/stage2_teacher_bank/det_surface_main_bank/teacher_bank.json --target_source inner_rgb --iters 300 --fixed_source_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d.pt --tag det_surface_main_partfit --fixed_parts face hair --train_parts top --fixed_box_frame 000050.jpg --face_teacher_override 000050.jpg --face_force_single_teacher --cloth_min_support 2 --cloth_core_support 3
+[2026-04-08 00:52:53] [INFO] Applied part postfit to main checkpoint: train_parts=['top'] | fixed_parts=['face', 'hair'] | target_source=inner_rgb | iters=300 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d_pre_partpostfit.pt
+[2026-04-08 00:52:53] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d.pt
+[2026-04-08 00:52:53] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_repro_det_surface/gaussians3d_inner.pt
+[2026-04-08 01:14:26] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 01:14:26] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 01:14:26] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 01:14:26] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 01:14:26] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 01:14:26] [INFO] Frames: 69 used for training
+[2026-04-08 01:14:26] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_git154_fromgit
+[2026-04-08 01:14:26] [INFO] Stage2 training mode: inner_only
+[2026-04-08 01:14:28] [INFO] Initialized gaussians: N=140908
+[2026-04-08 01:14:28] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 01:14:28] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 01:14:28] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 01:14:31] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 01:14:34] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 01:14:34] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 01:14:35] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 01:14:35] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 01:14:36] [INFO] Loaded SMPL face semantics: faces=20908 asset=/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
+[2026-04-08 01:14:36] [INFO] Enabled inner local color prior.
+[2026-04-08 01:14:36] [INFO] Enabled outer exposed-face block: blocked_faces=11539
+[2026-04-08 01:15:08] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 01:15:08] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 01:15:08] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 01:15:08] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 01:15:08] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 01:15:08] [INFO] Frames: 69 used for training
+[2026-04-08 01:15:08] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_git154_fromgit
+[2026-04-08 01:15:08] [INFO] Stage2 training mode: inner_only
+[2026-04-08 01:15:09] [INFO] Initialized gaussians: N=140908
+[2026-04-08 01:15:09] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 01:15:09] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 01:15:09] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 01:15:12] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 01:15:15] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 01:15:15] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 01:15:16] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 01:15:16] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 01:15:17] [INFO] Loaded SMPL face semantics: faces=20908 asset=/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
+[2026-04-08 01:15:17] [INFO] Enabled inner local color prior.
+[2026-04-08 01:15:17] [INFO] Enabled outer exposed-face block: blocked_faces=11539
+[2026-04-08 01:18:34] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 01:18:34] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 01:18:34] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 01:18:34] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 01:18:34] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 01:18:34] [INFO] Frames: 69 used for training
+[2026-04-08 01:18:34] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_fromgit_manual
+[2026-04-08 01:18:34] [INFO] Stage2 training mode: inner_only
+[2026-04-08 01:18:35] [INFO] Initialized gaussians: N=110908
+[2026-04-08 01:18:35] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 01:18:35] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 01:18:35] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 01:18:38] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 01:18:41] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 01:18:41] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 01:18:42] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 01:18:42] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 01:18:43] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:18:54] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:19:02] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:19:11] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:19:19] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:19:27] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:19:35] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:19:44] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:19:54] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:20:03] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:20:12] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:20:21] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:20:30] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:20:39] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:20:48] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:20:56] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:21:05] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:21:14] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:21:23] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:21:33] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:21:42] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:21:51] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:21:51] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_exp_innerrollback_e526_v3/gaussians3d_inner.pt
+[2026-04-08 01:21:51] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_fromgit_manual/gaussians3d.pt
+[2026-04-08 01:21:51] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_fromgit_manual/gaussians3d.pt
+[2026-04-08 01:21:51] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_exp_innerrollback_e526_v3/gaussians3d_inner.pt
+[2026-04-08 01:28:52] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 01:28:52] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 01:28:52] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 01:28:52] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 01:28:52] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 01:28:52] [INFO] Frames: 69 used for training
+[2026-04-08 01:28:52] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_fromgit_manual_b
+[2026-04-08 01:28:52] [INFO] Stage2 training mode: inner_only
+[2026-04-08 01:28:52] [INFO] Initialized gaussians: N=110908
+[2026-04-08 01:28:52] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 01:28:52] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 01:28:52] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 01:28:55] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 01:28:58] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 01:28:58] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 01:28:59] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 01:28:59] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 01:29:00] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:29:11] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:29:20] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:29:29] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:29:37] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:29:45] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:29:54] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:30:04] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:30:13] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:30:22] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:30:31] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:30:40] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:30:50] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:30:59] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:31:08] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:31:16] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:31:24] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:31:32] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:31:40] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:31:48] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:31:56] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:32:04] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 01:32:04] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_exp_innerrollback_e526_v3/gaussians3d_inner.pt
+[2026-04-08 01:32:04] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_fromgit_manual_b/gaussians3d.pt
+[2026-04-08 01:32:04] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_r154_fromgit_manual_b/gaussians3d.pt
+[2026-04-08 01:32:04] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_exp_innerrollback_e526_v3/gaussians3d_inner.pt
+[2026-04-08 09:56:05] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 09:56:05] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 09:56:05] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 09:56:05] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 09:56:05] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 09:56:05] [INFO] Frames: 69 used for training
+[2026-04-08 09:56:05] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_clean_repro_v1
+[2026-04-08 09:56:05] [INFO] Stage2 training mode: inner_only
+[2026-04-08 09:56:06] [INFO] Initialized gaussians: N=110908
+[2026-04-08 09:56:06] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 09:56:06] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 09:56:06] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 09:56:09] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 09:56:12] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 09:56:12] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 09:56:12] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 09:56:12] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 09:56:14] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:56:25] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:56:34] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:56:42] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:56:51] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:57:01] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:57:11] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:57:21] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:57:30] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:57:40] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:57:50] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:58:00] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:58:09] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:58:20] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:58:29] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:58:38] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:58:47] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:58:57] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:59:07] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:59:18] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:59:28] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:59:37] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 09:59:37] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_inner.pt
+[2026-04-08 09:59:37] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_clean_repro_v1/gaussians3d.pt
+[2026-04-08 09:59:37] [INFO] Running face postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2_clean_repro_v1/gaussians3d.pt --teacher_frames [ 0 0 0 0 5 0 . j p g ] --target_source inner_rgb --iters 1000 --tag stage2_clean_repro_v1_facefit
+[2026-04-08 10:36:38] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 10:36:38] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 10:36:38] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 10:36:38] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 10:36:38] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 10:36:38] [INFO] Frames: 69 used for training
+[2026-04-08 10:36:38] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_clean_oldcfg_train
+[2026-04-08 10:36:38] [INFO] Stage2 training mode: inner_only
+[2026-04-08 10:36:39] [INFO] Initialized gaussians: N=110908
+[2026-04-08 10:36:39] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 10:36:39] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 10:36:39] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 10:36:42] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 10:36:45] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 10:36:45] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 10:36:46] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 10:36:46] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 10:36:48] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:36:58] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:37:07] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:37:15] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:37:23] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:37:32] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:37:40] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:37:48] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:37:57] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:38:05] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:38:13] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:38:22] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:38:30] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:38:38] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:38:46] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:38:55] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:39:03] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:39:11] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:39:20] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:39:28] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:39:37] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:39:45] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 10:39:45] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_exp_innerrollback_e526_v3/gaussians3d_inner.pt
+[2026-04-08 10:39:45] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_clean_oldcfg_train/gaussians3d.pt
+[2026-04-08 10:39:45] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_clean_oldcfg_train/gaussians3d.pt
+[2026-04-08 10:39:45] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_exp_innerrollback_e526_v3/gaussians3d_inner.pt
+[2026-04-08 15:50:35] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-08 15:50:35] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-08 15:50:35] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-08 15:50:35] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-08 15:50:35] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-08 15:50:35] [INFO] Frames: 69 used for training
+[2026-04-08 15:50:35] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2_old_innerrollback_repro
+[2026-04-08 15:50:35] [INFO] Stage2 training mode: inner_only
+[2026-04-08 15:50:36] [INFO] Initialized gaussians: N=110908
+[2026-04-08 15:50:36] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-08 15:50:36] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-08 15:50:36] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-08 15:50:39] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-08 15:50:42] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-08 15:50:42] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-08 15:50:43] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-08 15:50:43] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-08 15:50:45] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:50:54] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:51:02] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:51:09] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:51:17] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:51:25] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:51:33] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:51:41] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:51:49] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:51:56] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:52:04] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:52:12] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:52:20] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:52:28] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:52:36] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:52:43] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:52:51] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:52:59] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:53:07] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:53:15] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:53:23] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:53:31] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-08 15:53:31] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_old_innerrollback_repro/gaussians3d_inner.pt
+[2026-04-08 15:53:31] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_old_innerrollback_repro/gaussians3d.pt
+[2026-04-08 15:53:31] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2_old_innerrollback_repro/gaussians3d.pt
+[2026-04-08 15:53:31] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2_old_innerrollback_repro/gaussians3d_inner.pt
+[2026-04-09 11:20:13] [INFO] Stage1 align frame filter: kept 69/76 frames with top 90.0% by camera_align_iou; effective_floor=0.83468; forced_keep_last=000075.jpg
+[2026-04-09 11:20:13] [INFO] Stage1 align frame filter: dropped 7 low-quality frame(s)
+[2026-04-09 11:20:13] [INFO] Loaded 69 stage1 align score(s) from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for outer geometric accumulation.
+[2026-04-09 11:20:13] [INFO] Loaded 69 stage1 frame intrinsic matrix/matrices from /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_params_sequence.npz for stage2 frame-wise rendering.
+[2026-04-09 11:20:13] [INFO] Mesh: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence/frame_000075.obj
+[2026-04-09 11:20:13] [INFO] Frames: 69 used for training
+[2026-04-09 11:20:13] [INFO] Out dir: /data/work/Editable Gaussian Avatars/outputs/stage2
+[2026-04-09 11:20:13] [INFO] Stage2 training mode: inner_only
+[2026-04-09 11:20:14] [INFO] Initialized gaussians: N=110908
+[2026-04-09 11:20:14] [INFO] Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+[2026-04-09 11:20:14] [INFO] Using dynamic bind vertices from: /data/work/Editable Gaussian Avatars/outputs/stage1/smpl_vertices_sequence.npz
+[2026-04-09 11:20:14] [WARNING] bind_deform_obj not found; render will use fallback.
+[2026-04-09 11:20:17] [INFO] Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+[2026-04-09 11:20:21] [INFO] stage2 supervision: using prepared supervision cache for smpl/inner/outer masks and rgb targets
+[2026-04-09 11:20:21] [INFO] stage2 precompute: GT contours cache hit: prepared supervision cache
+[2026-04-09 11:20:22] [INFO] Applied prepared frame-wise SMPL similarity alignment to binding mesh runtime.
+[2026-04-09 11:20:22] [WARNING] outer activation/spawn/prune ignores semantic bias settings: outer_head_priority_down_scale, outer_head_priority_enable, outer_head_priority_face_pad, outer_head_priority_person_top_ratio, outer_head_priority_up_scale, outer_head_priority_weight, outer_head_support_sample_dilate_px, outer_spawn_inside_only, outer_spawn_support_th, outer_trigger_face_ema_decay, outer_trigger_face_ema_weight, outer_trigger_face_topk, outer_trigger_face_topk_min_support
+[2026-04-09 11:20:23] [INFO] [Iter 1/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:20:33] [INFO] [Iter 200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:20:41] [INFO] [Iter 400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:20:50] [INFO] [Iter 600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:20:58] [INFO] [Iter 800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:21:06] [INFO] [Iter 1000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:21:15] [INFO] [Iter 1200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:21:23] [INFO] [Iter 1400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:21:31] [INFO] [Iter 1600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:21:39] [INFO] [Iter 1800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:21:47] [INFO] [Iter 2000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:21:55] [INFO] [Iter 2200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:22:03] [INFO] [Iter 2400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:22:11] [INFO] [Iter 2600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:22:20] [INFO] [Iter 2800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:22:28] [INFO] [Iter 3000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:22:36] [INFO] [Iter 3200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:22:45] [INFO] [Iter 3400/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:22:53] [INFO] [Iter 3600/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:23:01] [INFO] [Iter 3800/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:23:10] [INFO] [Iter 4000/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:23:18] [INFO] [Iter 4200/4200] phase=phase_inner inner_active=90000 outer_active=0 outer_pruned=20908
+[2026-04-09 11:23:18] [INFO] Saved inner checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_inner.pt
+[2026-04-09 11:23:18] [INFO] Saved final checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-09 11:23:18] [INFO] Running part teacher bank: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_select_part_teachers.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --frames_dir /data/work/Editable Gaussian Avatars/data/frames/input --supervision_cache /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz --semantics_npz /data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz --out_dir /data/work/Editable Gaussian Avatars/outputs/stage2/teacher_bank/stage2
+[2026-04-09 11:24:52] [INFO] Running face postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_face_fit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt --teacher_frames 000050.jpg --target_source inner_rgb --iters 1000 --tag stage2_facepostfit
+[2026-04-09 11:25:09] [INFO] Applied face postfit to main checkpoint: teachers=['000050.jpg'] | target_source=inner_rgb | iters=1000 | backup=/data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_pre_facepostfit.pt
+[2026-04-09 11:25:09] [INFO] Running part postfit: /data/miniconda3/envs/ega/bin/python /data/work/Editable Gaussian Avatars/src/avatar_gs/cli/stage2_part_postfit.py --project_root /data/work/Editable Gaussian Avatars --stage1_dir /data/work/Editable Gaussian Avatars/outputs/stage1 --stage2_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt --teacher_bank_json /data/work/Editable Gaussian Avatars/outputs/stage2/teacher_bank/stage2/teacher_bank.json --supervision_cache /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz --frames_dir /data/work/Editable Gaussian Avatars/data/frames/input --smpl_face_semantics_npz /data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz --target_source inner_rgb --iters 300 --cloth_min_support 2 --cloth_core_support 3 --fixed_source_ckpt /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt --fixed_box_frame 000050.jpg --face_teacher_override 000050.jpg --tag stage2_partpostfit --face_force_single_teacher --fixed_parts face hair --train_parts top pants arms hands feet torso
+[2026-04-09 11:26:45] [INFO] Applied part postfit to main checkpoint: teacher_bank=/data/work/Editable Gaussian Avatars/outputs/stage2/teacher_bank/stage2/teacher_bank.json | fixed_source=/data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt | train_parts=['top', 'pants', 'arms', 'hands', 'feet', 'torso'] | fixed_parts=['face', 'hair'] | backup=/data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_pre_partpostfit.pt
+[2026-04-09 11:26:45] [INFO] Saved checkpoint: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt
+[2026-04-09 11:26:45] [INFO] Inner checkpoint path: /data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d_inner.pt
