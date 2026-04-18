@@ -93,7 +93,7 @@ stage2:
   hand_radius_scale: 0.45
   hand_radius_min_px: 10
   hand_extension_scale: 0.35
-  outer_exclude_hands: false
+  outer_exclude_hands: true
   outer_hand_expand_px: 0
   bg_rgb: [1.0, 1.0, 1.0]
   # Dataset-agnostic coverage: sample frames uniformly across the full sequence.
@@ -125,7 +125,7 @@ stage2:
   inner_local_scale_clamp_ratio: 0.82
   inner_local_scale_clamp_normal_ratio: 0.30
   smpl_face_semantics_npz: outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz
-  outer_block_exposed_faces: false
+  outer_block_exposed_faces: true
   inner_local_color_prior_enable: false
   inner_local_color_prior_weight: 0.0
   inner_local_color_prior_start_iter: 200
@@ -348,7 +348,7 @@ stage2:
   inner_local_scale_init_min: 0.0008
   inner_local_scale_init_max: 0.012
   outer_trigger_face_activate_enable: true
-  outer_trigger_face_sample_dilate_px: 0
+  outer_trigger_face_sample_dilate_px: 2
   outer_spawn_from_trigger_ring_only: false
   outer_viewplane_init_enable: true
   outer_center_init_rule: segment_midpoint

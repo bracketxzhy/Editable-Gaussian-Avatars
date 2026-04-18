@@ -1,0 +1,75 @@
+2026-04-17 15:03:07,013 | INFO | Stage2 eval start: /data/work/Editable Gaussian Avatars/evaluation/eval_outputs/stage2_combined
+2026-04-17 15:03:09,723 | INFO | Using prepared stage2 supervision cache: /data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz
+2026-04-17 15:03:09,726 | INFO | Stage1 semantics frame match: true
+2026-04-17 15:03:10,610 | INFO | Using bind mesh sequence dir: /data/work/Editable Gaussian Avatars/outputs/stage1/sequence
+2026-04-17 15:03:10,761 | INFO | Building render previews for overlay via render CLI: 69 frames
+2026-04-17 15:03:52,199 | INFO | Frame 000000.jpg done | mae=0.074870 | ssim=0.894062 | mask_iou=0.998065 | worst=face, hair, hands
+2026-04-17 15:03:52,943 | INFO | Frame 000001.jpg done | mae=0.072728 | ssim=0.900462 | mask_iou=0.994328 | worst=face, hands, feet
+2026-04-17 15:03:53,680 | INFO | Frame 000002.jpg done | mae=0.078432 | ssim=0.896603 | mask_iou=0.994280 | worst=face, feet, hands
+2026-04-17 15:03:54,417 | INFO | Frame 000003.jpg done | mae=0.077510 | ssim=0.891077 | mask_iou=0.991921 | worst=hands, feet, face
+2026-04-17 15:03:55,059 | INFO | Frame 000006.jpg done | mae=0.072266 | ssim=0.800180 | mask_iou=0.994198 | worst=hands, face, arms
+2026-04-17 15:03:55,695 | INFO | Frame 000007.jpg done | mae=0.071646 | ssim=0.766733 | mask_iou=0.996351 | worst=hands, arms, face
+2026-04-17 15:03:56,358 | INFO | Frame 000008.jpg done | mae=0.082016 | ssim=0.822521 | mask_iou=0.981590 | worst=hands, face, hair
+2026-04-17 15:03:57,045 | INFO | Frame 000009.jpg done | mae=0.045242 | ssim=0.905695 | mask_iou=0.988433 | worst=face, hands, hair
+2026-04-17 15:03:57,744 | INFO | Frame 000010.jpg done | mae=0.046699 | ssim=0.906060 | mask_iou=0.995201 | worst=face, hands, hair
+2026-04-17 15:03:58,443 | INFO | Frame 000011.jpg done | mae=0.053128 | ssim=0.908166 | mask_iou=0.993824 | worst=face, hands, feet
+2026-04-17 15:03:59,153 | INFO | Frame 000012.jpg done | mae=0.048942 | ssim=0.920649 | mask_iou=0.995077 | worst=hair, feet, hands
+2026-04-17 15:03:59,859 | INFO | Frame 000013.jpg done | mae=0.050291 | ssim=0.912694 | mask_iou=0.996307 | worst=hands, hair, feet
+2026-04-17 15:04:00,553 | INFO | Frame 000014.jpg done | mae=0.052502 | ssim=0.898914 | mask_iou=0.992152 | worst=hands, feet, face
+2026-04-17 15:04:01,233 | INFO | Frame 000015.jpg done | mae=0.057620 | ssim=0.882655 | mask_iou=0.990687 | worst=face, hands, hair
+2026-04-17 15:04:01,891 | INFO | Frame 000016.jpg done | mae=0.058539 | ssim=0.860741 | mask_iou=0.987394 | worst=face, hands, feet
+2026-04-17 15:04:02,521 | INFO | Frame 000017.jpg done | mae=0.086101 | ssim=0.733631 | mask_iou=0.994643 | worst=hands, feet, face
+2026-04-17 15:04:03,144 | INFO | Frame 000018.jpg done | mae=0.069738 | ssim=0.777799 | mask_iou=0.988972 | worst=hands, face, arms
+2026-04-17 15:04:03,817 | INFO | Frame 000019.jpg done | mae=0.094784 | ssim=0.791081 | mask_iou=0.957888 | worst=hands, feet, arms
+2026-04-17 15:04:04,514 | INFO | Frame 000020.jpg done | mae=0.100858 | ssim=0.823465 | mask_iou=0.984502 | worst=hands, face, torso
+2026-04-17 15:04:05,203 | INFO | Frame 000021.jpg done | mae=0.092426 | ssim=0.864235 | mask_iou=0.986694 | worst=face, hands, torso
+2026-04-17 15:04:05,895 | INFO | Frame 000022.jpg done | mae=0.077182 | ssim=0.883215 | mask_iou=0.995571 | worst=face, hands, pants
+2026-04-17 15:04:06,613 | INFO | Frame 000023.jpg done | mae=0.069309 | ssim=0.895270 | mask_iou=0.995030 | worst=face, feet, hands
+2026-04-17 15:04:07,353 | INFO | Frame 000024.jpg done | mae=0.072996 | ssim=0.888629 | mask_iou=0.996312 | worst=face, feet, pants
+2026-04-17 15:04:08,102 | INFO | Frame 000025.jpg done | mae=0.076218 | ssim=0.882161 | mask_iou=0.996372 | worst=face, feet, hair
+2026-04-17 15:04:08,811 | INFO | Frame 000026.jpg done | mae=0.080653 | ssim=0.883429 | mask_iou=0.996004 | worst=face, hands, hair
+2026-04-17 15:04:09,537 | INFO | Frame 000027.jpg done | mae=0.070842 | ssim=0.896311 | mask_iou=0.997809 | worst=face, torso, feet
+2026-04-17 15:04:10,295 | INFO | Frame 000028.jpg done | mae=0.083494 | ssim=0.867682 | mask_iou=0.996854 | worst=hands, face, torso
+2026-04-17 15:04:10,921 | INFO | Frame 000031.jpg done | mae=0.070061 | ssim=0.781836 | mask_iou=0.994795 | worst=hands, face, arms
+2026-04-17 15:04:11,569 | INFO | Frame 000032.jpg done | mae=0.084276 | ssim=0.766020 | mask_iou=0.996216 | worst=hands, arms, face
+2026-04-17 15:04:12,256 | INFO | Frame 000033.jpg done | mae=0.068877 | ssim=0.825875 | mask_iou=0.969694 | worst=hands, face, arms
+2026-04-17 15:04:12,928 | INFO | Frame 000034.jpg done | mae=0.051568 | ssim=0.901108 | mask_iou=0.988518 | worst=face, hands, hair
+2026-04-17 15:04:13,609 | INFO | Frame 000035.jpg done | mae=0.041824 | ssim=0.912320 | mask_iou=0.994675 | worst=face, hair, hands
+2026-04-17 15:04:14,301 | INFO | Frame 000036.jpg done | mae=0.053533 | ssim=0.899938 | mask_iou=0.991369 | worst=feet, hands, face
+2026-04-17 15:04:14,994 | INFO | Frame 000037.jpg done | mae=0.052092 | ssim=0.909270 | mask_iou=0.992400 | worst=feet, hair, hands
+2026-04-17 15:04:15,711 | INFO | Frame 000038.jpg done | mae=0.053315 | ssim=0.909231 | mask_iou=0.996820 | worst=feet, face, hair
+2026-04-17 15:04:16,407 | INFO | Frame 000039.jpg done | mae=0.052951 | ssim=0.900366 | mask_iou=0.993307 | worst=hands, feet, hair
+2026-04-17 15:04:17,097 | INFO | Frame 000040.jpg done | mae=0.059684 | ssim=0.876822 | mask_iou=0.992811 | worst=face, hands, feet
+2026-04-17 15:04:17,771 | INFO | Frame 000041.jpg done | mae=0.058500 | ssim=0.867321 | mask_iou=0.991592 | worst=face, hands, feet
+2026-04-17 15:04:18,399 | INFO | Frame 000043.jpg done | mae=0.101543 | ssim=0.714677 | mask_iou=0.995540 | worst=arms, hands, face
+2026-04-17 15:04:19,046 | INFO | Frame 000044.jpg done | mae=0.074349 | ssim=0.781362 | mask_iou=0.985002 | worst=hands, face, arms
+2026-04-17 15:04:19,706 | INFO | Frame 000045.jpg done | mae=0.101931 | ssim=0.827971 | mask_iou=0.952721 | worst=hands, arms, face
+2026-04-17 15:04:20,403 | INFO | Frame 000046.jpg done | mae=0.108334 | ssim=0.817985 | mask_iou=0.979854 | worst=feet, hands, face
+2026-04-17 15:04:21,109 | INFO | Frame 000047.jpg done | mae=0.075857 | ssim=0.872429 | mask_iou=0.996611 | worst=face, hands, pants
+2026-04-17 15:04:21,832 | INFO | Frame 000048.jpg done | mae=0.081968 | ssim=0.871720 | mask_iou=0.995910 | worst=face, hands, pants
+2026-04-17 15:04:22,561 | INFO | Frame 000049.jpg done | mae=0.078546 | ssim=0.879504 | mask_iou=0.998348 | worst=face, hair, torso
+2026-04-17 15:04:23,299 | INFO | Frame 000050.jpg done | mae=0.070281 | ssim=0.878511 | mask_iou=0.997293 | worst=hands, pants, top
+2026-04-17 15:04:24,026 | INFO | Frame 000051.jpg done | mae=0.070984 | ssim=0.878461 | mask_iou=0.993088 | worst=hands, face, torso
+2026-04-17 15:04:24,719 | INFO | Frame 000052.jpg done | mae=0.075248 | ssim=0.880739 | mask_iou=0.997876 | worst=face, hands, torso
+2026-04-17 15:04:25,391 | INFO | Frame 000053.jpg done | mae=0.098677 | ssim=0.841698 | mask_iou=0.967842 | worst=feet, hands, face
+2026-04-17 15:04:26,040 | INFO | Frame 000055.jpg done | mae=0.093672 | ssim=0.755453 | mask_iou=0.996258 | worst=hands, face, arms
+2026-04-17 15:04:26,667 | INFO | Frame 000056.jpg done | mae=0.061375 | ssim=0.786071 | mask_iou=0.995682 | worst=hands, face, hair
+2026-04-17 15:04:27,332 | INFO | Frame 000057.jpg done | mae=0.043469 | ssim=0.846702 | mask_iou=0.997499 | worst=face, hair, hands
+2026-04-17 15:04:28,007 | INFO | Frame 000058.jpg done | mae=0.075292 | ssim=0.869773 | mask_iou=0.957663 | worst=hands, arms, face
+2026-04-17 15:04:28,714 | INFO | Frame 000059.jpg done | mae=0.049818 | ssim=0.906987 | mask_iou=0.993606 | worst=face, hair, hands
+2026-04-17 15:04:29,407 | INFO | Frame 000060.jpg done | mae=0.058360 | ssim=0.899314 | mask_iou=0.992980 | worst=hands, feet, hair
+2026-04-17 15:04:30,164 | INFO | Frame 000061.jpg done | mae=0.055975 | ssim=0.901310 | mask_iou=0.993095 | worst=feet, hair, hands
+2026-04-17 15:04:30,861 | INFO | Frame 000062.jpg done | mae=0.053247 | ssim=0.903371 | mask_iou=0.996975 | worst=hands, feet, hair
+2026-04-17 15:04:31,538 | INFO | Frame 000063.jpg done | mae=0.054146 | ssim=0.892665 | mask_iou=0.992438 | worst=face, hands, feet
+2026-04-17 15:04:32,187 | INFO | Frame 000065.jpg done | mae=0.072615 | ssim=0.781061 | mask_iou=0.979588 | worst=face, arms, hands
+2026-04-17 15:04:32,814 | INFO | Frame 000066.jpg done | mae=0.067860 | ssim=0.798657 | mask_iou=0.993359 | worst=hands, feet, face
+2026-04-17 15:04:33,446 | INFO | Frame 000067.jpg done | mae=0.098690 | ssim=0.763225 | mask_iou=0.998167 | worst=arms, hands, face
+2026-04-17 15:04:34,102 | INFO | Frame 000068.jpg done | mae=0.086548 | ssim=0.818609 | mask_iou=0.981681 | worst=hands, face, feet
+2026-04-17 15:04:34,792 | INFO | Frame 000069.jpg done | mae=0.082923 | ssim=0.865255 | mask_iou=0.987395 | worst=hands, face, torso
+2026-04-17 15:04:35,477 | INFO | Frame 000070.jpg done | mae=0.078677 | ssim=0.878377 | mask_iou=0.995738 | worst=face, feet, torso
+2026-04-17 15:04:36,177 | INFO | Frame 000071.jpg done | mae=0.082963 | ssim=0.874757 | mask_iou=0.996820 | worst=face, hands, hair
+2026-04-17 15:04:36,911 | INFO | Frame 000072.jpg done | mae=0.076811 | ssim=0.877627 | mask_iou=0.993583 | worst=hands, face, torso
+2026-04-17 15:04:37,629 | INFO | Frame 000073.jpg done | mae=0.082865 | ssim=0.874335 | mask_iou=0.997577 | worst=face, hands, feet
+2026-04-17 15:04:38,371 | INFO | Frame 000074.jpg done | mae=0.075039 | ssim=0.876302 | mask_iou=0.997862 | worst=face, pants, feet
+2026-04-17 15:04:39,136 | INFO | Frame 000075.jpg done | mae=0.070329 | ssim=0.879868 | mask_iou=0.997426 | worst=face, hair, torso
+2026-04-17 15:04:39,140 | INFO | Stage2 eval done: /data/work/Editable Gaussian Avatars/evaluation/eval_outputs/stage2_combined/summary.json

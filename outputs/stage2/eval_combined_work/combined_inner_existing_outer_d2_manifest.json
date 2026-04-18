@@ -1,0 +1,125 @@
+{
+  "created_at": "2026-04-17 15:03:06",
+  "inner_source": "/data/work/Editable Gaussian Avatars/outputs/stage2/gaussians3d.pt",
+  "outer_source": "/data/work/Editable Gaussian Avatars/outputs/stage2/outer/gaussians3d.pt",
+  "rule": "shell_layer==0 rows from inner_source; shell_layer==1 rows from outer_source",
+  "inner_rows_replaced": 90000,
+  "outer_rows_kept": 20908,
+  "deactivate_outer_exposed": true,
+  "smpl_face_semantics_npz": "/data/work/Editable Gaussian Avatars/outputs/stage1/fashn_face_semantics/smpl_face_semantics.npz",
+  "outer_exposed_rows_deactivated": 10753,
+  "replaced_gaussian_keys": [
+    "xyz",
+    "log_scales",
+    "quat",
+    "opacity_logit",
+    "rgb_logit",
+    "bind_idx",
+    "bind_offset",
+    "bind_face_idx",
+    "effective_face_idx",
+    "bind_bary",
+    "bind_face_offset_local",
+    "shell_layer",
+    "bind_mix_weight",
+    "prune_state",
+    "inner_bind_mode",
+    "quality_fail_counter",
+    "color_conf_ema",
+    "geom_conf_ema"
+  ],
+  "skipped_gaussian_keys": [],
+  "merged_checkpoint": "/data/work/Editable Gaussian Avatars/outputs/stage2/eval_combined_work/combined_inner_existing_outer_d2.pt",
+  "validation": {
+    "xyz": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "log_scales": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "quat": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "opacity_logit": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "rgb_logit": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "bind_idx": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "bind_offset": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "bind_face_idx": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "effective_face_idx": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "bind_bary": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "bind_face_offset_local": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "shell_layer": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "bind_mix_weight": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "prune_state": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "inner_bind_mode": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "quality_fail_counter": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "color_conf_ema": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    },
+    "geom_conf_ema": {
+      "inner_rows_maxdiff_vs_inner": 0.0,
+      "outer_rows_maxdiff_vs_outer": 0.0,
+      "outer_rows_validated": 10155
+    }
+  }
+}

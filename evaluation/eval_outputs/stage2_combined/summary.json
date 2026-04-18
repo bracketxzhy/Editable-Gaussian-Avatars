@@ -1,0 +1,242 @@
+{
+  "frame_count": 69,
+  "target_layer": "combined",
+  "stage1_dir": "/data/work/Editable Gaussian Avatars/outputs/stage1",
+  "stage2_dir": "/data/work/Editable Gaussian Avatars/outputs/stage2",
+  "stage2_ckpt": "/data/work/Editable Gaussian Avatars/outputs/stage2/eval_combined_work/combined_inner_existing_outer_d2.pt",
+  "supervision_cache": "/data/work/Editable Gaussian Avatars/outputs/stage2/supervision_cache.npz",
+  "semantics_frame_match": 1,
+  "global_metrics": {
+    "mae_mean": 0.07133479416370392,
+    "psnr_mean": 15.921319961547852,
+    "ssim_mean": 0.8579565286636353,
+    "mask_iou_mean": 0.9909294247627258
+  },
+  "worst_part_name": "face",
+  "worst_frames": [
+    {
+      "frame_name": "000043.jpg",
+      "frame_badness": 0.39132629427071686,
+      "worst_parts": [
+        "arms",
+        "hands",
+        "face"
+      ]
+    },
+    {
+      "frame_name": "000017.jpg",
+      "frame_badness": 0.3578276352793609,
+      "worst_parts": [
+        "hands",
+        "feet",
+        "face"
+      ]
+    },
+    {
+      "frame_name": "000019.jpg",
+      "frame_badness": 0.3458147023865522,
+      "worst_parts": [
+        "hands",
+        "feet",
+        "arms"
+      ]
+    },
+    {
+      "frame_name": "000055.jpg",
+      "frame_badness": 0.34196209959658763,
+      "worst_parts": [
+        "hands",
+        "face",
+        "arms"
+      ]
+    },
+    {
+      "frame_name": "000067.jpg",
+      "frame_badness": 0.3372975174147289,
+      "worst_parts": [
+        "arms",
+        "hands",
+        "face"
+      ]
+    },
+    {
+      "frame_name": "000032.jpg",
+      "frame_badness": 0.322040361482968,
+      "worst_parts": [
+        "hands",
+        "arms",
+        "face"
+      ]
+    },
+    {
+      "frame_name": "000045.jpg",
+      "frame_badness": 0.32123824068252493,
+      "worst_parts": [
+        "hands",
+        "arms",
+        "face"
+      ]
+    },
+    {
+      "frame_name": "000065.jpg",
+      "frame_badness": 0.31196676878184637,
+      "worst_parts": [
+        "face",
+        "arms",
+        "hands"
+      ]
+    },
+    {
+      "frame_name": "000046.jpg",
+      "frame_badness": 0.31049553660637375,
+      "worst_parts": [
+        "feet",
+        "hands",
+        "face"
+      ]
+    },
+    {
+      "frame_name": "000007.jpg",
+      "frame_badness": 0.30856289315475904,
+      "worst_parts": [
+        "hands",
+        "arms",
+        "face"
+      ]
+    }
+  ],
+  "part_summary": {
+    "face": {
+      "part_id": 1,
+      "group_id": 1,
+      "group_name": "exposed",
+      "frame_hits": 69,
+      "pixel_count_total": 205642,
+      "badness_mean": 0.43453502655029297,
+      "badness_p90": 0.6293765425682069,
+      "mae_mean": 0.13560819625854492,
+      "ssim_mean": 0.7735735177993774,
+      "render_coverage_ratio_mean": 0.9274998307228088
+    },
+    "hair": {
+      "part_id": 2,
+      "group_id": 2,
+      "group_name": "covered",
+      "frame_hits": 69,
+      "pixel_count_total": 473802,
+      "badness_mean": 0.2517460882663727,
+      "badness_p90": 0.3152138590812684,
+      "mae_mean": 0.06432010233402252,
+      "ssim_mean": 0.8203735947608948,
+      "render_coverage_ratio_mean": 0.9922003149986267
+    },
+    "top": {
+      "part_id": 3,
+      "group_id": 2,
+      "group_name": "covered",
+      "frame_hits": 69,
+      "pixel_count_total": 3392753,
+      "badness_mean": 0.1960110366344452,
+      "badness_p90": 0.2581929743289948,
+      "mae_mean": 0.042626943439245224,
+      "ssim_mean": 0.8477214574813843,
+      "render_coverage_ratio_mean": 0.9988943934440613
+    },
+    "pants": {
+      "part_id": 6,
+      "group_id": 2,
+      "group_name": "covered",
+      "frame_hits": 69,
+      "pixel_count_total": 2662375,
+      "badness_mean": 0.1903727799654007,
+      "badness_p90": 0.23803097903728485,
+      "mae_mean": 0.04765014722943306,
+      "ssim_mean": 0.8581531643867493,
+      "render_coverage_ratio_mean": 0.99912428855896
+    },
+    "arms": {
+      "part_id": 12,
+      "group_id": 1,
+      "group_name": "exposed",
+      "frame_hits": 69,
+      "pixel_count_total": 387829,
+      "badness_mean": 0.2055218368768692,
+      "badness_p90": 0.4747922420501709,
+      "mae_mean": 0.10130753368139267,
+      "ssim_mean": 0.9171909093856812,
+      "render_coverage_ratio_mean": 0.9785947799682617
+    },
+    "hands": {
+      "part_id": 13,
+      "group_id": 1,
+      "group_name": "exposed",
+      "frame_hits": 69,
+      "pixel_count_total": 266778,
+      "badness_mean": 0.4301081895828247,
+      "badness_p90": 0.6782987594604493,
+      "mae_mean": 0.19117745757102966,
+      "ssim_mean": 0.8765932321548462,
+      "render_coverage_ratio_mean": 0.8844760060310364
+    },
+    "feet": {
+      "part_id": 15,
+      "group_id": 1,
+      "group_name": "exposed",
+      "frame_hits": 69,
+      "pixel_count_total": 317884,
+      "badness_mean": 0.27021005749702454,
+      "badness_p90": 0.4019936501979829,
+      "mae_mean": 0.09012828767299652,
+      "ssim_mean": 0.8534218668937683,
+      "render_coverage_ratio_mean": 0.9664963483810425
+    },
+    "torso": {
+      "part_id": 16,
+      "group_id": 1,
+      "group_name": "exposed",
+      "frame_hits": 69,
+      "pixel_count_total": 250374,
+      "badness_mean": 0.2129162847995758,
+      "badness_p90": 0.30815626978874205,
+      "mae_mean": 0.06951500475406647,
+      "ssim_mean": 0.8573235273361206,
+      "render_coverage_ratio_mean": 0.9992752075195312
+    },
+    "dress": {
+      "part_id": 4,
+      "group_id": 2,
+      "group_name": "covered",
+      "frame_hits": 15,
+      "pixel_count_total": 39897,
+      "badness_mean": 0.04950443655252457,
+      "badness_p90": 0.08219719231128693,
+      "mae_mean": 0.026316942647099495,
+      "ssim_mean": 0.976812481880188,
+      "render_coverage_ratio_mean": 1.0
+    },
+    "skirt": {
+      "part_id": 5,
+      "group_id": 2,
+      "group_name": "covered",
+      "frame_hits": 2,
+      "pixel_count_total": 3668,
+      "badness_mean": 0.05621180310845375,
+      "badness_p90": 0.07561829760670662,
+      "mae_mean": 0.03368010371923447,
+      "ssim_mean": 0.9774682521820068,
+      "render_coverage_ratio_mean": 1.0
+    },
+    "bag": {
+      "part_id": 8,
+      "group_id": 2,
+      "group_name": "covered",
+      "frame_hits": 1,
+      "pixel_count_total": 5702,
+      "badness_mean": 0.12869766354560852,
+      "badness_p90": 0.12869766354560852,
+      "mae_mean": 0.03460200875997543,
+      "ssim_mean": 0.9059043526649475,
+      "render_coverage_ratio_mean": 1.0
+    }
+  }
+}

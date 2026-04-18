@@ -56,6 +56,9 @@ from avatar_gs.gaussian.shell_policy import (
     select_inner_softfreeze_candidates,
     select_outer_prune_candidates,
 )
+from avatar_gs.segmentation.smpl_face_semantics import (
+    rasterize_visible_face_index_map as _rasterize_visible_face_index_map,
+)
 from avatar_gs.stage2 import (
     Stage2FaceSemantics,
     Stage2FrameAssets,
@@ -1859,6 +1862,13 @@ def _train_gaussians_3d_learnable_camera_impl(
     inner_local_scale_clamp_normal_ratio: float = 0.7,
     smpl_face_semantics_npz: str | Path | None = None,
     outer_block_exposed_faces: bool = True,
+    outer_block_raw_parts: list[str] | tuple[str, ...] | str | None = None,
+    outer_block_raw_conf_min: float = 0.0,
+    outer_semantic_cap_enable: bool = False,
+    outer_semantic_cap_parts: list[str] | tuple[str, ...] | str | None = None,
+    outer_semantic_cap_conf_min: float = 0.0,
+    outer_semantic_cap_opacity: float = 1.0,
+    outer_semantic_cap_scale_xy_max: float | None = None,
     inner_local_color_prior_enable: bool = False,
     inner_local_color_prior_weight: float = 0.03,
     inner_local_color_prior_start_iter: int = 200,
@@ -2068,6 +2078,20 @@ def _train_gaussians_3d_learnable_camera_impl(
     outer_prune_persist_min_contrib_frames: int = 4,
     outer_prune_persist_min_frame_ratio: float = 0.05,
     outer_prune_persist_min_weight_sum: float = 2.8,
+    outer_color_refine_rgb_only: bool = False,
+    outer_color_train_parts: list[str] | tuple[str, ...] | str | None = None,
+    outer_color_train_conf_min: float = 0.0,
+    outer_color_train_opacity_parts: list[str] | tuple[str, ...] | str | None = None,
+    outer_color_train_opacity_conf_min: float = 0.0,
+    outer_color_masked_enable: bool = False,
+    outer_color_masked_weight: float = 0.0,
+    outer_color_masked_parts: list[str] | tuple[str, ...] | str | None = None,
+    outer_color_masked_conf_min: float = 0.0,
+    outer_color_masked_outer_alpha_min: float = 0.01,
+    outer_color_masked_replace_global: bool = False,
+    outer_color_masked_use_outer_alpha: bool = True,
+    outer_color_masked_exclude_hands: bool = True,
+    outer_color_masked_exclude_face_box: bool = True,
     outer_airspace_penalty_weight: float = 0.04,
     outer_airspace_main_support_scale: float = 1.5,
     outer_airspace_sharp_allow_dot: float = 0.15,
@@ -2864,6 +2888,81 @@ def _train_gaussians_3d_learnable_camera_impl(
     face_semantic_scale_clamp_ratio = float(max(float(face_semantic_scale_clamp_ratio), 0.0))
     face_semantic_scale_clamp_normal_ratio = float(max(float(face_semantic_scale_clamp_normal_ratio), 0.0))
     face_semantic_scale_clamp_refine_only = bool(face_semantic_scale_clamp_refine_only)
+    if outer_block_raw_parts is None:
+        outer_block_raw_part_names: list[str] = []
+    elif isinstance(outer_block_raw_parts, str):
+        outer_block_raw_part_names = [
+            p.strip() for p in outer_block_raw_parts.replace(",", " " ).split() if p.strip()
+        ]
+    else:
+        outer_block_raw_part_names = [str(p).strip() for p in outer_block_raw_parts if str(p).strip()]
+    outer_block_raw_part_names = sorted(set(outer_block_raw_part_names))
+    outer_block_raw_conf_min = float(np.clip(float(outer_block_raw_conf_min), 0.0, 1.0))
+    outer_semantic_cap_enable = bool(outer_semantic_cap_enable) and bool(shell_enable)
+    if outer_semantic_cap_parts is None:
+        outer_semantic_cap_part_names: list[str] = []
+    elif isinstance(outer_semantic_cap_parts, str):
+        outer_semantic_cap_part_names = [
+            p.strip() for p in outer_semantic_cap_parts.replace(",", " ").split() if p.strip()
+        ]
+    else:
+        outer_semantic_cap_part_names = [str(p).strip() for p in outer_semantic_cap_parts if str(p).strip()]
+    outer_semantic_cap_part_names = sorted(set(outer_semantic_cap_part_names))
+    if outer_semantic_cap_enable and len(outer_semantic_cap_part_names) == 0:
+        _log_warning(train_logger, "outer_semantic_cap_enable=true but outer_semantic_cap_parts is empty; disabling cap.")
+        outer_semantic_cap_enable = False
+    outer_semantic_cap_conf_min = float(np.clip(float(outer_semantic_cap_conf_min), 0.0, 1.0))
+    outer_semantic_cap_opacity = float(np.clip(float(outer_semantic_cap_opacity), 1e-4, 1.0))
+    outer_color_refine_rgb_only = bool(outer_color_refine_rgb_only)
+    if outer_color_train_parts is None:
+        outer_color_train_part_names: list[str] = []
+    elif isinstance(outer_color_train_parts, str):
+        outer_color_train_part_names = [
+            p.strip() for p in outer_color_train_parts.replace(',', ' ').split() if p.strip()
+        ]
+    else:
+        outer_color_train_part_names = [str(p).strip() for p in outer_color_train_parts if str(p).strip()]
+    outer_color_train_part_names = sorted(set(outer_color_train_part_names))
+    outer_color_train_conf_min = float(np.clip(float(outer_color_train_conf_min), 0.0, 1.0))
+    outer_color_train_parts_enable = bool(shell_enable) and len(outer_color_train_part_names) > 0
+    if outer_color_train_opacity_parts is None:
+        outer_color_train_opacity_part_names: list[str] = []
+    elif isinstance(outer_color_train_opacity_parts, str):
+        outer_color_train_opacity_part_names = [
+            p.strip() for p in outer_color_train_opacity_parts.replace(',', ' ').split() if p.strip()
+        ]
+    else:
+        outer_color_train_opacity_part_names = [str(p).strip() for p in outer_color_train_opacity_parts if str(p).strip()]
+    outer_color_train_opacity_part_names = sorted(set(outer_color_train_opacity_part_names))
+    outer_color_train_opacity_conf_min = float(np.clip(float(outer_color_train_opacity_conf_min), 0.0, 1.0))
+    outer_color_train_opacity_parts_enable = bool(shell_enable) and len(outer_color_train_opacity_part_names) > 0
+    outer_color_masked_enable = bool(outer_color_masked_enable) and bool(shell_enable)
+    outer_color_masked_weight = float(max(float(outer_color_masked_weight), 0.0))
+    if outer_color_masked_parts is None:
+        outer_color_masked_part_names: list[str] = []
+    elif isinstance(outer_color_masked_parts, str):
+        outer_color_masked_part_names = [
+            p.strip() for p in outer_color_masked_parts.replace(",", " " ).split() if p.strip()
+        ]
+    else:
+        outer_color_masked_part_names = [str(p).strip() for p in outer_color_masked_parts if str(p).strip()]
+    outer_color_masked_part_names = sorted(set(outer_color_masked_part_names))
+    if outer_color_masked_enable and len(outer_color_masked_part_names) == 0:
+        _log_warning(train_logger, "outer_color_masked_enable=true but outer_color_masked_parts is empty; disabling masked color loss.")
+        outer_color_masked_enable = False
+    outer_color_masked_conf_min = float(np.clip(float(outer_color_masked_conf_min), 0.0, 1.0))
+    outer_color_masked_outer_alpha_min = float(np.clip(float(outer_color_masked_outer_alpha_min), 0.0, 1.0))
+    outer_color_masked_replace_global = bool(outer_color_masked_replace_global)
+    outer_color_masked_use_outer_alpha = bool(outer_color_masked_use_outer_alpha)
+    outer_color_masked_exclude_hands = bool(outer_color_masked_exclude_hands)
+    outer_color_masked_exclude_face_box = bool(outer_color_masked_exclude_face_box)
+    if outer_color_masked_enable and outer_color_masked_weight <= 0.0:
+        _log_warning(train_logger, "outer_color_masked_enable=true but outer_color_masked_weight<=0; disabling masked color loss.")
+        outer_color_masked_enable = False
+    if outer_semantic_cap_scale_xy_max is not None:
+        outer_semantic_cap_scale_xy_max = float(outer_semantic_cap_scale_xy_max)
+        if float(outer_semantic_cap_scale_xy_max) <= 0.0:
+            outer_semantic_cap_scale_xy_max = None
     hand_local_loss_weight = float(max(hand_local_loss_weight, 0.0))
     hand_local_radius_scale = float(max(hand_local_radius_scale, 0.0))
     hand_local_radius_min_px = int(max(int(hand_local_radius_min_px), 1))
@@ -3174,8 +3273,16 @@ def _train_gaussians_3d_learnable_camera_impl(
     face_semantic_focus_ids_t: torch.Tensor | None = None
     face_semantic_color_prior_ignore_ids_t: torch.Tensor | None = None
     outer_blocked_face_mask_t: torch.Tensor | None = None
+    outer_semantic_cap_raw_ids_t: torch.Tensor | None = None
+    outer_color_train_raw_ids_t: torch.Tensor | None = None
+    outer_color_train_opacity_raw_ids_t: torch.Tensor | None = None
+    outer_color_masked_raw_ids_t: torch.Tensor | None = None
     need_face_semantics = bool(inner_local_color_prior_enable) or bool(face_reserve_enable) or (
         bool(shell_enable) and bool(outer_block_exposed_faces)
+        or bool(outer_semantic_cap_enable)
+        or bool(outer_color_train_parts_enable)
+        or bool(outer_color_train_opacity_parts_enable)
+        or bool(outer_color_masked_enable)
     )
     if need_face_semantics:
         if not bool(binding_enabled) or g.bind_face_idx is None:
@@ -3185,6 +3292,10 @@ def _train_gaussians_3d_learnable_camera_impl(
             )
             inner_local_color_prior_enable = False
             outer_block_exposed_faces = False
+            outer_semantic_cap_enable = False
+            outer_color_train_parts_enable = False
+            outer_color_train_opacity_parts_enable = False
+            outer_color_masked_enable = False
             face_reserve_enable = False
         else:
             expected_face_count = None
@@ -3199,6 +3310,10 @@ def _train_gaussians_3d_learnable_camera_impl(
                 )
                 inner_local_color_prior_enable = False
                 outer_block_exposed_faces = False
+                outer_semantic_cap_enable = False
+                outer_color_train_parts_enable = False
+                outer_color_train_opacity_parts_enable = False
+                outer_color_masked_enable = False
                 face_reserve_enable = False
             else:
                 try:
@@ -3214,6 +3329,10 @@ def _train_gaussians_3d_learnable_camera_impl(
                     )
                     inner_local_color_prior_enable = False
                     outer_block_exposed_faces = False
+                    outer_semantic_cap_enable = False
+                    outer_color_train_parts_enable = False
+                    outer_color_train_opacity_parts_enable = False
+                    outer_color_masked_enable = False
                     face_reserve_enable = False
                     face_semantics_asset = None
                 if face_semantics_asset is not None:
@@ -3270,11 +3389,129 @@ def _train_gaussians_3d_learnable_camera_impl(
                             blocked_np = (np.asarray(face_semantics_asset.group_ids, dtype=np.int16).reshape(-1) == 1).astype(
                                 np.uint8
                             )
+                        blocked_mask_np = np.asarray(blocked_np, dtype=np.uint8).reshape(-1) > 0
+                        if len(outer_block_raw_part_names) > 0:
+                            raw_block_ids: list[int] = []
+                            for _name in outer_block_raw_part_names:
+                                try:
+                                    raw_block_ids.append(int(face_semantics_asset.raw_label_names.index(_name)))
+                                except ValueError:
+                                    pass
+                            if raw_block_ids:
+                                raw_ids_np = np.asarray(face_semantics_asset.raw_label_ids, dtype=np.int64).reshape(-1)
+                                raw_conf_np = np.asarray(face_semantics_asset.raw_label_confidence, dtype=np.float32).reshape(-1)
+                                raw_block_np = np.isin(raw_ids_np, np.asarray(sorted(set(raw_block_ids)), dtype=np.int64))
+                                if float(outer_block_raw_conf_min) > 0.0:
+                                    raw_block_np = raw_block_np & (raw_conf_np >= float(outer_block_raw_conf_min))
+                                blocked_mask_np = blocked_mask_np | raw_block_np
+                                _log_info(
+                                    train_logger,
+                                    "Enabled outer raw-part block: parts=%s conf_min=%.3f blocked_faces=%d",
+                                    outer_block_raw_part_names,
+                                    float(outer_block_raw_conf_min),
+                                    int(raw_block_np.sum()),
+                                )
+                            else:
+                                _log_warning(train_logger, "outer_block_raw_parts not found in SMPL semantics: %s", outer_block_raw_part_names)
                         outer_blocked_face_mask_t = torch.as_tensor(
-                            np.asarray(blocked_np, dtype=np.uint8).reshape(-1) > 0,
+                            blocked_mask_np,
                             device=device,
                             dtype=torch.bool,
                         )
+                    if bool(outer_semantic_cap_enable):
+                        cap_raw_ids: list[int] = []
+                        for _name in outer_semantic_cap_part_names:
+                            try:
+                                cap_raw_ids.append(int(face_semantics_asset.raw_label_names.index(_name)))
+                            except ValueError:
+                                pass
+                        if cap_raw_ids:
+                            outer_semantic_cap_raw_ids_t = torch.as_tensor(
+                                np.asarray(sorted(set(cap_raw_ids)), dtype=np.int64),
+                                device=device,
+                                dtype=torch.long,
+                            )
+                            _log_info(
+                                train_logger,
+                                "Enabled outer semantic cap: parts=%s opacity<=%.4f scale_xy_max=%s conf_min=%.3f",
+                                outer_semantic_cap_part_names,
+                                float(outer_semantic_cap_opacity),
+                                str(outer_semantic_cap_scale_xy_max),
+                                float(outer_semantic_cap_conf_min),
+                            )
+                        else:
+                            _log_warning(train_logger, "outer semantic cap parts not found in SMPL semantics: %s; disabling cap.", outer_semantic_cap_part_names)
+                            outer_semantic_cap_enable = False
+                    if bool(outer_color_train_parts_enable):
+                        color_train_raw_ids: list[int] = []
+                        for _name in outer_color_train_part_names:
+                            try:
+                                color_train_raw_ids.append(int(face_semantics_asset.raw_label_names.index(_name)))
+                            except ValueError:
+                                pass
+                        if color_train_raw_ids:
+                            outer_color_train_raw_ids_t = torch.as_tensor(
+                                np.asarray(sorted(set(color_train_raw_ids)), dtype=np.int64),
+                                device=device,
+                                dtype=torch.long,
+                            )
+                            _log_info(
+                                train_logger,
+                                'Enabled outer RGB train-part gate: parts=%s conf_min=%.3f',
+                                outer_color_train_part_names,
+                                float(outer_color_train_conf_min),
+                            )
+                        else:
+                            _log_warning(train_logger, 'outer_color_train_parts not found in SMPL semantics: %s; disabling RGB train-part gate.', outer_color_train_part_names)
+                            outer_color_train_parts_enable = False
+                    if bool(outer_color_train_opacity_parts_enable):
+                        opacity_train_raw_ids: list[int] = []
+                        for _name in outer_color_train_opacity_part_names:
+                            try:
+                                opacity_train_raw_ids.append(int(face_semantics_asset.raw_label_names.index(_name)))
+                            except ValueError:
+                                pass
+                        if opacity_train_raw_ids:
+                            outer_color_train_opacity_raw_ids_t = torch.as_tensor(
+                                np.asarray(sorted(set(opacity_train_raw_ids)), dtype=np.int64),
+                                device=device,
+                                dtype=torch.long,
+                            )
+                            _log_info(
+                                train_logger,
+                                'Enabled outer opacity train-part gate: parts=%s conf_min=%.3f',
+                                outer_color_train_opacity_part_names,
+                                float(outer_color_train_opacity_conf_min),
+                            )
+                        else:
+                            _log_warning(train_logger, 'outer_color_train_opacity_parts not found in SMPL semantics: %s; disabling opacity train-part gate.', outer_color_train_opacity_part_names)
+                            outer_color_train_opacity_parts_enable = False
+                    if bool(outer_color_masked_enable):
+                        masked_raw_ids: list[int] = []
+                        for _name in outer_color_masked_part_names:
+                            try:
+                                masked_raw_ids.append(int(face_semantics_asset.raw_label_names.index(_name)))
+                            except ValueError:
+                                pass
+                        if masked_raw_ids:
+                            outer_color_masked_raw_ids_t = torch.as_tensor(
+                                np.asarray(sorted(set(masked_raw_ids)), dtype=np.int64),
+                                device=device,
+                                dtype=torch.long,
+                            )
+                            _log_info(
+                                train_logger,
+                                "Enabled outer masked combined color loss: parts=%s weight=%.4f conf_min=%.3f alpha_min=%.4f replace_global=%s use_outer_alpha=%s",
+                                outer_color_masked_part_names,
+                                float(outer_color_masked_weight),
+                                float(outer_color_masked_conf_min),
+                                float(outer_color_masked_outer_alpha_min),
+                                str(bool(outer_color_masked_replace_global)),
+                                str(bool(outer_color_masked_use_outer_alpha)),
+                            )
+                        else:
+                            _log_warning(train_logger, "outer masked color parts not found in SMPL semantics: %s; disabling masked color loss.", outer_color_masked_part_names)
+                            outer_color_masked_enable = False
                     _log_info(
                         train_logger,
                         "Loaded SMPL face semantics: faces=%d asset=%s",
@@ -3413,8 +3650,11 @@ def _train_gaussians_3d_learnable_camera_impl(
     phase_occlusion_end = int(phase_outer_end + phase_counts[2])
     outer_phase_span = max(int(phase_outer_end - phase_inner_end), 1)
     outer_geom_fraction = float(np.clip(float(outer_geom_fraction), 0.0, 1.0))
-    outer_geom_end = int(round(float(phase_inner_end) + outer_geom_fraction * float(outer_phase_span)))
-    outer_geom_end = min(max(outer_geom_end, phase_inner_end + 1), phase_outer_end)
+    if outer_geom_fraction <= 0.0:
+        outer_geom_end = int(phase_inner_end)
+    else:
+        outer_geom_end = int(round(float(phase_inner_end) + outer_geom_fraction * float(outer_phase_span)))
+        outer_geom_end = min(max(outer_geom_end, phase_inner_end + 1), phase_outer_end)
 
     binding_raw = binding if isinstance(binding, dict) else {}
     hybrid_dynamic = bool(binding_raw.get("hybrid_dynamic", getattr(binding_cfg, "hybrid_dynamic", False)))
@@ -3434,6 +3674,7 @@ def _train_gaussians_3d_learnable_camera_impl(
     edge_strength_cache: dict[int, torch.Tensor] = {}
     outer_gt_mask_hint_cache: dict[int, torch.Tensor] = {}
     outer_face_gap_cache: dict[int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+    outer_color_semantic_mask_cache: dict[int, torch.Tensor] = {}
     prev_vertex_dirs: torch.Tensor | None = None
 
     inner_soft_counter = torch.zeros((n_gauss,), dtype=torch.float32, device=device)
@@ -3629,6 +3870,13 @@ def _train_gaussians_3d_learnable_camera_impl(
         "inner_local_scale_cap_weight": inner_local_scale_cap_weight,
         "inner_local_scale_cap_ratio": inner_local_scale_cap_ratio,
         "inner_local_scale_cap_normal_ratio": inner_local_scale_cap_normal_ratio,
+        "outer_block_raw_parts": outer_block_raw_part_names,
+        "outer_block_raw_conf_min": outer_block_raw_conf_min,
+        "outer_semantic_cap_enable": outer_semantic_cap_enable,
+        "outer_semantic_cap_parts": outer_semantic_cap_part_names,
+        "outer_semantic_cap_conf_min": outer_semantic_cap_conf_min,
+        "outer_semantic_cap_opacity": outer_semantic_cap_opacity,
+        "outer_semantic_cap_scale_xy_max": outer_semantic_cap_scale_xy_max,
         "smpl_face_semantics_npz": None if smpl_face_semantics_path is None else str(smpl_face_semantics_path),
         "inner_local_color_prior_enable": inner_local_color_prior_enable,
         "inner_local_color_prior_weight": inner_local_color_prior_weight,
@@ -3764,6 +4012,20 @@ def _train_gaussians_3d_learnable_camera_impl(
         "outer_phase_inner_full_mask": outer_phase_inner_full_mask,
         "outer_low_support_patience": outer_low_support_patience,
         "outer_pruned_opacity_logit_max": outer_pruned_opacity_logit_max,
+        "outer_color_refine_rgb_only": outer_color_refine_rgb_only,
+        "outer_color_train_parts": outer_color_train_part_names,
+        "outer_color_train_conf_min": outer_color_train_conf_min,
+        "outer_color_train_opacity_parts": outer_color_train_opacity_part_names,
+        "outer_color_train_opacity_conf_min": outer_color_train_opacity_conf_min,
+        "outer_color_masked_enable": outer_color_masked_enable,
+        "outer_color_masked_weight": outer_color_masked_weight,
+        "outer_color_masked_parts": outer_color_masked_part_names,
+        "outer_color_masked_conf_min": outer_color_masked_conf_min,
+        "outer_color_masked_outer_alpha_min": outer_color_masked_outer_alpha_min,
+        "outer_color_masked_replace_global": outer_color_masked_replace_global,
+        "outer_color_masked_use_outer_alpha": outer_color_masked_use_outer_alpha,
+        "outer_color_masked_exclude_hands": outer_color_masked_exclude_hands,
+        "outer_color_masked_exclude_face_box": outer_color_masked_exclude_face_box,
         "outer_quality_log_every": outer_quality_log_every,
         "outer_progress_log_every": outer_progress_log_every,
         "outer_zero_stop_enable": outer_zero_stop_enable,
@@ -4894,30 +5156,22 @@ def _train_gaussians_3d_learnable_camera_impl(
                     g_render, K_curr, R, t, H, W, bg=bg_rgb, return_alpha=True, gaussian_weights=visibility.detach()
                 )
             outer_residual_term = pred_rgb.new_tensor(0.0)
-            if (
+            outer_rgb_black: torch.Tensor | None = None
+            outer_alpha_black: torch.Tensor | None = None
+            need_outer_color_render = (
                 is_outer_color_phase
-                and outer_supervision_mask is not None
                 and g.shell_layer is not None
-                and float(outer_phase_residual_weight) > 0.0
-            ):
+                and (
+                    (outer_supervision_mask is not None and float(outer_phase_residual_weight) > 0.0)
+                    or (bool(outer_color_masked_enable) and float(outer_color_masked_weight) > 0.0)
+                )
+            )
+            if need_outer_color_render:
                 vis_det = visibility.detach()
-                inner_only_vis = vis_det.clone()
-                inner_only_vis[g.shell_layer == 1] = 0.0
                 outer_only_vis = vis_det.clone()
                 outer_only_vis[g.shell_layer == 0] = 0.0
                 black_bg = gt.new_zeros((3,))
-                inner_rgb_black, _ = render_gaussians_3d(
-                    g_render,
-                    K_curr,
-                    R,
-                    t,
-                    H,
-                    W,
-                    bg=black_bg,
-                    return_alpha=True,
-                    gaussian_weights=inner_only_vis,
-                )
-                outer_rgb_black, _ = render_gaussians_3d(
+                outer_rgb_black, outer_alpha_black = render_gaussians_3d(
                     g_render,
                     K_curr,
                     R,
@@ -4928,6 +5182,12 @@ def _train_gaussians_3d_learnable_camera_impl(
                     return_alpha=True,
                     gaussian_weights=outer_only_vis,
                 )
+            if (
+                is_outer_color_phase
+                and outer_supervision_mask is not None
+                and outer_rgb_black is not None
+                and float(outer_phase_residual_weight) > 0.0
+            ):
                 outer_roi = outer_supervision_mask.clamp(0.0, 1.0)
                 roi3 = outer_roi.expand_as(outer_rgb_black)
                 residual_target = (gt_outer_target * roi3).clamp(0.0, 1.0)
@@ -4964,6 +5224,76 @@ def _train_gaussians_3d_learnable_camera_impl(
             else:
                 photo = photo_map.mean()
                 l1 = l1_map.mean()
+
+            outer_color_masked_term = pred_rgb.new_tensor(0.0)
+            outer_color_masked_valid = False
+            if (
+                is_outer_color_phase
+                and bool(outer_color_masked_enable)
+                and float(outer_color_masked_weight) > 0.0
+                and outer_color_masked_raw_ids_t is not None
+                and face_semantic_raw_t is not None
+                and frame_data is not None
+                and frame_data.verts_t is not None
+                and frame_data.faces_t is not None
+            ):
+                sem_mask = None
+                if int(fj) in outer_color_semantic_mask_cache:
+                    sem_mask = outer_color_semantic_mask_cache[int(fj)].to(device=device, dtype=torch.float32)
+                else:
+                    verts_cam_np = (
+                        frame_data.verts_t.detach().cpu().numpy().astype(np.float32)
+                        @ R.detach().cpu().numpy().astype(np.float32).T
+                    ) + t.detach().cpu().numpy().astype(np.float32).reshape(1, 3)
+                    face_index_map, _ = _rasterize_visible_face_index_map(
+                        verts_cam=verts_cam_np,
+                        faces=frame_data.faces_t.detach().cpu().numpy().astype(np.int32),
+                        K=K_curr.detach().cpu().numpy().astype(np.float32),
+                        image_hw=(H, W),
+                    )
+                    raw_ids_np = face_semantic_raw_t.detach().cpu().numpy().astype(np.int64).reshape(-1)
+                    conf_np = (
+                        face_semantic_conf_t.detach().cpu().numpy().astype(np.float32).reshape(-1)
+                        if face_semantic_conf_t is not None
+                        else np.ones_like(raw_ids_np, dtype=np.float32)
+                    )
+                    allowed_ids_np = outer_color_masked_raw_ids_t.detach().cpu().numpy().astype(np.int64).reshape(-1)
+                    valid_face_np = (face_index_map >= 0) & (face_index_map < int(raw_ids_np.shape[0]))
+                    allowed_np = np.zeros((H, W), dtype=np.float32)
+                    if bool(valid_face_np.any()) and int(allowed_ids_np.size) > 0:
+                        face_ids_px = face_index_map[valid_face_np]
+                        raw_px = raw_ids_np[face_ids_px]
+                        conf_px = conf_np[face_ids_px]
+                        keep_px = np.isin(raw_px, allowed_ids_np) & (conf_px >= float(outer_color_masked_conf_min))
+                        allowed_np[valid_face_np] = keep_px.astype(np.float32)
+                    sem_mask = torch.from_numpy(allowed_np).to(device=device, dtype=torch.float32).unsqueeze(0)
+                    outer_color_semantic_mask_cache[int(fj)] = sem_mask.detach().to(dtype=torch.float16)
+                color_mask = sem_mask.clamp(0.0, 1.0)
+                if outer_supervision_mask is not None:
+                    color_mask = (color_mask * outer_supervision_mask.clamp(0.0, 1.0)).clamp(0.0, 1.0)
+                elif person_mask_curr is not None:
+                    color_mask = (color_mask * person_mask_curr.clamp(0.0, 1.0)).clamp(0.0, 1.0)
+                if bool(outer_color_masked_use_outer_alpha) and outer_alpha_black is not None:
+                    alpha_gate = (outer_alpha_black.detach() / max(float(outer_color_masked_outer_alpha_min), 1e-6)).clamp(0.0, 1.0)
+                    color_mask = (color_mask * alpha_gate).clamp(0.0, 1.0)
+                if bool(outer_color_masked_exclude_hands) and hand_mask_curr is not None:
+                    color_mask = (color_mask * (1.0 - hand_mask_curr.clamp(0.0, 1.0))).clamp(0.0, 1.0)
+                if bool(outer_color_masked_exclude_face_box) and face_boxes is not None and face_boxes[fj] is not None:
+                    fx0, fy0, fx1, fy1 = face_boxes[fj]
+                    x0 = max(0, int(fx0))
+                    y0 = max(0, int(fy0))
+                    x1 = min(W - 1, int(fx1))
+                    y1 = min(H - 1, int(fy1))
+                    if x1 >= x0 and y1 >= y0:
+                        color_mask = color_mask.clone()
+                        color_mask[:, y0:y1 + 1, x0:x1 + 1] = 0.0
+                if float(color_mask.sum().detach().cpu()) > 1.0:
+                    mask3 = color_mask.expand_as(pred_rgb)
+                    outer_color_masked_term = ((pred_rgb - gt).abs() * mask3).sum() / (mask3.sum() + 1e-6)
+                    outer_color_masked_valid = True
+            if bool(outer_color_masked_replace_global) and outer_color_masked_valid:
+                photo = photo * 0.0
+                l1 = l1 * 0.0
 
             outer_band_term = pred_rgb.new_tensor(0.0)
             if dq_enable:
@@ -5356,6 +5686,7 @@ def _train_gaussians_3d_learnable_camera_impl(
                 + float(l1_weight) * l1
                 + float(dq_outer_color_band_weight) * outer_band_term
                 + float(outer_phase_residual_weight) * outer_residual_term
+                + float(outer_color_masked_weight) * outer_color_masked_term
             )
             if bool(ctx_face_only):
                 base_frame_loss = base_frame_loss * 0.0
@@ -5801,11 +6132,12 @@ def _train_gaussians_3d_learnable_camera_impl(
                     valid_outer_face_idx = face_idx_all.index_select(0, valid_outer_idx)
                     blocked_local = outer_blocked_face_mask_t.index_select(0, valid_outer_face_idx)
                     if bool(blocked_local.any()):
-                        blocked_outer[valid_outer_idx] = blocked_local
-                        g.prune_state[blocked_outer] = 2
-                        g.opacity_logit[blocked_outer] = g.opacity_logit[blocked_outer].clamp(
-                            max=float(outer_pruned_opacity_logit_max)
-                        )
+                        with torch.no_grad():
+                            blocked_outer[valid_outer_idx] = blocked_local
+                            g.prune_state[blocked_outer] = 2
+                            g.opacity_logit[blocked_outer] = g.opacity_logit[blocked_outer].clamp(
+                                max=float(outer_pruned_opacity_logit_max)
+                            )
                         active_mask = (g.prune_state != 2)
             inside_support_th = float(np.clip(float(outer_inside_support_th), 0.0, 1.0))
             inside_support_mask = outer_inside_support_mean.detach() >= inside_support_th
@@ -6757,6 +7089,54 @@ def _train_gaussians_3d_learnable_camera_impl(
                         for p in (g.log_scales, g.quat):
                             if p.grad is not None:
                                 p.grad[outer_layer] = 0.0
+                        if g.opacity_logit.grad is not None:
+                            if bool(outer_color_refine_rgb_only):
+                                g.opacity_logit.grad[outer_layer] = 0.0
+                            elif (
+                                bool(outer_color_train_opacity_parts_enable)
+                                and outer_color_train_opacity_raw_ids_t is not None
+                                and g.bind_face_idx is not None
+                                and face_semantic_raw_t is not None
+                            ):
+                                face_idx_all = g.bind_face_idx.to(device=device, dtype=torch.long).view(-1)
+                                face_valid = (face_idx_all >= 0) & (face_idx_all < int(face_semantic_raw_t.shape[0]))
+                                allowed_outer_opacity = torch.zeros((n_gauss,), dtype=torch.bool, device=device)
+                                candidate_idx = torch.nonzero(outer_layer & face_valid, as_tuple=False).view(-1)
+                                if int(candidate_idx.numel()) > 0:
+                                    candidate_faces = face_idx_all.index_select(0, candidate_idx)
+                                    raw_ids = face_semantic_raw_t.to(device=device, dtype=torch.long).index_select(0, candidate_faces)
+                                    keep = torch.isin(raw_ids, outer_color_train_opacity_raw_ids_t.to(device=device, dtype=torch.long))
+                                    if face_semantic_conf_t is not None and float(outer_color_train_opacity_conf_min) > 0.0:
+                                        conf = face_semantic_conf_t.to(device=device, dtype=torch.float32).index_select(0, candidate_faces)
+                                        keep = keep & (conf >= float(outer_color_train_opacity_conf_min))
+                                    if bool(keep.any()):
+                                        allowed_outer_opacity[candidate_idx.index_select(0, torch.nonzero(keep, as_tuple=False).view(-1))] = True
+                                block_outer_opacity = outer_layer & (~allowed_outer_opacity)
+                                if bool(block_outer_opacity.any()):
+                                    g.opacity_logit.grad[block_outer_opacity] = 0.0
+                        if (
+                            bool(outer_color_train_parts_enable)
+                            and outer_color_train_raw_ids_t is not None
+                            and g.rgb_logit.grad is not None
+                            and g.bind_face_idx is not None
+                            and face_semantic_raw_t is not None
+                        ):
+                            face_idx_all = g.bind_face_idx.to(device=device, dtype=torch.long).view(-1)
+                            face_valid = (face_idx_all >= 0) & (face_idx_all < int(face_semantic_raw_t.shape[0]))
+                            allowed_outer_rgb = torch.zeros((n_gauss,), dtype=torch.bool, device=device)
+                            candidate_idx = torch.nonzero(outer_layer & face_valid, as_tuple=False).view(-1)
+                            if int(candidate_idx.numel()) > 0:
+                                candidate_faces = face_idx_all.index_select(0, candidate_idx)
+                                raw_ids = face_semantic_raw_t.to(device=device, dtype=torch.long).index_select(0, candidate_faces)
+                                keep = torch.isin(raw_ids, outer_color_train_raw_ids_t.to(device=device, dtype=torch.long))
+                                if face_semantic_conf_t is not None and float(outer_color_train_conf_min) > 0.0:
+                                    conf = face_semantic_conf_t.to(device=device, dtype=torch.float32).index_select(0, candidate_faces)
+                                    keep = keep & (conf >= float(outer_color_train_conf_min))
+                                if bool(keep.any()):
+                                    allowed_outer_rgb[candidate_idx.index_select(0, torch.nonzero(keep, as_tuple=False).view(-1))] = True
+                            block_outer_rgb = outer_layer & (~allowed_outer_rgb)
+                            if bool(block_outer_rgb.any()):
+                                g.rgb_logit.grad[block_outer_rgb] = 0.0
             else:
                 freeze_outer_center_now = bool(outer_center_freeze_after_phase1)
 
@@ -7084,6 +7464,37 @@ def _train_gaussians_3d_learnable_camera_impl(
                         cap_logit = float(np.log(cap / (1.0 - cap)))
                         g.bind_face_offset_local[low_sup_mask] = g.bind_face_offset_local[low_sup_mask] * decay
                         g.opacity_logit[low_sup_mask] = g.opacity_logit[low_sup_mask].clamp(max=cap_logit)
+                if (
+                    bool(outer_semantic_cap_enable)
+                    and outer_semantic_cap_raw_ids_t is not None
+                    and g.bind_face_idx is not None
+                    and face_semantic_raw_t is not None
+                ):
+                    face_idx_all = g.bind_face_idx.to(device=device, dtype=torch.long).view(-1)
+                    face_valid = (face_idx_all >= 0) & (face_idx_all < int(face_semantic_raw_t.shape[0]))
+                    semantic_cap_mask = (
+                        (g.shell_layer == 1)
+                        & (g.prune_state != 2)
+                        & face_valid
+                    )
+                    if bool(semantic_cap_mask.any()):
+                        cap_idx = torch.nonzero(semantic_cap_mask, as_tuple=False).view(-1)
+                        cap_faces = face_idx_all.index_select(0, cap_idx)
+                        raw_ids = face_semantic_raw_t.to(device=device, dtype=torch.long).index_select(0, cap_faces)
+                        keep = torch.isin(raw_ids, outer_semantic_cap_raw_ids_t.to(device=device, dtype=torch.long))
+                        if face_semantic_conf_t is not None and float(outer_semantic_cap_conf_min) > 0.0:
+                            conf = face_semantic_conf_t.to(device=device, dtype=torch.float32).index_select(0, cap_faces)
+                            keep = keep & (conf >= float(outer_semantic_cap_conf_min))
+                        if bool(keep.any()):
+                            capped_idx = cap_idx.index_select(0, torch.nonzero(keep, as_tuple=False).view(-1))
+                            if float(outer_semantic_cap_opacity) < 1.0:
+                                cap = float(np.clip(float(outer_semantic_cap_opacity), 1e-4, 0.999))
+                                cap_logit = float(np.log(cap / (1.0 - cap)))
+                                g.opacity_logit[capped_idx] = g.opacity_logit[capped_idx].clamp(max=cap_logit)
+                            if outer_semantic_cap_scale_xy_max is not None:
+                                scale_cap = float(max(float(outer_semantic_cap_scale_xy_max), 1e-6))
+                                log_scale_cap = float(np.log(scale_cap))
+                                g.log_scales[capped_idx, :2] = g.log_scales[capped_idx, :2].clamp(max=log_scale_cap)
             if bool((g.prune_state == 2).any()):
                 g.opacity_logit[g.prune_state == 2] = g.opacity_logit[g.prune_state == 2].clamp(
                     max=float(outer_pruned_opacity_logit_max)

@@ -2430,3 +2430,2319 @@
 - arms: candidates=0 teachers=0
 - hands: candidates=0 teachers=0
 - feet: candidates=0 teachers=0
+
+
+## 2026-04-13 - outputs/logs inventory and Stage2 outer/combined evaluation notes
+
+This section records what is currently in `outputs/logs` and why it exists. The short version: these files are execution evidence and debugging context, not model artifacts. They are not required for inference if the corresponding checkpoints, caches, and evaluation outputs are intact. They are still useful because the Stage2 outer work has gone through multiple repro, retry, and diagnostic runs; deleting the logs now would remove the audit trail for why a checkpoint or metric exists.
+
+Current inventory on the cloud repo:
+
+- Total files: 330.
+- Total size: 6,609,435 bytes, about 6.3 MiB.
+- Zero-byte files: 149. These are usually stdout/stderr companions where the command produced no output on that stream. A zero-byte `.stderr.log` is not by itself a failure signal.
+- Largest file: `render.log` at 2,496,473 bytes. This is the historical render command log and dominates the directory size.
+- Current Stage2 train log: `stage2_train_gaussian.log` at 657,061 bytes. This is the default Stage2 training log produced by the main training entrypoint.
+- Current resolved config: `stage2_train_gaussian_resolved.yaml` at 14,075 bytes. This is the runtime-resolved Stage2 config snapshot. It is useful for reproducibility because it captures the actual values used by the command.
+- Outer-only full run log: `stage2_outeronly_d2_full_20260409_run1.log` at 315,079 bytes. This corresponds to the full outer-only run using the current dilation setting and produced `outputs/stage2_outeronly_d2_full_20260409_run1/gaussians3d.pt`.
+- Outer diagnostic logs: `diag_outer_retry_20260409.log` and `diag_outer_retry_d2_20260409.log`. These record the short diagnostic reruns used to identify why the first outer attempts were not spawning enough useful gap coverage.
+
+Filename patterns:
+
+- `*.stdout.log`: stdout captured from a command. These often contain explicit progress messages, command-level summaries, and paths to outputs.
+- `*.stderr.log`: stderr captured from a command. For this project, stderr is not automatically an error stream; tqdm progress bars, warnings, CUDA/library messages, and some training progress can appear here.
+- `*_resolved.yaml`: resolved runtime configuration written by the training command. Keep these with the corresponding log when you care about reproducibility.
+- `run_*.cmd`: command record files. These are small but important because they show the exact shell command that launched a run.
+- `cleanup_*.txt`: cleanup or move manifests from earlier organization work. These are evidence of file movement decisions, not training outputs.
+- `diag_outer_*`: outer-layer diagnostic runs. These are especially relevant to the current outer problem because they explain why the outer layer originally appeared missing or unstable.
+- `stage2_*repro*`, `stage2_*rebuild*`, `stage2_*clean*`, `stage2_*oldcfg*`: historical reproduction/rebuild experiments. They are not needed for execution, but they explain how current Stage2 artifacts were reached.
+- `stage2_*eval*`: evaluation command logs. These should be read together with `evaluation/eval_outputs/...` results.
+
+What is necessary:
+
+- Necessary for running or rendering: checkpoints, supervision caches, configs, and code. The logs are not runtime dependencies.
+- Necessary for debugging and reproducibility: selected logs plus their resolved YAML and command files. For the current outer work, keep at least `stage2_outeronly_d2_full_20260409_run1.log`, `diag_outer_retry_20260409.log`, `diag_outer_retry_d2_20260409.log`, `stage2_train_gaussian.log`, and `stage2_train_gaussian_resolved.yaml` until the outer logic is finalized.
+- Not worth keeping forever: zero-byte stdout/stderr pairs and stale failed-run logs after the final outer pipeline is accepted. They are small, so immediate deletion has low payoff and nonzero risk.
+
+Recommended organization, not executed automatically:
+
+- Do not delete logs during active Stage2 outer debugging. The saved space is trivial and the lost context can cost more time than the disk it saves. Tiny disk savings are not a strategy; they are housekeeping cosplay.
+- If the directory needs cleanup later, move stale logs into a root-level recoverable archive such as `trash/logs_archive_YYYYMMDD/` instead of deleting them directly.
+- Keep a minimal active set in `outputs/logs`: latest train log, latest resolved YAML, latest outer diagnostic logs, latest combined evaluation log, and the exact command records for accepted runs.
+
+Stage2 combined evaluation policy added after this inventory:
+
+- New evaluation code lives in `evaluation/stage2_combiined_eval/`, next to `evaluation/stage2_eval`, and intentionally references the existing implementation instead of modifying it.
+- New evaluation output lives in `evaluation/eval_outputs/stage2_combined/`.
+- The combined evaluator builds an evaluation-only merged checkpoint under `outputs/stage2_combined_eval_work/`: inner rows from `outputs/stage2/gaussians3d.pt`, outer rows from `outputs/stage2_outeronly_d2_full_20260409_run1/gaussians3d.pt`.
+- This preserves the existing inner artifact and code path while allowing the newly trained outer layer to be evaluated as part of the final combined render.
+
+
+## 2026-04-13 - Numbered Stage2 outer/combined tests
+
+### T20260413-01 - Outer semantic cap training, top/pants, opacity 0.08, xy scale 0.0035
+- Purpose: keep the previous raw combined render path and fix the outer Gaussian distribution/effect instead of splitting inner/outer render.
+- Code/config inputs: `configs/stage2_outer_semcap_top_pants_o008.yaml`; training code adds default-off `outer_semantic_cap_*` controls in `src/avatar_gs/gaussian/train_loop.py` and passes them through `src/avatar_gs/stage2/config.py`.
+- Inner artifact policy: initialized from `outputs/stage2/gaussians3d_inner.pt`; did not overwrite `outputs/stage2` inner artifacts; `face_postfit_enable=false`, `part_postfit_enable=false` in this outer experiment config.
+- Outer output: `outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt`.
+- Combined eval output: `evaluation/eval_outputs/stage2_combined_outer_semcap_train_top_pants_o008/`.
+- Result: `mae_mean=0.0793826133`, `psnr_mean=15.6521492004`, `ssim_mean=0.8464645743`, `mask_iou_mean=0.9892262816`, `worst_part_name=hands`.
+- Gaussian distribution check: active outer alpha>0.03 count=4124; hair count=909 with alpha_max=0.35799 and scale_xy_max=0.01665; top count=1522 capped at alpha_max=0.08 and scale_xy_max=0.0035; pants count=897 capped at alpha_max=0.08 and scale_xy_max=0.0035.
+- Visual note: frame `000075_overlay.png` still shows combined color bias: prediction is darker and green/gray shifted relative to GT. This is now a color calibration issue, not a reason to go back to split rendering.
+
+### T20260413-02 - Planned combined color refine, full-frame, RGB-only outer
+- Purpose: test whether combined-vs-GT supervision over all selected frames can correct the remaining color bias.
+- Planned input ckpt: `outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt`.
+- Planned output: `outputs/stage2_outer_color_full_rgbonly_o008_20260413/` and `evaluation/eval_outputs/stage2_combined_outer_color_full_rgbonly_o008/`.
+- Guardrails: `training_mode=outer_only`, `outer_geom_fraction=0.0`, `outer_color_refine_rgb_only=true`, `face_postfit_enable=false`, `part_postfit_enable=false`; this should update only outer `rgb_logit` in color phase.
+
+### T20260413-03 - Planned combined color refine, teacher-like 8-frame, RGB-only outer
+- Purpose: test whether a small teacher-like frame subset gives cleaner color than full-frame supervision.
+- Planned teacher-like frames: `000050.jpg`, `000053.jpg`, `000023.jpg`, `000013.jpg`, `000003.jpg`, `000035.jpg`, `000056.jpg`, `000071.jpg`.
+- Planned input ckpt: `outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt`.
+- Planned output: `outputs/stage2_outer_color_teacher8_rgbonly_o008_20260413/` and `evaluation/eval_outputs/stage2_combined_outer_color_teacher8_rgbonly_o008/`.
+- Guardrails: same as T20260413-02, but with `frame_select=indices` and `frame_indices=[50,53,23,13,3,35,56,71]`.
+
+### T20260413-02 - Completed combined color refine, full-frame, RGB-only outer
+- Purpose: test whether combined-vs-GT supervision over the full Stage1 sequence can correct the remaining combined color bias without changing inner artifacts.
+- Code/config inputs: `configs/stage2_outer_color_full_rgbonly_o008.yaml`; input checkpoint `outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt`.
+- Code guardrail added for this test: `outer_color_refine_rgb_only=true` freezes outer opacity during color phase; `outer_geom_fraction=0.0` now means zero outer geometry iterations instead of forcing one iteration.
+- Inner artifact policy: `training_mode=outer_only`, `face_postfit_enable=false`, `part_postfit_enable=false`; did not modify `outputs/stage2` inner artifacts or inner evaluation code.
+- Train log: `outputs/logs/T20260413-02_stage2_outer_color_full_rgbonly_o008.log`.
+- Outer output: `outputs/stage2_outer_color_full_rgbonly_o008_20260413/gaussians3d.pt`.
+- Eval log: `outputs/logs/T20260413-02_eval_combined_color_full_rgbonly_o008.log`.
+- Combined eval output: `evaluation/eval_outputs/stage2_combined_outer_color_full_rgbonly_o008/`.
+- Result: `mae_mean=0.0799851790`, `psnr_mean=15.6630420685`, `ssim_mean=0.8459278941`, `mask_iou_mean=0.9895207286`, `worst_part_name=hands`.
+- Comparison to T20260413-01: MAE and SSIM are worse; PSNR and mask IoU are only slightly better. This is not a clean improvement.
+- Visual note: frame `000075_overlay.png` remains darker and green/gray shifted; full-frame RGB-only outer color refinement does not solve the color problem.
+
+### T20260413-03 - Completed combined color refine, teacher-like 8-frame, RGB-only outer
+- Purpose: test whether a small teacher-like frame subset gives cleaner color than full-frame supervision.
+- Teacher-like frames: `000050.jpg`, `000053.jpg`, `000023.jpg`, `000013.jpg`, `000003.jpg`, `000035.jpg`, `000056.jpg`, `000071.jpg`.
+- Code/config inputs: `configs/stage2_outer_color_teacher8_rgbonly_o008.yaml`; input checkpoint `outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt`.
+- Inner artifact policy: `training_mode=outer_only`, `outer_geom_fraction=0.0`, `outer_color_refine_rgb_only=true`, `face_postfit_enable=false`, `part_postfit_enable=false`; did not modify `outputs/stage2` inner artifacts or inner evaluation code.
+- Train log: `outputs/logs/T20260413-03_stage2_outer_color_teacher8_rgbonly_o008.log`.
+- Outer output: `outputs/stage2_outer_color_teacher8_rgbonly_o008_20260413/gaussians3d.pt`.
+- Eval log: `outputs/logs/T20260413-03_eval_combined_color_teacher8_rgbonly_o008.log`.
+- Combined eval output: `evaluation/eval_outputs/stage2_combined_outer_color_teacher8_rgbonly_o008/`.
+- Result: `mae_mean=0.0788674504`, `psnr_mean=15.6079349518`, `ssim_mean=0.8466709852`, `mask_iou_mean=0.9885855317`, `worst_part_name=hands`.
+- Comparison to T20260413-01: MAE and SSIM are slightly better; PSNR and mask IoU are worse. This is a weak tradeoff, not a decisive fix.
+- Visual note: frame `000075_overlay.png` still shows the prediction darker and green/gray shifted relative to GT. Teacher-like RGB-only refinement is not enough to correct the combined color bias; treating the metric delta as a solved color problem would be self-deception.
+
+### T20260413-04 - Started masked combined color refine, full-frame, top/pants RGB-only outer
+- Purpose: replace the noisy full-frame phase_outer photo/L1 supervision with a masked combined-vs-GT color loss for outer-visible top/pants pixels.
+- Code/config inputs: `configs/stage2_outer_color_masked_top_pants_rgbonly_o008.yaml`; input checkpoint `outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt`.
+- Guardrails: `training_mode=outer_only`, `outer_geom_fraction=0.0`, `outer_color_refine_rgb_only=true`, `outer_color_masked_replace_global=true`, `face_postfit_enable=false`, `part_postfit_enable=false`.
+- Mask definition: visible SMPL face semantics in `top`/`pants`, intersected with existing outer supervision mask, gated by outer-only alpha, excluding hand mask and face box.
+- Inner artifact policy: do not modify `outputs/stage2` inner artifacts or inner evaluation code.
+
+### T20260413-05 - Started masked combined color refine, full-frame, top/pants RGB+opacity outer, opacity cap 0.12
+- Purpose: test the hypothesis that T04 failed because RGB-only could not move combined color with low outer alpha contribution.
+- Code/config inputs: `configs/stage2_outer_color_masked_top_pants_alpha_o012.yaml`; input checkpoint `outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt`.
+- Guardrails: `training_mode=outer_only`, `outer_geom_fraction=0.0`, `outer_color_refine_rgb_only=false`, `outer_color_masked_replace_global=true`, `outer_phase_residual_weight=0.0`, `face_postfit_enable=false`, `part_postfit_enable=false`.
+- Mask definition: same as T20260413-04, but top/pants outer opacity can move under `outer_semantic_cap_opacity=0.12`; exposed faces remain blocked by `outer_block_exposed_faces=true`.
+- Inner artifact policy: do not modify `outputs/stage2` inner artifacts or inner evaluation code.
+
+### T20260413-04 - Completed masked combined color refine, full-frame, top/pants RGB-only outer
+- Train log: `outputs/logs/T20260413-04_stage2_outer_color_masked_top_pants_rgbonly_o008.log`.
+- Outer output: `outputs/stage2_outer_color_masked_top_pants_rgbonly_o008_20260413/gaussians3d.pt`.
+- Eval log: `outputs/logs/T20260413-04_eval_combined_color_masked_top_pants_rgbonly_o008.log`.
+- Combined eval output: `evaluation/eval_outputs/stage2_combined_outer_color_masked_top_pants_rgbonly_o008/`.
+- Result: `mae_mean=0.0797715634`, `psnr_mean=15.6684236526`, `ssim_mean=0.8462153673`, `mask_iou_mean=0.9895207286`, `worst_part_name=hands`.
+- Part comparison to T20260413-01: top worsened from `mae=0.0519219637`, `ssim=0.8293707371` to `mae=0.0523439571`, `ssim=0.8287803531`; pants worsened from `mae=0.0589616485`, `ssim=0.8398225307` to `mae=0.0598451868`, `ssim=0.8392817378`; hair slightly improved but was not the target.
+- Gaussian distribution check: top alpha stayed capped at `alpha_max=0.08`, pants stayed capped at `alpha_max=0.08`, hair alpha remained high enough (`alpha_max=0.357987`).
+- Visual note: frame `000075_overlay.png` still shows prediction darker and green/gray shifted relative to GT. This rejects the hypothesis that a cleaner top/pants RGB-only mask can fix the combined color problem.
+
+### T20260413-05 - Completed masked combined color refine, full-frame, top/pants RGB+opacity outer, opacity cap 0.12
+- Train log: `outputs/logs/T20260413-05_stage2_outer_color_masked_top_pants_alpha_o012.log`.
+- Outer output: `outputs/stage2_outer_color_masked_top_pants_alpha_o012_20260413/gaussians3d.pt`.
+- Eval log: `outputs/logs/T20260413-05_eval_combined_color_masked_top_pants_alpha_o012.log`.
+- Combined eval output: `evaluation/eval_outputs/stage2_combined_outer_color_masked_top_pants_alpha_o012/`.
+- Result: `mae_mean=0.0839006603`, `psnr_mean=15.5761051178`, `ssim_mean=0.8406375647`, `mask_iou_mean=0.9898203015`, `worst_part_name=hands`.
+- Part comparison to T20260413-01: top worsened to `mae=0.0559224486`, `ssim=0.8211821914`; pants worsened to `mae=0.0682948157`, `ssim=0.8248377442`; hair improved numerically but this is irrelevant because clothing got worse.
+- Gaussian distribution check: top alpha moved from T01 `alpha_mean=0.078866`, `alpha_max=0.08` to `alpha_mean=0.119823`, `alpha_max=0.12`; pants moved from `alpha_mean=0.077611`, `alpha_max=0.08` to `alpha_mean=0.119900`, `alpha_max=0.12`; this extra opacity made the target clothing parts worse, not better.
+- Visual note: frame `000075_overlay.png` remains darker/green-shifted and is not better than T20260413-01. This rejects the hypothesis that the combined color error can be fixed by simply increasing top/pants outer alpha under a 0.12 cap.
+- Decision: do not adopt T20260413-04 or T20260413-05 as the current outer result. Keep T20260413-01 as the current best outer checkpoint unless a new geometry/distribution-level experiment beats it.
+
+## T20260413-06 - outer color masked hair/top/pants head-opaque test
+
+Status: started.
+
+Purpose:
+- Fix combined color mismatch without touching inner training/eval code or inner artifacts.
+- Test whether head/hair transparency is caused by weak outer opacity rather than RGB-only color fitting.
+- Enforce that exposed raw semantic regions do not keep active outer Gaussians for this test.
+
+Changed code before test:
+- Added default-off outer_block_raw_parts and outer_block_raw_conf_min to outer training path.
+- The parameter only affects shell/outer semantics when enabled by config; existing inner training/eval logic is not changed.
+
+Config:
+- configs/T20260413-06_stage2_outer_color_masked_hair_top_pants_headopaque_o008.yaml
+- Init outer checkpoint: outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt
+- Output checkpoint dir: outputs/T20260413-06_stage2_outer_color_masked_hair_top_pants_headopaque_o008
+- Combined eval output dir: evaluation/eval_outputs/T20260413-06_stage2_combined_outer_color_masked_hair_top_pants_headopaque_o008
+
+Test variables:
+- outer_block_raw_parts: face, arms, hands, torso
+- outer_opacity_prior_target: 0.45
+- outer_semantic_cap_parts: top, pants
+- outer_semantic_cap_opacity: 0.08
+- outer_color_masked_parts: hair, top, pants
+- outer_color_masked_weight: 0.8
+- outer_color_refine_rgb_only: false
+- outer_color_masked_exclude_face_box: false
+
+Decision rule:
+- Reject if hair/head gets worse than T20260413-01 or if clothing color/metrics regress like T20260413-05.
+- Do not adopt just because opacity increased; distribution and combined overlay must both improve.
+
+## T20260413-07 - teacher-like 8-frame RGB-only outer color refine with raw exposed block
+
+Status: started.
+
+Purpose:
+- Re-test the best color-refine direction from T20260413-03 under the new numbered-output rule.
+- Keep opacity fixed because T20260413-05 and T20260413-06 showed opacity increases degrade clothing/hair metrics.
+- Apply raw exposed block for face, arms, hands, torso without touching inner artifacts.
+
+Config:
+- configs/T20260413-07_stage2_outer_teacher8_rgbonly_rawblock_o008.yaml
+- Init outer checkpoint: outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt
+- Output checkpoint dir: outputs/T20260413-07_stage2_outer_teacher8_rgbonly_rawblock_o008
+- Combined eval output dir: evaluation/eval_outputs/T20260413-07_stage2_combined_outer_teacher8_rgbonly_rawblock_o008
+
+Test variables:
+- frame_select: indices
+- frame_indices: 50, 53, 23, 13, 3, 35, 56, 71
+- outer_color_refine_rgb_only: true
+- outer_semantic_cap_parts: top, pants
+- outer_semantic_cap_opacity: 0.08
+- outer_block_raw_parts: face, arms, hands, torso
+- no masked combined color loss
+
+Decision rule:
+- Compare against T20260413-01 and T20260413-03. Accept only if it keeps T03's metric gains without visible hair/clothing regression.
+
+## T20260413-06 - completed outer color masked hair/top/pants head-opaque test
+
+Code fix during test:
+- Initial T20260413-06 run failed before training because the new raw exposed block pruned/clamped g.opacity_logit with an in-place write on a leaf tensor requiring grad.
+- Fixed by wrapping that outer-only prune/clamp block in 	orch.no_grad().
+- The failed partial output was moved, not deleted: 	rash/T20260413-06_failed_start_20260413_1541/.
+
+Train output:
+- Train log: outputs/logs/T20260413-06_stage2_outer_color_masked_hair_top_pants_headopaque_o008.log
+- Outer output: outputs/T20260413-06_stage2_outer_color_masked_hair_top_pants_headopaque_o008/gaussians3d.pt
+- Eval log: outputs/logs/T20260413-06_eval_combined_outer_color_masked_hair_top_pants_headopaque_o008.log
+- Combined eval output: evaluation/eval_outputs/T20260413-06_stage2_combined_outer_color_masked_hair_top_pants_headopaque_o008/
+- Local visual scratch copy only: C:\Users\brack\AppData\Local\Temp\ega_T20260413_06_review\T06_000075_overlay.png
+
+Gaussian distribution check:
+- T20260413-01 active outer: 4124; T20260413-06 active outer: 4072.
+- Raw exposed block worked for this test: face/arms/hands/torso active outer counts became 0.
+- Hair alpha increased from T20260413-01 mean/p90/max 
+
+## T20260413-06/T20260413-07 - corrected completion record
+
+This section supersedes the incomplete T20260413-06 completion paragraph immediately above. That paragraph was corrupted by shell quoting while appending to LOG.md; keep this corrected section as the authoritative record.
+
+T20260413-06 completed:
+- Code fix during test: the initial T20260413-06 run failed before training because the new raw exposed block pruned/clamped g.opacity_logit with an in-place write on a leaf tensor requiring grad. Fixed by wrapping that outer-only prune/clamp block in torch.no_grad().
+- Failed partial output was moved, not deleted: trash/T20260413-06_failed_start_20260413_1541/.
+- Train log: outputs/logs/T20260413-06_stage2_outer_color_masked_hair_top_pants_headopaque_o008.log.
+- Outer output: outputs/T20260413-06_stage2_outer_color_masked_hair_top_pants_headopaque_o008/gaussians3d.pt.
+- Eval log: outputs/logs/T20260413-06_eval_combined_outer_color_masked_hair_top_pants_headopaque_o008.log.
+- Combined eval output: evaluation/eval_outputs/T20260413-06_stage2_combined_outer_color_masked_hair_top_pants_headopaque_o008/.
+- Distribution: active outer changed from T01 4124 to T06 4072; face/arms/hands/torso active outer became 0; hair alpha mean/p90/max changed from 0.167723/0.300000/0.357987 to 0.187309/0.427384/0.440325; top/pants stayed capped at 0.08.
+- Metrics: T06 global mae_mean=0.0800076053, psnr_mean=15.6437673569, ssim_mean=0.8458095789, mask_iou_mean=0.9893427491.
+- Baseline T01: mae_mean=0.0793826133, psnr_mean=15.6521492004, ssim_mean=0.8464645743, mask_iou_mean=0.9892262816.
+- Part regression: hair worsened from T01 mae=0.0803334862, ssim=0.7958908677 to T06 mae=0.0818590000, ssim=0.7926854491; top worsened from mae=0.0519219637, ssim=0.8293707371 to mae=0.0523444936, ssim=0.8287793994; pants worsened from mae=0.0589616485, ssim=0.8398225307 to mae=0.0598776564, ssim=0.8392159343.
+- T06 conclusion: reject. Increasing head/hair opacity did not fix combined color; it degraded hair and clothing metrics. Do not repeat this as a global-opacity fix.
+
+T20260413-07 completed:
+- Config: configs/T20260413-07_stage2_outer_teacher8_rgbonly_rawblock_o008.yaml.
+- Train log: outputs/logs/T20260413-07_stage2_outer_teacher8_rgbonly_rawblock_o008.log.
+- Outer output: outputs/T20260413-07_stage2_outer_teacher8_rgbonly_rawblock_o008/gaussians3d.pt.
+- Eval log: outputs/logs/T20260413-07_eval_combined_outer_teacher8_rgbonly_rawblock_o008.log.
+- Combined eval output: evaluation/eval_outputs/T20260413-07_stage2_combined_outer_teacher8_rgbonly_rawblock_o008/.
+- Distribution: active outer 4072; face/arms/hands/torso active outer became 0; hair alpha mean/p90/max=0.162381/0.300000/0.357987; top/pants stayed capped at 0.08.
+- Metrics: T07 global mae_mean=0.0790022612, psnr_mean=15.5860099792, ssim_mean=0.8464987874, mask_iou_mean=0.9883773327.
+- T03 comparison: T03 global mae_mean=0.0788674504, psnr_mean=15.6079349518, ssim_mean=0.8466709852, mask_iou_mean=0.9885855317.
+- T01 comparison: T01 global mae_mean=0.0793826133, psnr_mean=15.6521492004, ssim_mean=0.8464645743, mask_iou_mean=0.9892262816.
+- Part result: T07 top/pants match T03 improvements: top mae=0.0518312380, ssim=0.8293132782; pants mae=0.0581684597, ssim=0.8404048681.
+- Hair constraint failure: T07 hair mae=0.0800155774, ssim=0.7929816246, worse than T01 hair mae=0.0803334862, ssim=0.7958908677 and worse than T03 hair mae=0.0787071660, ssim=0.7952541709.
+- T07 conclusion: do not promote as final. It confirms teacher-like RGB-only color refine is more promising than full-frame masked color/opacity refine, but raw exposed blocking slightly hurts hair/global relative to T03.
+
+Current decision:
+- Conservative current best for hair stability: T20260413-01.
+- Best color-refine candidate if lower MAE is prioritized over strict hair preservation: T20260413-03.
+- Rejected: T20260413-04, T20260413-05, T20260413-06, T20260413-07.
+
+## T20260414-08 - started teacher-like 8-frame RGB-only top/pants-only outer color refine
+
+Purpose:
+- Test the narrowest useful color-refine path from T20260413-03 while locking hair and all non-clothing outer RGB gradients.
+- Avoid the rejected T20260413-06/T20260413-07 opacity/raw exposed block direction.
+- Do not modify inner training/eval code or inner artifacts.
+
+Code change for this test:
+- Added default-off outer_color_train_parts and outer_color_train_conf_min.
+- When enabled in outer color phase, only outer Gaussians whose ind_face_idx raw semantic label is in the configured parts keep 
+gb_logit gradient; other outer RGB gradients are zeroed.
+- Opacity, scale, rotation, center, and inner rows remain locked by the existing outer RGB-only color phase rules.
+
+Config:
+- configs/T20260414-08_stage2_outer_teacher8_rgb_top_pants_only_o008.yaml
+- Init outer checkpoint: outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt
+- Output checkpoint dir: outputs/T20260414-08_stage2_outer_teacher8_rgb_top_pants_only_o008
+- Combined eval output dir: evaluation/eval_outputs/T20260414-08_stage2_combined_outer_teacher8_rgb_top_pants_only_o008
+
+Test variables:
+- rame_select: indices
+- rame_indices: 50, 53, 23, 13, 3, 35, 56, 71
+- outer_color_refine_rgb_only: true
+- outer_color_train_parts: top, pants
+- outer_color_train_conf_min: 0.0
+- outer_semantic_cap_parts: top, pants
+- outer_semantic_cap_opacity: 0.08
+- No raw exposed block and no masked combined color loss.
+
+Decision rule:
+- Accept only if top/pants keep T20260413-03's gains while hair stays no worse than T20260413-01/T20260413-03.
+
+
+## T20260414-08 - completed teacher-like 8-frame RGB-only top/pants-only outer color refine
+
+Outputs:
+- Config: configs/T20260414-08_stage2_outer_teacher8_rgb_top_pants_only_o008.yaml.
+- Train log: outputs/logs/T20260414-08_stage2_outer_teacher8_rgb_top_pants_only_o008.log.
+- Outer output: outputs/T20260414-08_stage2_outer_teacher8_rgb_top_pants_only_o008/gaussians3d.pt.
+- Eval log: outputs/logs/T20260414-08_eval_combined_outer_teacher8_rgb_top_pants_only_o008.log.
+- Combined eval output: evaluation/eval_outputs/T20260414-08_stage2_combined_outer_teacher8_rgb_top_pants_only_o008/.
+
+Metrics:
+- T08 global: mae_mean=0.0788016990, psnr_mean=15.6100206375, ssim_mean=0.8467826843, mask_iou_mean=0.9885855317.
+- T03 global: mae_mean=0.0788674504, psnr_mean=15.6079349518, ssim_mean=0.8466709852, mask_iou_mean=0.9885855317.
+- T01 global: mae_mean=0.0793826133, psnr_mean=15.6521492004, ssim_mean=0.8464645743, mask_iou_mean=0.9892262816.
+- T08 hair: mae=0.0783724859, ssim=0.7958722115. This is better than T03 hair MAE and close to T01 hair SSIM.
+- T08 top: mae=0.0518312380, ssim=0.8293132782. This matches T03.
+- T08 pants: mae=0.0581485145, ssim=0.8404447436. This is slightly better than T03.
+
+Visual check:
+- Pulled only temporary local review images for multimodal inspection: T01/T03/T08 frame 000075 overlays and T08 frame 000050 overlay.
+- T08 and T03 are visually almost identical on 000075. Hair is not visibly degraded compared with T03/T01, but the combined render still keeps the top too dark/greenish relative to GT in the overlay.
+
+Decision:
+- T08 is a cleaner candidate than T03 because it locks non-clothing outer RGB and slightly improves global/hair/pants metrics.
+- It still does not solve the clothing color mismatch. Continue with T20260414-09: full-frame supervision with the same top/pants-only RGB gradient gate. This tests whether the remaining color mismatch is caused by teacher-like 8-frame coverage being too narrow.
+
+## T20260414-09 - started full-frame RGB-only top/pants-only outer color refine
+
+Purpose:
+- Keep the T08 gradient gate: only outer Gaussians bound to top/pants faces can update rgb_logit.
+- Expand supervision from 8 teacher-like frames to the stage1_sequence frame set used by the full-frame color test.
+- Do not change opacity, geometry, inner code, inner checkpoints, or inner evaluation products.
+
+Config:
+- configs/T20260414-09_stage2_outer_full_rgb_top_pants_only_o008.yaml.
+- Init outer checkpoint: outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt.
+- Output checkpoint dir: outputs/T20260414-09_stage2_outer_full_rgb_top_pants_only_o008.
+- Planned combined eval output dir: evaluation/eval_outputs/T20260414-09_stage2_combined_outer_full_rgb_top_pants_only_o008.
+
+Key variables:
+- frame_select: stage1_sequence.
+- n_frames: 48.
+- stage1_align_filter_enable: true.
+- outer_color_refine_rgb_only: true.
+- outer_color_train_parts: top, pants.
+- outer_color_train_conf_min: 0.0.
+- outer_semantic_cap_parts: top, pants.
+- outer_semantic_cap_opacity: 0.08.
+- No raw exposed block and no masked combined color loss.
+
+Decision rule:
+- Accept only if top/pants improve over T08 without hair/global regression. If full-frame top/pants-only repeats T02's top/pants regression, the full-frame route is rejected and the next step should target color supervision quality rather than opacity or frame count.
+
+
+## T20260414-09 - completed full-frame RGB-only top/pants-only outer color refine
+
+Outputs:
+- Config: configs/T20260414-09_stage2_outer_full_rgb_top_pants_only_o008.yaml.
+- Train log: outputs/logs/T20260414-09_stage2_outer_full_rgb_top_pants_only_o008.log.
+- Outer output: outputs/T20260414-09_stage2_outer_full_rgb_top_pants_only_o008/gaussians3d.pt.
+- Eval log: outputs/logs/T20260414-09_eval_combined_outer_full_rgb_top_pants_only_o008.log.
+- Combined eval output: evaluation/eval_outputs/T20260414-09_stage2_combined_outer_full_rgb_top_pants_only_o008/.
+
+Metrics:
+- T09 global: mae_mean=0.0799100325, psnr_mean=15.6655750275, ssim_mean=0.8460528255, mask_iou_mean=0.9895207286.
+- T08 global: mae_mean=0.0788016990, psnr_mean=15.6100206375, ssim_mean=0.8467826843, mask_iou_mean=0.9885855317.
+- T09 hair: mae=0.0790871009, ssim=0.7980864644.
+- T09 top: mae=0.0524609312, ssim=0.8285592198. This is worse than T08 top mae=0.0518312380, ssim=0.8293132782.
+- T09 pants: mae=0.0604084730, ssim=0.8383195996. This is worse than T08 pants mae=0.0581485145, ssim=0.8404447436.
+
+Visual check:
+- Pulled only temporary local review image for multimodal inspection: T09 frame 000075 overlay.
+- T09 does not visibly fix the clothing color mismatch; it keeps the same dark/green clothing bias while worsening top/pants metrics.
+
+Decision:
+- Reject T09. Full-frame supervision is not the missing ingredient; it repeats the T02-style top/pants regression even with the new top/pants-only RGB gradient gate.
+- Continue with T20260414-10 to test supervision target quality: teacher-like 8 frames, top/pants-only RGB gradient gate, and top/pants masked combined L1 directly against raw GT.
+
+## T20260414-10 - started teacher-like 8-frame masked-GT top/pants-only RGB color refine
+
+Purpose:
+- Test whether the combined-target color supervision is the source of the clothing color bias.
+- Keep T08's frame selection and gradient gate, but replace the global color loss with a top/pants semantic masked combined-vs-raw-GT L1 term.
+- Do not change opacity, geometry, inner code, inner checkpoints, or inner evaluation products.
+
+Config:
+- configs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008.yaml.
+- Init outer checkpoint: outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt.
+- Output checkpoint dir: outputs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008.
+- Planned combined eval output dir: evaluation/eval_outputs/T20260414-10_stage2_combined_outer_teacher8_maskedgt_top_pants_rgb_o008.
+
+Key variables:
+- frame_select: indices.
+- frame_indices: 50, 53, 23, 13, 3, 35, 56, 71.
+- outer_color_refine_rgb_only: true.
+- outer_color_train_parts: top, pants.
+- outer_color_masked_enable: true.
+- outer_color_masked_weight: 1.0.
+- outer_color_masked_parts: top, pants.
+- outer_color_masked_replace_global: true.
+- outer_color_masked_use_outer_alpha: true.
+- outer_color_masked_exclude_hands: true.
+- outer_color_masked_exclude_face_box: true.
+- outer_semantic_cap_parts: top, pants.
+- outer_semantic_cap_opacity: 0.08.
+- No raw exposed block.
+
+Decision rule:
+- Accept only if top/pants improve over T08 and hair/global do not regress materially. If T10 fails, the next issue is not frame count or raw GT supervision; it is likely outer Gaussian coverage/visibility distribution or the semantic/alpha mask used for color updates.
+
+
+## T20260414-10 - completed teacher-like 8-frame masked-GT top/pants-only RGB color refine
+
+Outputs:
+- Config: configs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008.yaml.
+- Train log: outputs/logs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008.log.
+- Outer output: outputs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008/gaussians3d.pt.
+- Eval log: outputs/logs/T20260414-10_eval_combined_outer_teacher8_maskedgt_top_pants_rgb_o008.log.
+- Combined eval output: evaluation/eval_outputs/T20260414-10_stage2_combined_outer_teacher8_maskedgt_top_pants_rgb_o008/.
+
+Metrics:
+- T10 global: mae_mean=0.0787385181, psnr_mean=15.6117753983, ssim_mean=0.8468774557, mask_iou_mean=0.9885855317.
+- T08 global: mae_mean=0.0788016990, psnr_mean=15.6100206375, ssim_mean=0.8467826843, mask_iou_mean=0.9885855317.
+- T10 hair: mae=0.0783724859, ssim=0.7958722115. This is unchanged from T08.
+- T10 top: mae=0.0518147275, ssim=0.8293612003. This improves over T08 top mae=0.0518312380, ssim=0.8293132782.
+- T10 pants: mae=0.0579762794, ssim=0.8407531381. This improves over T08 pants mae=0.0581485145, ssim=0.8404447436.
+
+Visual check:
+- Pulled only temporary local review images for multimodal inspection: T10 frame 000075 and 000050 overlays.
+- T10 is visually close to T08/T03; it does not obviously damage hair, but the clothing color mismatch is only slightly reduced.
+
+Decision:
+- Keep T10 as the current best metric candidate. It supports the hypothesis that raw-GT masked combined supervision is cleaner than the default combined target for clothing color.
+- Continue with T20260414-11 to test whether the outer-alpha weighting in the masked color loss is too conservative.
+
+## T20260414-11 - started teacher-like 8-frame masked-GT top/pants RGB without outer-alpha loss gate
+
+Purpose:
+- Test only one variable against T10: outer_color_masked_use_outer_alpha=false.
+- Keep teacher-like 8 frames, top/pants-only RGB gradient gate, masked raw-GT top/pants loss, semantic cap opacity=0.08, and no raw exposed block.
+- Do not change opacity, geometry, inner code, inner checkpoints, or inner evaluation products.
+
+Config:
+- configs/T20260414-11_stage2_outer_teacher8_maskedgt_top_pants_rgb_noalphagate_o008.yaml.
+- Init outer checkpoint: outputs/stage2_outer_semcap_train_top_pants_o008_20260413/gaussians3d.pt.
+- Output checkpoint dir: outputs/T20260414-11_stage2_outer_teacher8_maskedgt_top_pants_rgb_noalphagate_o008.
+- Planned combined eval output dir: evaluation/eval_outputs/T20260414-11_stage2_combined_outer_teacher8_maskedgt_top_pants_rgb_noalphagate_o008.
+
+Decision rule:
+- Accept only if it improves top/pants over T10 without visible boundary/color artifacts and without hair/global regression.
+
+
+## T20260414-11 - completed teacher-like 8-frame masked-GT top/pants RGB without outer-alpha loss gate
+
+Outputs:
+- Config: configs/T20260414-11_stage2_outer_teacher8_maskedgt_top_pants_rgb_noalphagate_o008.yaml.
+- Train log: outputs/logs/T20260414-11_stage2_outer_teacher8_maskedgt_top_pants_rgb_noalphagate_o008.log.
+- Outer output: outputs/T20260414-11_stage2_outer_teacher8_maskedgt_top_pants_rgb_noalphagate_o008/gaussians3d.pt.
+- Eval log: outputs/logs/T20260414-11_eval_combined_outer_teacher8_maskedgt_top_pants_rgb_noalphagate_o008.log.
+- Combined eval output: evaluation/eval_outputs/T20260414-11_stage2_combined_outer_teacher8_maskedgt_top_pants_rgb_noalphagate_o008/.
+
+Metrics:
+- T11 global: mae_mean=0.0787401199, psnr_mean=15.6117153168, ssim_mean=0.8468754292, mask_iou_mean=0.9885855317.
+- T10 global: mae_mean=0.0787385181, psnr_mean=15.6117753983, ssim_mean=0.8468774557, mask_iou_mean=0.9885855317.
+- T11 hair: mae=0.0783724859, ssim=0.7958722115. This is unchanged from T10.
+- T11 top: mae=0.0518147461, ssim=0.8293614388. This is essentially tied with T10 top mae=0.0518147275, ssim=0.8293612003.
+- T11 pants: mae=0.0579810068, ssim=0.8407464027. This is slightly worse than T10 pants mae=0.0579762794, ssim=0.8407531381.
+
+Decision:
+- Reject T11 as a replacement. Removing the outer-alpha gate does not improve the result and slightly worsens global and pants metrics.
+- Current best metric candidate from today's tests: T20260414-10.
+- Clean rejected tests from today's run: T20260414-09 and T20260414-11.
+- T20260414-08 remains a good conservative RGB-gated baseline, but T20260414-10 is better on global, top, and pants while preserving hair metrics.
+
+Current best candidate:
+- Outer checkpoint: outputs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008/gaussians3d.pt.
+- Combined eval output: evaluation/eval_outputs/T20260414-10_stage2_combined_outer_teacher8_maskedgt_top_pants_rgb_o008/.
+- Rationale: teacher-like 8-frame top/pants-only RGB gradient gate + top/pants semantic masked raw-GT combined color loss with outer-alpha gate.
+
+Next technical conclusion:
+- The remaining visual clothing color mismatch is not explained by frame count, non-clothing RGB drift, or alpha-gate conservatism.
+- The next useful direction is to inspect whether top/pants outer Gaussians have enough spatial/visibility support in the regions still showing color error. If they do not, further RGB-only color optimization is a dead end; the distribution/coverage of outer Gaussians must be adjusted while keeping inner artifacts untouched.
+
+
+## T20260414-12 - completed outer clothing coverage diagnosis for T20260414-10
+
+Outputs:
+- Diagnostic script: evaluation/stage2_combiined_eval/diagnose_outer_cloth_coverage.py.
+- Diagnostic log: outputs/logs/T20260414-12_outer_cloth_coverage_diag_T10.log.
+- Diagnostic output: evaluation/eval_outputs/T20260414-12_outer_cloth_coverage_diag_T10/.
+- Work checkpoint: outputs/T20260414-12_outer_cloth_coverage_diag_work/combined_inner_existing_outer_d2.pt.
+
+Result:
+- Frame count: 69.
+- Top: error_mean_mean=0.0510340673, outer_alpha_mean_mean=0.0214642877, outer_alpha_p50_mean=0.0022701306, high_error_outer_alpha_mean_mean=0.0227045924, high_error_low_outer_alpha_ratio_mean=0.8130457274.
+- Pants: error_mean_mean=0.0564105710, outer_alpha_mean_mean=0.0219935931, outer_alpha_p50_mean=0.0022185652, high_error_outer_alpha_mean_mean=0.0242259159, high_error_low_outer_alpha_ratio_mean=0.8104556551.
+- Interpretation: in the high-error top/pants pixels, about 81% of pixels have outer alpha below 0.05. Median outer alpha over top/pants is around 0.0022. The remaining color mismatch is therefore not mainly a color-logit fitting problem; the outer layer contributes too weakly in the same clothing regions where the color error is high.
+
+Decision:
+- Do not keep running RGB-only color refinement. That would be optimizing a weak contributor.
+- Start T20260414-13 from T20260414-10 and allow only top/pants outer opacity plus top/pants outer RGB to update. Geometry remains frozen. Non-clothing outer opacity remains locked by the new default-off outer_color_train_opacity_parts gate.
+
+## T20260414-13 - started teacher-like 8-frame masked-GT top/pants RGB+opacity support test
+
+Purpose:
+- Test whether increasing top/pants outer alpha support fixes the remaining clothing color mismatch.
+- Start from the current best T20260414-10 checkpoint to isolate the opacity-support variable.
+- Keep inner code and inner artifacts untouched.
+
+Config:
+- configs/T20260414-13_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.yaml.
+- Init outer checkpoint: outputs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008/gaussians3d.pt.
+- Output checkpoint dir: outputs/T20260414-13_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.
+- Planned combined eval output dir: evaluation/eval_outputs/T20260414-13_stage2_combined_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.
+
+Key variables:
+- frame_select: indices.
+- frame_indices: 50, 53, 23, 13, 3, 35, 56, 71.
+- outer_color_refine_rgb_only: false.
+- outer_color_train_parts: top, pants.
+- outer_color_train_opacity_parts: top, pants.
+- outer_color_masked_enable: true.
+- outer_color_masked_replace_global: true.
+- outer_color_masked_use_outer_alpha: true.
+- outer_semantic_cap_parts: top, pants.
+- outer_semantic_cap_opacity: 0.12.
+- No raw exposed block.
+
+Decision rule:
+- Accept only if T13 improves top/pants and visual clothing color over T10 without hair/global regression or boundary artifacts. If it fails, increasing opacity support alone is not sufficient and the next step must alter spatial distribution rather than opacity.
+
+
+## T20260414-13 - invalid run record
+
+Status:
+- T13 training completed, but the train log did not contain `Enabled outer opacity train-part gate`.
+- Cause: `outer_color_train_opacity_parts` was added in train_loop.py but was not passed through src/avatar_gs/stage2/config.py in the active config dictionary used by stage2_train_gaussian.
+- The output is therefore not a valid opacity-gated test and must not be used for comparison.
+
+Invalid output kept for recoverability, not promoted:
+- Config: configs/T20260414-13_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.yaml.
+- Train log: outputs/logs/T20260414-13_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.log.
+- Output checkpoint: outputs/T20260414-13_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012/gaussians3d.pt.
+
+Fix:
+- Added pass-through for `outer_color_train_opacity_parts` and `outer_color_train_opacity_conf_min` in src/avatar_gs/stage2/config.py.
+- Re-run the intended experiment as T20260414-14, not by overwriting T13.
+
+## T20260414-14 - started corrected opacity-gated top/pants support test
+
+Purpose:
+- Correct re-run of T13 after fixing config pass-through.
+- Start from T20260414-10 and allow only top/pants outer RGB plus top/pants outer opacity to update.
+- Geometry, inner rows, non-clothing outer RGB, and non-clothing outer opacity remain locked.
+
+Config:
+- configs/T20260414-14_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.yaml.
+- Init outer checkpoint: outputs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008/gaussians3d.pt.
+- Output checkpoint dir: outputs/T20260414-14_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.
+- Planned combined eval output dir: evaluation/eval_outputs/T20260414-14_stage2_combined_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.
+
+
+## T20260414-14 - completed corrected opacity-gated top/pants support test
+
+Outputs:
+- Config: configs/T20260414-14_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.yaml.
+- Train log: outputs/logs/T20260414-14_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.log.
+- Outer output: outputs/T20260414-14_stage2_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012/gaussians3d.pt.
+- Eval log: outputs/logs/T20260414-14_eval_combined_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012.log.
+- Combined eval output: evaluation/eval_outputs/T20260414-14_stage2_combined_outer_teacher8_maskedgt_top_pants_rgb_opacity_o012/.
+- Coverage diagnostic output: evaluation/eval_outputs/T20260414-14_outer_cloth_coverage_diag/.
+
+Metrics:
+- T14 global: mae_mean=0.0829436183, psnr_mean=15.5390148163, ssim_mean=0.8410301805, mask_iou_mean=0.9891560674.
+- T10 global: mae_mean=0.0787385181, psnr_mean=15.6117753983, ssim_mean=0.8468774557, mask_iou_mean=0.9885855317.
+- T14 top: mae=0.0552427508, ssim=0.8217861652. This is worse than T10 top mae=0.0518147275, ssim=0.8293612003.
+- T14 pants: mae=0.0665826276, ssim=0.8256797194. This is worse than T10 pants mae=0.0579762794, ssim=0.8407531381.
+- T14 hair: unchanged from T10, mae=0.0783724859, ssim=0.7958722115.
+
+Coverage diagnostic:
+- T14 top outer_alpha_mean_mean=0.0334555094 versus T10 0.0214642877.
+- T14 pants outer_alpha_mean_mean=0.0322547475 versus T10 0.0219935931.
+- Interpretation: opacity support increased, but standard combined metrics worsened sharply. Existing top/pants Gaussian contribution is not correctly distributed/colored enough to simply increase opacity.
+
+Decision:
+- Reject T14. Increasing top/pants opacity support directly is not acceptable.
+
+## T20260414-15 - completed low-opacity pruned top/pants reactivation checkpoint test
+
+Outputs:
+- Derived checkpoint: outputs/T20260414-15_stage2_outer_reactivate_pruned_top_pants_o002/gaussians3d.pt.
+- Manifest: outputs/T20260414-15_stage2_outer_reactivate_pruned_top_pants_o002/reactivation_manifest.json.
+- Eval log: outputs/logs/T20260414-15_eval_combined_outer_reactivate_pruned_top_pants_o002.log.
+- Combined eval output: evaluation/eval_outputs/T20260414-15_stage2_combined_outer_reactivate_pruned_top_pants_o002/.
+
+Change:
+- From T10, reactivated 3273 pruned shell_layer==1 top/pants rows with opacity=0.02.
+- No training was run.
+
+Result:
+- T15 metrics are identical to T10.
+- Cause: evaluation/render filtering uses bound_opacity_min around 0.04, so opacity=0.02 reactivated Gaussians do not contribute.
+
+Decision:
+- T15 is a no-op under the current render threshold; reject as ineffective.
+
+## T20260414-16 - completed pruned top/pants reactivation checkpoint test at opacity 0.05
+
+Outputs:
+- Derived checkpoint: outputs/T20260414-16_stage2_outer_reactivate_pruned_top_pants_o005/gaussians3d.pt.
+- Manifest: outputs/T20260414-16_stage2_outer_reactivate_pruned_top_pants_o005/reactivation_manifest.json.
+- Eval log: outputs/logs/T20260414-16_eval_combined_outer_reactivate_pruned_top_pants_o005.log.
+- Combined eval output: evaluation/eval_outputs/T20260414-16_stage2_combined_outer_reactivate_pruned_top_pants_o005/.
+
+Change:
+- From T10, reactivated 3273 pruned shell_layer==1 top/pants rows with opacity=0.05.
+- No training was run.
+
+Metrics:
+- T16 global: mae_mean=0.0794856995, psnr_mean=15.6936073303, ssim_mean=0.8464847803, mask_iou_mean=0.9893593192.
+- T16 top: mae=0.0529476702, ssim=0.8289393783.
+- T16 pants: mae=0.0594810247, ssim=0.8391218781.
+- This is worse than T10 on global, top, and pants.
+
+Decision:
+- Reject T16. Coarse reactivation of all pruned top/pants Gaussians creates measurable degradation.
+
+## T20260414-17 - completed RGB fitting after pruned top/pants reactivation at opacity 0.05
+
+Outputs:
+- Config: configs/T20260414-17_stage2_outer_reactivated_o005_teacher8_maskedgt_rgbfit.yaml.
+- Train log: outputs/logs/T20260414-17_stage2_outer_reactivated_o005_teacher8_maskedgt_rgbfit.log.
+- Outer output: outputs/T20260414-17_stage2_outer_reactivated_o005_teacher8_maskedgt_rgbfit/gaussians3d.pt.
+- Eval log: outputs/logs/T20260414-17_eval_combined_outer_reactivated_o005_teacher8_maskedgt_rgbfit.log.
+- Combined eval output: evaluation/eval_outputs/T20260414-17_stage2_combined_outer_reactivated_o005_teacher8_maskedgt_rgbfit/.
+
+Change:
+- Started from T16 reactivated checkpoint.
+- Trained only top/pants RGB with teacher-like 8-frame masked raw-GT combined loss.
+- Opacity and geometry were locked.
+
+Metrics:
+- T17 global: mae_mean=0.0799873173, psnr_mean=15.6680183411, ssim_mean=0.8458431363, mask_iou_mean=0.9893947244.
+- T17 top: mae=0.0533496961, ssim=0.8279911280.
+- T17 pants: mae=0.0603713766, ssim=0.8376100063.
+- This is worse than T16 and worse than T10.
+
+Decision:
+- Reject T17. Coarse reactivation plus RGB fitting does not fix the distribution problem.
+
+Current best after T12-T17:
+- Keep T20260414-10 as the best candidate: outputs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008/gaussians3d.pt.
+- T12 showed a real coverage problem, but T14-T17 show that global opacity increase or coarse pruned-point reactivation is not the correct fix.
+- Next valid direction is targeted face/pixel-level redistribution: identify high-error low-alpha top/pants pixels, map them to visible SMPL faces, and only add/reactivate outer support on those faces. Do not continue broad opacity or broad reactivation tests.
+
+
+## T20260414-18 to T20260414-21 - targeted outer support reactivation sweep
+
+Purpose:
+- Continue from T20260414-10 after T12-T17 showed that broad opacity increase and broad pruned-row reactivation are the wrong direction.
+- Identify high-error, low-outer-alpha top/pants pixels, map them to visible SMPL faces, and reactivate only pruned outer Gaussians bound to those faces.
+- Inner checkpoint and inner training/evaluation code were not changed.
+
+New helper:
+- evaluation/stage2_combiined_eval/targeted_reactivate_outer_faces.py.
+
+Results:
+- T18: selected 320 faces, reactivated 96 outer rows at opacity 0.05. Global mae_mean=0.0787251815, psnr_mean=15.6186399460, ssim_mean=0.8468961120, mask_iou_mean=0.9886215925. Top mae=0.0518086851, pants mae=0.0579901487, hair/face unchanged. This was a small but valid improvement over T10.
+- T19: T18 plus broad top/pants RGB fitting. Global mae_mean=0.0788866058, ssim_mean=0.8466548920. Rejected because color fitting degraded global/top/pants metrics.
+- T20: stricter face selection, 160 faces and 49 reactivated rows at opacity 0.05. Global mae_mean=0.0787340254, ssim_mean=0.8468821049. Slightly better than T10 but worse than T18.
+- T21: same face selection as T18 but opacity 0.04. Global mae_mean=0.0787281170, ssim_mean=0.8468936682. Worse than T18.
+
+Decision:
+- Keep T18 as the best support-distribution baseline from this sweep.
+- Do not continue broad RGB fitting; it moves too many existing top/pants rows and causes measurable regression.
+
+## T20260414-22 to T20260414-25 - reactivated-row color refinement sweep
+
+Purpose:
+- Address combined color mismatch without touching inner rows or existing inner outputs.
+- Refine only the 96 outer rows that were pruned in T10 and reactivated in T18.
+- Estimate per-face target color from high-error, low-outer-alpha top/pants pixels, then rewrite only those rows' rgb_logit.
+
+New helper:
+- evaluation/stage2_combiined_eval/refine_outer_reactivated_colors.py.
+
+Common inputs:
+- Outer baseline: outputs/T20260414-18_stage2_outer_targeted_reactivate_faces_o005/gaussians3d.pt.
+- Reference for identifying reactivated rows: outputs/T20260414-10_stage2_outer_teacher8_maskedgt_top_pants_rgb_o008/gaussians3d.pt.
+- Inner source used by combined eval remained the existing outputs/stage2/gaussians3d.pt.
+- Candidate rows: 96. Candidate faces: 96. Changed rows/faces in T22-T25: 96/96.
+
+Results:
+- T22: median GT color, low_outer_alpha=0.06, high_error_quantile=0.75, blend=0.50. Output: outputs/T20260414-22_stage2_outer_t18_reactivated_color_median_b050/gaussians3d.pt. Eval: evaluation/eval_outputs/T20260414-22_stage2_combined_outer_t18_reactivated_color_median_b050/. Global mae_mean=0.0787141174, psnr_mean=15.6178884506, ssim_mean=0.8469127417. Improved over T18; top mae=0.0517665669, pants mae=0.0579672754.
+- T23: same as T22 but blend=0.75. Output: outputs/T20260414-23_stage2_outer_t18_reactivated_color_median_b075/gaussians3d.pt. Eval: evaluation/eval_outputs/T20260414-23_stage2_combined_outer_t18_reactivated_color_median_b075/. Global mae_mean=0.0787092447, psnr_mean=15.6174707413, ssim_mean=0.8469195962. Improved over T22 on MAE/SSIM; top mae=0.0517466776, pants mae=0.0579560697.
+- T24: same as T22 but blend=1.00. Output: outputs/T20260414-24_stage2_outer_t18_reactivated_color_median_b100/gaussians3d.pt. Eval: evaluation/eval_outputs/T20260414-24_stage2_combined_outer_t18_reactivated_color_median_b100/. Global mae_mean=0.0787046179, psnr_mean=15.6170444489, ssim_mean=0.8469247818. Improved over T23 on MAE/SSIM; top mae=0.0517274253, pants mae=0.0579449460. Arms/hands slightly worsened versus T18.
+- T25: same as T24 but high_error_quantile=0.85. Output: outputs/T20260414-25_stage2_outer_t18_reactivated_color_median_q085_b100/gaussians3d.pt. Eval: evaluation/eval_outputs/T20260414-25_stage2_combined_outer_t18_reactivated_color_median_q085_b100/. Global mae_mean=0.0787023604, psnr_mean=15.6176404953, ssim_mean=0.8469252586. Top mae=0.0517279916, pants mae=0.0579447448, hair/face unchanged. This is the current best combined global MAE and SSIM among T10/T18/T22-T25.
+
+Visual check:
+- Pulled only temporary local comparison images for multimodal inspection: 000041, 000053, 000068, 000075 from T18/T24/T25.
+- No new black border was observed.
+- Hair/face appearance stayed effectively unchanged in the checked overlays.
+- T24/T25 visual differences are subtle; the improvement is mainly visible in numeric metrics and error maps.
+
+Decision:
+- Promote T25 as the current best outer candidate.
+- Keep T18 as the best distribution-only baseline.
+- Do not promote T19; broad top/pants RGB fitting is a rejected direction.
+- Remaining risk: arms/hands metrics are slightly worse than T18 because the reactivated top/pants faces can affect nearby projected regions. The regression is small, but it is real and should not be hand-waved.
+
+
+## T20260414-26 to T20260414-32 - hair opacity and clothing support checks after user visual review
+
+Trigger:
+- User reported that T22/T25 still show blurry clothing abdomen regions around frames 47-53 and 69-75, and hair color/opacity mismatch where the inner contour can still be seen through the combined render.
+- Multimodal inspection was run on temporary local copies only. No local repository files were modified.
+
+Visual inspection:
+- Checked T18/T22/T25 overlays for 000047, 000053, 000069, 000075.
+- The criticism is valid: T22/T25 numeric gains are small and do not fully remove clothing blur or hair color mismatch.
+- The issue is not a single-frame failure; it is a general outer support/color tradeoff.
+
+New helper:
+- Added evaluation/stage2_combiined_eval/targeted_reactivate_outer_parts.py to generalize targeted reactivation beyond hard-coded top/pants.
+- Extended evaluation/stage2_combiined_eval/refine_outer_reactivated_colors.py with candidate_mode=opacity_changed for testing color correction on rows whose opacity was changed rather than only pruned/reactivated rows.
+
+Pre-check:
+- In T25, hair outer rows: total=2816, active=909, pruned=1907, blocked_by_exclude_faces=9.
+- Active hair opacity quantiles: min=0.03, p10=0.12, p25=0.12, p50=0.16, p75=0.1681, p90=0.30, max=0.3580.
+- Interpretation: hair is not globally disabled, but a subset of active hair rows sits below the render bound threshold and does not contribute.
+
+Results:
+- T26: From T25, targeted hair reactivation selected 33 hair faces and reactivated 19 rows at opacity 0.08. Eval output: evaluation/eval_outputs/T20260414-26_stage2_combined_outer_t25_hair_reactivate_o008/. Global mae_mean=0.0787073001, ssim_mean=0.8469336033. Hair mae=0.0785185620, hair ssim=0.7959643602. Rejected as default: SSIM/coverage improved, but hair MAE and global MAE worsened versus T25.
+- T27: From T26, color-refined the newly reactivated hair rows against T25 with parts=hair, high_error_quantile=0.85, blend=1.0. Candidate rows=19, changed rows=10. Eval output: evaluation/eval_outputs/T20260414-27_stage2_combined_outer_t26_hair_color_median_q085_b100/. Global mae_mean=0.0787020922, ssim_mean=0.8469347358. Hair mae=0.0784084424, hair ssim=0.7960038781. This is slightly better than T25 in global MAE/SSIM, but hair MAE is still worse than T25, so it is not a real fix for the user-reported hair color mismatch.
+- T28: From T25, raised existing active hair rows below opacity 0.08 to opacity 0.08. Changed rows=62. Eval output: evaluation/eval_outputs/T20260414-28_stage2_combined_outer_t25_hair_active_opacity_floor_o008/. Global mae_mean=0.0787383169, ssim_mean=0.8469860554. Hair mae=0.0792484656, hair ssim=0.7968943119. Rejected: opacity helps structure/SSIM but clearly damages hair color MAE.
+- T29: From T28, color-refined opacity-changed hair rows with candidate_mode=opacity_changed. Candidate rows=62, changed rows=10. Eval output: evaluation/eval_outputs/T20260414-29_stage2_combined_outer_t28_hair_opacity_changed_color_q085_b100/. Global mae_mean=0.0787214786, ssim_mean=0.8469945192. Hair mae=0.0789383501, hair ssim=0.7968941331. Rejected as default: better than T28 on MAE but still worse than T25/T27 on global and hair MAE.
+- T30: From T25, raised existing active hair rows below opacity 0.05 to opacity 0.05. Changed rows=62. Eval output: evaluation/eval_outputs/T20260414-30_stage2_combined_outer_t25_hair_active_opacity_floor_o005/. Global mae_mean=0.0787166804, ssim_mean=0.8469844460. Hair mae=0.0788081661, hair ssim=0.7969131470. Rejected as default: lower opacity floor is still a color/MAE regression.
+- T31: From T25, re-ran targeted top/pants reactivation with stricter high_error_quantile=0.85. It selected 240 faces but reactivated_rows=0, so output equals T25. This confirms that the current top/pants abdomen blur is not solved by further pruned-row reactivation on the selected faces.
+- T32: From T25, raised existing active hair rows below opacity 0.041 to opacity 0.041. Changed rows=62. Eval output: evaluation/eval_outputs/T20260414-32_stage2_combined_outer_t25_hair_active_opacity_floor_o0041/. Global mae_mean=0.0787119046, ssim_mean=0.8469796777. Hair mae=0.0786997303, hair ssim=0.7968267798. Rejected as default: even just above the render threshold still hurts hair MAE versus T25.
+
+Decision:
+- Do not promote T26, T28, T29, T30, or T32 as the default candidate: they trade better hair structure/SSIM for worse hair color MAE.
+- T27 is the best global MAE/SSIM among T25-T32, but it does not solve the hair color complaint because hair MAE remains worse than T25.
+- T25 remains the best balanced candidate if color MAE is prioritized.
+- The next valid direction is not more opacity floors. It needs either a better hair color target/visibility weighting for existing hair rows, or a real distribution method that places/weights hair support without dragging wrong colors into visible regions.
+
+
+## T20260414-33 to T20260414-37 - active-part outer color refinement for abdomen/top-pants and hair
+
+Trigger:
+- User accepted the proposed fix direction for abdomen color error and hair color error.
+- Constraint remains unchanged: do not modify inner training/eval code or inner artifacts; all changes target the shared outer Gaussian checkpoint and combined evaluation only.
+
+Code change used by these tests:
+- Extended evaluation/stage2_combiined_eval/refine_outer_reactivated_colors.py with candidate_mode=active_part.
+- Added --disable_outer_alpha_gate so color calibration can use high-error pixels even when the current outer alpha is not low. This matters because the abdomen color error is not only a low-alpha failure; keeping the alpha gate would skip visible wrong-color pixels.
+- The candidate rows are still restricted by semantic part and active outer rows: shell == outer, prune flag == active, valid bound face, and part in the requested part set. This is not per-frame tuning; every result below is still one shared outer Gaussian set evaluated over all 69 frames.
+
+Baselines for comparison:
+- T25 ckpt: outputs/T20260414-25_stage2_outer_t18_reactivated_color_median_q085_b100/gaussians3d.pt
+- T25 eval: evaluation/eval_outputs/T20260414-25_stage2_combined_outer_t18_reactivated_color_median_q085_b100/
+- T25 metrics: global mae_mean=0.0787023604, psnr_mean=15.6176404953, ssim_mean=0.8469252586, mask_iou_mean=0.9886240363. hair mae=0.0783724859, hair ssim=0.7958722115. top mae=0.0517279916, top ssim=0.8295059204. pants mae=0.0579447448, pants ssim=0.8407841921.
+
+T33:
+- Purpose: abdomen/top-pants color correction without adding or reactivating more Gaussian rows.
+- Command intent: start from T25, parts=top,pants, candidate_mode=active_part, disable_outer_alpha_gate=true, high_error_quantile=0.85, min_pixels_per_face=120, blend=0.35.
+- Ckpt: outputs/T20260414-33_stage2_outer_t25_active_top_pants_color_q085_b035/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-33_stage2_combined_outer_t25_active_top_pants_color_q085_b035/
+- Manifest: candidate_rows=2515, candidate_faces=2479, changed_rows=878, changed_faces=842.
+- Metrics: global mae_mean=0.0780275017, psnr_mean=15.6301517487, ssim_mean=0.8478293419, mask_iou_mean=0.9886242151. hair unchanged: mae=0.0783724859, ssim=0.7958722115. top mae=0.0510646105, top ssim=0.8307473063. pants mae=0.0567065477, pants ssim=0.8429275751.
+- Decision: useful but conservative. It improves top/pants and global metrics, but visual inspection still shows residual gray/white abdomen blotches.
+
+T34:
+- Purpose: isolate hair color correction from T25 without mixing abdomen/top-pants changes.
+- Command intent: start from T25, parts=hair, candidate_mode=active_part, disable_outer_alpha_gate=true, high_error_quantile=0.85, min_pixels_per_face=80, blend=0.35.
+- Ckpt: outputs/T20260414-34_stage2_outer_t25_active_hair_color_q085_b035/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-34_stage2_combined_outer_t25_active_hair_color_q085_b035/
+- Manifest: candidate_rows=909, candidate_faces=909, changed_rows=71, changed_faces=71.
+- Metrics: global mae_mean=0.0786030069, psnr_mean=15.6214103699, ssim_mean=0.8470592499, mask_iou_mean=0.9886240363. hair mae=0.0767173767, hair ssim=0.7985073328. top/pants unchanged from T25.
+- Decision: valid hair color improvement. Unlike earlier opacity-floor tests T28/T30/T32, this improves both hair MAE and hair SSIM without changing hair opacity.
+
+T35:
+- Purpose: combine T33 abdomen/top-pants correction with T34 hair correction.
+- Command intent: start from T33, parts=hair, candidate_mode=active_part, disable_outer_alpha_gate=true, high_error_quantile=0.85, min_pixels_per_face=80, blend=0.35.
+- Ckpt: outputs/T20260414-35_stage2_outer_t33_active_hair_color_q085_b035/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-35_stage2_combined_outer_t33_active_hair_color_q085_b035/
+- Manifest: candidate_rows=909, candidate_faces=909, changed_rows=71, changed_faces=71.
+- Metrics: global mae_mean=0.0779281631, psnr_mean=15.6339397430, ssim_mean=0.8479633331, mask_iou_mean=0.9886242151. hair mae=0.0767173767, hair ssim=0.7985073328. top mae=0.0510646105, top ssim=0.8307473063. pants mae=0.0567065477, pants ssim=0.8429275751.
+- Visual check: compared temporary local copies of selected overlays for frames 000047, 000050, 000053, 000069, 000072, 000075. T35 is better than T25 in the measured top/pants/hair regions, but the abdomen still shows visible gray/white blotches; this is not a complete visual fix.
+
+T36:
+- Purpose: test whether abdomen/top-pants blend=0.35 was too weak.
+- Command intent: start from T25, parts=top,pants, candidate_mode=active_part, disable_outer_alpha_gate=true, high_error_quantile=0.85, min_pixels_per_face=120, blend=0.60.
+- Ckpt: outputs/T20260414-36_stage2_outer_t25_active_top_pants_color_q085_b060/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-36_stage2_combined_outer_t25_active_top_pants_color_q085_b060/
+- Manifest: candidate_rows=2515, candidate_faces=2479, changed_rows=878, changed_faces=842.
+- Metrics: global mae_mean=0.0776418373, psnr_mean=15.6349439621, ssim_mean=0.8482199311, mask_iou_mean=0.9886245728. hair unchanged: mae=0.0783724859, ssim=0.7958722115. top mae=0.0506752916, top ssim=0.8313018680. pants mae=0.0560040250, pants ssim=0.8438627720.
+- Decision: better than T33 on all tracked global/top/pants metrics. Stronger color calibration is justified; it does not appear to be a pure overfit in numeric evaluation.
+
+T37:
+- Purpose: combine the stronger T36 abdomen/top-pants correction with the valid T34 hair correction.
+- Command intent: start from T36, parts=hair, candidate_mode=active_part, disable_outer_alpha_gate=true, high_error_quantile=0.85, min_pixels_per_face=80, blend=0.35.
+- Ckpt: outputs/T20260414-37_stage2_outer_t36_active_hair_color_q085_b035/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-37_stage2_combined_outer_t36_active_hair_color_q085_b035/
+- Manifest: candidate_rows=909, candidate_faces=909, changed_rows=71, changed_faces=71.
+- Metrics: global mae_mean=0.0775424838, psnr_mean=15.6387405396, ssim_mean=0.8483538032, mask_iou_mean=0.9886245728. hair mae=0.0767173767, hair ssim=0.7985073328. top mae=0.0506752916, top ssim=0.8313018680. pants mae=0.0560040250, pants ssim=0.8438627720. face mae=0.1338373870, face ssim=0.7742706537.
+- Visual check: compared temporary local crops of GT/T25/T35/T37 for frames 000047, 000050, 000053, 000069, 000072, 000075. T37 is a small but visible improvement over T25/T35 in abdomen clothing tone and hair color consistency. It is not a full visual solution: the combined render still has gray/white clothing blotches and blurred texture, so the remaining issue is not just color parameters.
+
+Current decision:
+- Promote T37 as the best current candidate among T25-T37 if choosing by combined metrics and the selected visual checks.
+- Do not treat T37 as final quality. The remaining abdomen artifacts suggest a distribution/visibility/support problem in outer Gaussian coverage or supervision, not just a per-row RGB correction problem.
+- Avoid returning to hair opacity-floor changes for now; those improved coverage/SSIM but repeatedly worsened hair color MAE in T28/T30/T32.
+
+
+
+## T20260414-38 to T20260414-39 - teacher-frame outer RGB refinement for clothing color
+
+Trigger:
+- User clarified that "teacher" means the teacher frames used by inner training, not the combined_rgb_targets array itself.
+- User hypothesis: outer colors may be wrong because outer_rgb supervision colors only the view-visible side; after deformation/occlusion the exposed side of shared outer Gaussians can be poorly colored or hidden by neighboring Gaussians. The requested modification is a post-training color-only adjustment: compare teacher-frame combined render against combined_rgb target, modify only outer colors, and leave inner colors/code/artifacts and outer geometry/opacity/scale untouched.
+
+Code change:
+- Extended evaluation/stage2_combiined_eval/refine_outer_reactivated_colors.py with:
+  - --frame_names for explicit refinement frame subsets.
+  - --teacher_bank_json, --teacher_parts, and --teacher_roles for selecting teacher frames from outputs/stage2/teacher_bank/stage2/teacher_bank.json.
+- The script reloads the stage2 supervision cache with the selected frame names, so target arrays and frame indices remain aligned. This avoids the common failure where a filtered frame list accidentally renders one frame but reads the target image from another frame index.
+- The update remains color-only: it writes outer rgb_logit only. It does not modify inner rgb, inner checkpoint, outer xyz, outer opacity, outer scale, or outer quaternion.
+
+Teacher frames found:
+- face postfit teacher: 000050.jpg.
+- top teacher frames: 000023.jpg, 000071.jpg, 000026.jpg, 000016.jpg, 000013.jpg, 000059.jpg, 000011.jpg, 000039.jpg, 000035.jpg, 000036.jpg, 000014.jpg, 000063.jpg, 000038.jpg, 000062.jpg, 000034.jpg, 000009.jpg.
+- pants teacher frames: 000003.jpg, 000072.jpg, 000044.jpg, 000013.jpg, 000039.jpg, 000035.jpg, 000057.jpg.
+- Unique top/pants teacher frames used for refinement: 20 / 69 frames.
+
+T38:
+- Purpose: test a teacher-frame-only top/pants color correction from T25.
+- Command intent: start from T25, parts=top,pants, teacher_bank_json=outputs/stage2/teacher_bank/stage2/teacher_bank.json, teacher_parts=top,pants, teacher_roles=base,extra, candidate_mode=active_part, disable_outer_alpha_gate=true, high_error_quantile=0.85, min_pixels_per_face=80, blend=0.60.
+- Ckpt: outputs/T20260414-38_stage2_outer_t25_teacher_top_pants_color_q085_b060/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-38_stage2_combined_outer_t25_teacher_top_pants_color_q085_b060/
+- Manifest: candidate_rows=2515, candidate_faces=2479, changed_rows=337, changed_faces=313, refinement_frames=20.
+- Metrics: global mae_mean=0.0784026608, psnr_mean=15.6250123978, ssim_mean=0.8472551703, mask_iou_mean=0.9886240363. top mae=0.0515043885, top ssim=0.8298509717. pants mae=0.0572947934, pants ssim=0.8416778445. hair unchanged from T25.
+- Decision: teacher-only improves T25 slightly but is much weaker than T37. It changes only 337 rows versus the all-frame T36/T37 path's 878 top/pants rows, so many rows exposed in non-teacher or harder frames remain uncorrected.
+
+T39:
+- Purpose: apply a conservative teacher-frame correction on top of current best T37.
+- Command intent: start from T37, parts=top,pants, same teacher frames as T38, candidate_mode=active_part, disable_outer_alpha_gate=true, high_error_quantile=0.85, min_pixels_per_face=80, blend=0.25.
+- Ckpt: outputs/T20260414-39_stage2_outer_t37_teacher_top_pants_color_q085_b025/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-39_stage2_combined_outer_t37_teacher_top_pants_color_q085_b025/
+- Manifest: candidate_rows=2515, candidate_faces=2479, changed_rows=317, changed_faces=293, refinement_frames=20.
+- Metrics: global mae_mean=0.0775149614, psnr_mean=15.6392612457, ssim_mean=0.8483797908, mask_iou_mean=0.9886245728. hair mae=0.0767173767, hair ssim=0.7985073328. top mae=0.0506484956, top ssim=0.8313366175. pants mae=0.0559491403, pants ssim=0.8439324498.
+- Decision: T39 is the best numeric candidate so far, but the improvement over T37 is small. It should replace T37 only if the selected visual checks do not show new artifacts.
+
+Front-frame inconsistency diagnosis:
+- Shared outer Gaussians do not imply identical clothing appearance in frame 000000 and frame 000075. The Gaussian parameters are shared, but each frame deforms the set, changes the visible subset, changes depth sorting/occlusion, and samples different image regions/part masks.
+- T25 per-frame clothing metrics already show frame difficulty is different: 000000 top mae=0.038533, pants mae=0.056903; 000075 top mae=0.047431, pants mae=0.053617.
+- T39 improves 000075 to top mae=0.044302 and pants mae=0.050161, but it does not make 000075 match 000000. This means the residual gray/green clothing artifacts are not purely a global shared-color issue.
+- The user hypothesis is plausible as a partial cause: color learned from a view-visible side can be insufficient when a different side or different row subset becomes visible after deformation/occlusion. However T38/T39 show that teacher-frame color correction alone is not the full solution. The remaining issue likely needs a visibility-aware/render-loss RGB postfit or a distribution/support change for clothing rows, not another blind opacity floor or hardcoded per-frame tweak.
+
+Current candidate ranking:
+- T39 is best by global/top/pants metrics among T25-T39.
+- T38 is rejected as a main path because teacher-only from T25 under-corrects compared with all-frame T36/T37.
+- Do not hardcode frame 000075 as a special teacher. That would hide the actual shared-model failure and would not be a general solution.
+
+
+
+## T20260414-40 to T20260414-41 - combined render-loss teacher RGB-only postfit
+
+Trigger:
+- User requested continuing with teacher-based color optimization, specifically on combined render rather than standalone outer render, and asked whether the gray-green clothing artifacts might come from outer position/scale/support rather than color alone.
+
+New script:
+- Added evaluation/stage2_combiined_eval/fit_outer_rgb_teacher_combined.py.
+- It builds a merged combined checkpoint from the existing inner checkpoint and the candidate outer checkpoint, then renders combined top/pants crops on teacher-bank frames.
+- The optimization variables are only active outer top/pants rgb_logit rows. Inner rows are fixed; outer xyz, opacity, scale, and quat are fixed; non-top/pants outer rows are fixed.
+- This is not special-casing abdomen pixels or disabling a hand-picked region. The selected rows are semantic top/pants active outer rows, and the supervision frames come from the existing stage2 teacher bank.
+
+Implementation correction:
+- During T40 review, found that the first implementation saved best_state using the pre-step loss with post-step parameters. This can mislead when loss differences are tiny.
+- Fixed best-state saving order before T41 so each saved parameter state corresponds to the loss value being compared.
+
+T40:
+- Purpose: first bounded combined render-loss RGB-only postfit from T39.
+- Command intent: start from T39, teacher frames from top/pants teacher bank, parts=top,pants, iters=40, lr_rgb=0.015, out_size=320, l1_weight=1.0, hf_weight=0.25, reg_weight=0.04.
+- Ckpt: outputs/T20260414-40_stage2_outer_t39_teacher_combined_rgbfit_bounded/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-40_stage2_combined_outer_t39_teacher_combined_rgbfit_bounded/
+- Manifest: selected_rows=2515, changed_rgb_mean_abs=0.001407, changed_rgb_max_abs=0.003671.
+- Metrics: global mae_mean=0.0774927586, psnr_mean=15.6396293640, ssim_mean=0.8484110236, mask_iou_mean=0.9886245728. top mae=0.0506237149, top ssim=0.8313901424. pants mae=0.0559115596, pants ssim=0.8439994454. hair unchanged from T39/T37.
+- Decision: numerically better than T39, but the best-state mismatch meant this exact run should not be treated as a clean proof.
+
+T41:
+- Purpose: clean low-lr combined render-loss RGB-only postfit after fixing best-state ordering.
+- Command intent: start from T39, teacher frames from top/pants teacher bank, parts=top,pants, iters=80, lr_rgb=0.003, out_size=320, l1_weight=1.0, hf_weight=0.25, reg_weight=0.01.
+- Ckpt: outputs/T20260414-41_stage2_outer_t39_teacher_combined_rgbfit_lr0003/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-41_stage2_combined_outer_t39_teacher_combined_rgbfit_lr0003/
+- Manifest: selected_rows=2515, loss_best=0.0391900204, changed_rgb_mean_abs=0.001447, changed_rgb_max_abs=0.052931.
+- Metrics: global mae_mean=0.0774609447, psnr_mean=15.6407489777, ssim_mean=0.8484634161, mask_iou_mean=0.9886245728. hair mae=0.0767173767, hair ssim=0.7985073328. top mae=0.0506394207, top ssim=0.8313640356. pants mae=0.0557953045, pants ssim=0.8442566395.
+- Decision: T41 is the best numeric candidate so far. The improvement over T39 is real but small. Visual check on frames 000047, 000050, 000053, 000069, 000072, 000075 shows only subtle changes; it does not remove the main gray/green clothing artifacts.
+
+Cause diagnosis for gray-green clothing artifacts:
+- Ran outputs/T20260414-41_outer_color_cause_diag.json comparing inner-only, outer-only, and combined renders against combined GT on key top/pants frames.
+- In the inspected clothing regions, combined is usually better than inner-only, not worse. Example: 000075 top inner_mae=0.040587, combined_mae=0.040033; 000075 pants inner_mae=0.053190, combined_mae=0.047120. 000069 pants inner_mae=0.115170, combined_mae=0.098368.
+- Outer-only has very high MAE because its alpha contribution is tiny on most top/pants pixels, not because it is strongly painting a wrong full-color layer. Typical outer alpha mean is around 0.02, with p90 around 0.06-0.08.
+- On high-error pixels, outer alpha is often also low. Example: 000053 pants high-error outer_alpha_hi_mean=0.00247; 000069 pants high-error outer_alpha_hi_mean=0.00965; 000075 top high-error outer_alpha_hi_mean=0.02043.
+- Interpretation: the gray-green/gray-white residual is not primarily caused by an overactive wrong-color outer layer that should be disabled at the abdomen. It is more consistent with insufficient outer support/contribution in hard clothing regions, leaving the inner/render residual visible. Color-only teacher postfit can only make small improvements because those outer rows do not contribute enough in the problematic pixels.
+
+Current decision:
+- Promote T41 as current best numeric candidate among T25-T41.
+- Do not special-case-close abdomen outer Gaussians; the diagnostics do not support that. Closing them would likely remove a small helpful contribution and make the result depend on a fragile manual rule.
+- If further quality is required, the next real direction is not more RGB-only tweaking. It should be a general teacher/combined render-loss pass that can adjust clothing outer contribution/support, such as bounded opacity or scale under semantic top/pants teacher supervision, with exposed regions still deactivated and no hand-picked abdomen mask.
+
+## T20260414-42 - bounded teacher combined RGB+opacity postfit
+
+Trigger:
+- User asked to continue optimizing clothing color without changing the inner model, and specifically pointed out that outer hair/top contribution looked too transparent in some combined frames.
+
+T42:
+- Purpose: test whether allowing bounded opacity updates, in addition to RGB updates, can reduce the gray-green/gray-white clothing residual while keeping the inner fixed and avoiding any abdomen-specific rule.
+- Command intent: start from T41, parts=top,pants, teacher frames from outputs/stage2/teacher_bank/stage2/teacher_bank.json, iters=80, lr_rgb=0.002, optimize_opacity=true, lr_opacity=0.002, opacity_reg_weight=0.015, opacity_delta_limit=0.6, out_size=320, l1_weight=1.0, hf_weight=0.25, reg_weight=0.01.
+- Ckpt: outputs/T20260414-42_stage2_outer_t41_teacher_combined_rgb_opacity_bounded/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-42_stage2_combined_outer_t41_teacher_combined_rgb_opacity_bounded/
+- Manifest: selected_rows=2515, loss_best=0.0391749293, changed_rgb_mean_abs=0.000953, changed_rgb_max_abs=0.034853, opacity_change_mean_abs=0.00000855, opacity_change_max_abs=0.0000506.
+- Metrics: global mae_mean=0.0774251670, psnr_mean=15.6417198181, ssim_mean=0.8485185504, mask_iou_mean=0.9886245728. hair mae=0.0767173767, hair ssim=0.7985073328. top mae=0.0506335981, top ssim=0.8313816190. pants mae=0.0556931756, pants ssim=0.8444703817. face unchanged from T41.
+- Visual check: local temporary montage only, not committed, at %TEMP%/ega_t42_review/T39_T41_T42_torso_compare.png. Compared frames 000047, 000050, 000053, 000069, 000072, and 000075 against T39/T41. T42 is only subtly different from T41; the main clothing gray-green/gray-white blotches remain visible.
+- Decision: T42 is the best numeric candidate so far, but it is not a real visual solution. Because opacity changed by only about 5e-05 at max, this run effectively behaves like another tiny RGB postfit rather than a meaningful outer-contribution test. The next test should use a stronger but still bounded top/pants opacity setting, still driven by teacher combined render loss and still without changing inner rows, xyz, scale, quat, or any hand-picked abdomen mask.
+
+## T20260414-43 - stronger bounded teacher combined RGB+opacity postfit
+
+Trigger:
+- T42 showed only tiny opacity movement, so it did not genuinely test whether stronger outer top/pants contribution could reduce the clothing color artifacts.
+
+T43:
+- Purpose: run a stronger but still bounded opacity test from T41, without changing inner rows or any outer xyz/scale/quat, and without any abdomen/frame-specific rule.
+- Command intent: start from T41, parts=top,pants, teacher frames from outputs/stage2/teacher_bank/stage2/teacher_bank.json, iters=120, lr_rgb=0.0015, optimize_opacity=true, lr_opacity=0.02, opacity_reg_weight=0.001, opacity_delta_limit=1.0, out_size=320, l1_weight=1.0, hf_weight=0.25, reg_weight=0.01.
+- Ckpt: outputs/T20260414-43_stage2_outer_t41_teacher_combined_rgb_opacity_stronger/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-43_stage2_combined_outer_t41_teacher_combined_rgb_opacity_stronger/
+- Manifest: selected_rows=2515, loss_best=0.0387243517, changed_rgb_mean_abs=0.0000484, changed_rgb_max_abs=0.0280230, opacity_change_mean_abs=0.008557, opacity_change_max_abs=0.095764.
+- Metrics: global mae_mean=0.0766976550, psnr_mean=15.5137405396, ssim_mean=0.8494940400, mask_iou_mean=0.9870125651. top mae=0.0496756695, top ssim=0.8335062265. pants mae=0.0545443259, pants ssim=0.8467633724. hair and face unchanged by parameter design.
+- Visual check: local temporary montage only, not committed, at %TEMP%/ega_t43_review/T41_T42_T43_torso_compare.png. Compared frames 000047, 000050, 000053, 000069, 000072, and 000075.
+- Key-frame metrics: T43 improves 000047, 000050, 000072, and 000075 top/pants MAE, but worsens the exact hard pants cases 000053 and 000069. 000053 pants MAE changes from T42 0.106990 to T43 0.111507; 000069 pants MAE changes from T42 0.071049 to T43 0.079810.
+- Decision: T43 is useful evidence, not a final candidate. It proves that increasing outer contribution can improve average top/pants metrics, but the stronger opacity update over-amplifies pants errors on hard side-view frames. The next test should use a middle opacity strength, still teacher-combined and semantic top/pants only, to seek a better tradeoff.
+
+## T20260414-44 - middle-strength bounded teacher combined RGB+opacity postfit
+
+Trigger:
+- T43 improved average top/pants metrics but worsened the hard pants frames 000053 and 000069. Needed a middle opacity setting to test whether the benefit can be kept without the side-view pants regression.
+
+T44:
+- Purpose: run a middle-strength top/pants opacity test from T41, still using teacher-combined render loss, no inner changes, no outer xyz/scale/quat changes, and no abdomen/frame-specific rule.
+- Command intent: start from T41, parts=top,pants, teacher frames from outputs/stage2/teacher_bank/stage2/teacher_bank.json, iters=120, lr_rgb=0.0015, optimize_opacity=true, lr_opacity=0.01, opacity_reg_weight=0.004, opacity_delta_limit=0.8, out_size=320, l1_weight=1.0, hf_weight=0.25, reg_weight=0.01.
+- Ckpt: outputs/T20260414-44_stage2_outer_t41_teacher_combined_rgb_opacity_mid/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-44_stage2_combined_outer_t41_teacher_combined_rgb_opacity_mid/
+- Manifest: selected_rows=2515, loss_best=0.0391465016, changed_rgb_mean_abs=0.000490, changed_rgb_max_abs=0.035620, opacity_change_mean_abs=0.001183, opacity_change_max_abs=0.030232.
+- Metrics: global mae_mean=0.0771441236, psnr_mean=15.6448993683, ssim_mean=0.8489395380, mask_iou_mean=0.9885662794. top mae=0.0506142452, top ssim=0.8314299583. pants mae=0.0548519641, pants ssim=0.8462430239. hair and face unchanged by parameter design.
+- Key-frame metrics: compared against T42, 000053 pants improves slightly from 0.106990 to 0.106684, while 000069 pants worsens slightly from 0.071049 to 0.071373. This is far safer than T43, where 000069 pants worsened to 0.079810.
+- Visual check: local temporary montage only, not committed, at %TEMP%/ega_t44_review/T42_T43_T44_torso_compare.png. T44 looks close to T42, not a strong visual fix for the abdomen gray/green residual.
+- Decision: T44 is a safer numeric candidate than T43 and improves global/pants summary over T42, but visually it is still too conservative. The evidence suggests top and pants should not share the same opacity strength. Next test should optimize top strongly and leave pants unchanged, then optionally add a separate mild pants pass if top-only is stable.
+
+## T20260414-45 - top-only stronger bounded teacher combined RGB+opacity postfit
+
+Trigger:
+- T43 showed stronger opacity helps top metrics but hurts hard pants frames. T44 was safe but visually too conservative. Needed a semantic split: optimize top strongly while leaving pants unchanged.
+
+T45:
+- Purpose: run strong RGB+opacity optimization only for active outer top rows from T41, using teacher-combined render loss. Pants, hair, face, inner rows, and all outer xyz/scale/quat are unchanged.
+- Command intent: start from T41, parts=top, top teacher frames from outputs/stage2/teacher_bank/stage2/teacher_bank.json, iters=120, lr_rgb=0.0015, optimize_opacity=true, lr_opacity=0.02, opacity_reg_weight=0.001, opacity_delta_limit=1.0, out_size=320, l1_weight=1.0, hf_weight=0.25, reg_weight=0.01.
+- Ckpt: outputs/T20260414-45_stage2_outer_t41_teacher_combined_top_rgb_opacity_stronger/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-45_stage2_combined_outer_t41_teacher_combined_top_rgb_opacity_stronger/
+- Manifest: selected_rows=1590, loss_best=0.0358954147, changed_rgb_mean_abs=0.0000381, changed_rgb_max_abs=0.0104271, opacity_change_mean_abs=0.006350, opacity_change_max_abs=0.098473.
+- Metrics: global mae_mean=0.0771208704, psnr_mean=15.6240768433, ssim_mean=0.8489786983, mask_iou_mean=0.9883170724. top mae=0.0498482883, top ssim=0.8331371546. pants mae=0.0557957888, pants ssim=0.8442577720. hair and face unchanged by parameter design.
+- Key-frame metrics: T45 improves top on 000047, 000050, 000053, 000072, and 000075, while pants stays approximately at T41/T42 levels. It does not inherit T43's large pants regression. The exception is 000069 top, which worsens from T42 top_mae=0.073720 to T45 top_mae=0.074215.
+- Visual check: local temporary montage only, not committed, at %TEMP%/ega_t45_review/T42_T44_T45_torso_compare.png. T45 is visually close to T42/T44; the abdomen residual is not fundamentally gone, but the semantic split is cleaner than optimizing top+pants with one shared opacity strength.
+- Decision: T45 is not a final visual solution, but it is a cleaner branch than T43. Next test should start from T45 and add only a mild pants pass, using T44-style opacity strength, to combine top improvements with safer pants refinement.
+
+## T20260414-46 - top-strong plus pants-mid semantic split
+
+Trigger:
+- T45 improved top without directly damaging pants, but pants stayed at the T41/T42 level. T44 showed a mild pants pass can improve pants safely. Needed a combined semantic split: top strong, pants mild.
+
+T46:
+- Purpose: start from T45 and apply only a mild pants RGB+opacity pass, preserving T45's top update. This keeps the split semantic and avoids any abdomen/frame-specific logic.
+- Command intent: start from T45, parts=pants, pants teacher frames from outputs/stage2/teacher_bank/stage2/teacher_bank.json, iters=120, lr_rgb=0.0015, optimize_opacity=true, lr_opacity=0.01, opacity_reg_weight=0.004, opacity_delta_limit=0.8, out_size=320, l1_weight=1.0, hf_weight=0.25, reg_weight=0.01.
+- Ckpt: outputs/T20260414-46_stage2_outer_t45_teacher_combined_top_strong_pants_mid/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-46_stage2_combined_outer_t45_teacher_combined_top_strong_pants_mid/
+- Manifest: selected_rows=925, loss_best=0.0312356967, changed_rgb_mean_abs=0.000539, changed_rgb_max_abs=0.037675, opacity_change_mean_abs=0.001952, opacity_change_max_abs=0.030371.
+- Metrics: global mae_mean=0.0769166499, psnr_mean=15.6272592545, ssim_mean=0.8492824435, mask_iou_mean=0.9882833362. top mae=0.0498482846, top ssim=0.8331371546. pants mae=0.0551743135, pants ssim=0.8455343246. hair and face unchanged by parameter design.
+- Key-frame metrics: T46 improves 000047, 000050, 000053, 000072, and 000075 over T42 in global MAE/SSIM, and keeps the T45 top improvement. However 000069 is worse than T42: global MAE 0.096269 vs 0.095886, top MAE 0.074215 vs 0.073720, pants MAE 0.071532 vs 0.071049.
+- Visual check: local temporary montage only, not committed, at %TEMP%/ega_t46_review/T42_T45_T46_torso_compare.png. T46 is the best summary-metric candidate so far, but still not a qualitative fix for the gray-green abdomen/side-view instability.
+- Decision: T46 is the current best numeric candidate by global MAE/SSIM and preserves inner/hair/face. It should not be oversold as solved. The remaining issue is teacher-only top opacity generalization: stronger top contribution helps many teacher-similar views but can slightly hurt the 000069 side-view region. The next real change should add a general non-teacher guard or heldout-view consistency term, not more blind opacity strength.
+
+## T20260414-47 - top-strong with non-teacher render-consistency guard
+
+Trigger:
+- T45/T46 showed teacher-only top opacity improves many views but slightly worsens side-view 000069. Needed to test a general non-teacher consistency guard rather than hand-tuning a single frame.
+
+Code change:
+- Updated evaluation/stage2_combiined_eval/fit_outer_rgb_teacher_combined.py with optional guard arguments: --guard_mode, --guard_parts, --guard_weight, --guard_frame_stride, and --guard_max_frames.
+- Default behavior is unchanged: guard_mode=none and guard_weight=0.0.
+- The guard compares optimized renders to the source checkpoint's baseline render on non-teacher frames. It does not use non-teacher GT as a new color target and does not change the inner model.
+- Backup before edit: trash/T20260414_before_guard_fit_outer_rgb_teacher_combined.py.
+- Syntax check passed: python -m py_compile evaluation/stage2_combiined_eval/fit_outer_rgb_teacher_combined.py.
+
+T47:
+- Purpose: repeat top-only strong RGB+opacity optimization from T41 while adding non-teacher top render-consistency guard, to reduce unseen-view drift without abandoning teacher-frame supervision.
+- Command intent: start from T41, parts=top, guard_mode=non_teacher, guard_parts=top, guard_weight=0.25, guard_frame_stride=3, guard_max_frames=0, iters=100, lr_rgb=0.0015, optimize_opacity=true, lr_opacity=0.02, opacity_reg_weight=0.001, opacity_delta_limit=1.0, out_size=320, l1_weight=1.0, hf_weight=0.25, reg_weight=0.01.
+- Guard targets: 18 non-teacher top frames selected by stride, including 000000, 000003, 000008, 000015, 000019, 000022, 000027, 000032, 000040, 000044, 000047, 000050, 000053, 000057, 000061, 000067, 000070, and 000074.
+- Ckpt: outputs/T20260414-47_stage2_outer_t41_teacher_top_strong_nonteacher_guard/gaussians3d.pt
+- Eval: evaluation/eval_outputs/T20260414-47_stage2_combined_outer_t41_teacher_top_strong_nonteacher_guard/
+- Manifest: selected_rows=1590, loss_best=0.0359058380, changed_rgb_mean_abs=0.0000378, changed_rgb_max_abs=0.008773, opacity_change_mean_abs=0.006139, opacity_change_max_abs=0.098617.
+- Metrics: global mae_mean=0.0771346241, psnr_mean=15.6247911453, ssim_mean=0.8489596248, mask_iou_mean=0.9883264899. top mae=0.0498800874, top ssim=0.8330689073. pants mae=0.0557957664, pants ssim=0.8442577124. hair and face unchanged by parameter design.
+- Key-frame metrics: compared with T45, T47 slightly worsens top on 000047, 000050, 000053, 000069, 000072, and 000075. It also does not fix 000069; top MAE becomes 0.074298 versus T45 0.074215 and T42 0.073720.
+- Decision: reject T47 as a candidate. The guard implementation is useful infrastructure, but this specific non-teacher baseline-consistency setting does not solve the side-view problem and weakens the teacher improvement. Current best choices are T46 for best global/top+pants summary metrics, or T44 for a more conservative/PSNR-friendlier result. The unresolved visual issue likely needs a better outer distribution/support training stage, not more postfit opacity tweaking.
+
+## T20260414-48 - outer clothing artifact trigger/source diagnosis
+
+Trigger:
+- User asked which frames trigger the gray-green/gray clothing artifact on the shirt/abdomen, which frames learned the outer color, and whether the current outer activation/alpha threshold is necessary. The user explicitly asked not to modify thresholds.
+
+Code change:
+- Added evaluation/stage2_combiined_eval/diagnose_outer_artifact_triggers.py.
+- This is a diagnostic-only script. It does not modify thresholds, inner artifacts, training outputs, or checkpoints.
+- Syntax check passed: python -m py_compile evaluation/stage2_combiined_eval/diagnose_outer_artifact_triggers.py.
+
+T48:
+- Purpose: diagnose T46, the current best numeric candidate, by comparing combined vs inner-only vs outer-only crops on top/pants regions over all 69 frames.
+- Command intent: outer_ckpt=outputs/T20260414-46_stage2_outer_t45_teacher_combined_top_strong_pants_mid/gaussians3d.pt, parts=top,pants, frames=all, alpha_threshold=0.03, harmful_margin=0.01, out_size=320.
+- Output: outputs/T20260414-48_outer_abdomen_trigger_diag_t46/outer_artifact_trigger_diag.json and outputs/T20260414-48_outer_abdomen_trigger_diag_t46/outer_artifact_trigger_rank.csv.
+- Log: outputs/logs/T20260414-48_outer_abdomen_trigger_diag_t46.log.
+
+Latest color-learning sources:
+- Top latest source: outputs/T20260414-45_stage2_outer_t41_teacher_combined_top_rgb_opacity_stronger/teacher_combined_rgb_postfit_manifest.json.
+- Top teacher frames: 000023.jpg, 000071.jpg, 000026.jpg, 000016.jpg, 000013.jpg, 000059.jpg, 000011.jpg, 000039.jpg, 000035.jpg, 000036.jpg, 000014.jpg, 000063.jpg, 000038.jpg, 000062.jpg, 000034.jpg, 000009.jpg.
+- Pants latest source: outputs/T20260414-46_stage2_outer_t45_teacher_combined_top_strong_pants_mid/teacher_combined_rgb_postfit_manifest.json.
+- Pants teacher frames: 000003.jpg, 000072.jpg, 000044.jpg, 000013.jpg, 000039.jpg, 000035.jpg, 000057.jpg.
+
+Top abdomen-proxy trigger ranking:
+- Strongest top abdomen-proxy harmful ratios: 000022=0.0510, 000047=0.0486, 000067=0.0465, 000026=0.0463, 000069=0.0440, 000046=0.0433, 000021=0.0425, 000020=0.0421, 000070=0.0408, 000048=0.0404.
+- In the user-mentioned ranges, 000047 and 000069/000070 are the most suspicious top-abdomen trigger frames. 000050 is weak/neutral by mean delta, and 000053 is actually helped overall in the top abdomen proxy despite still having some harmful pixels.
+- Specific user-frame top abdomen-proxy values: 000047 delta_combined_minus_inner=+0.000855, harmful_ratio=0.0486; 000048 +0.000401, 0.0404; 000049 +0.000220, 0.0349; 000050 -0.000020, 0.0340; 000051 -0.000129, 0.0240; 000052 -0.000165, 0.0235; 000053 -0.000477, 0.0120; 000069 +0.000581, 0.0440; 000070 +0.000503, 0.0408; 000071 +0.000370, 0.0386; 000072 +0.000112, 0.0306; 000073 +0.000088, 0.0312; 000074 -0.000235, 0.0252; 000075 -0.000019, 0.0279.
+
+Threshold/activation observation:
+- Diagnostic alpha_threshold was kept at 0.03; it was not modified.
+- Harmful top abdomen pixels are not all below threshold. Example harmful_outer_alpha: 000047 mean=0.0503, p90=0.0786; 000069 mean=0.0546, p90=0.0950; 000070 mean=0.0511, p90=0.0783. These values are above 0.03, so the artifact is triggered by visible outer contribution, not only by a sub-threshold ghost.
+- For whole top abdomen-proxy regions, outer_alpha_mean is lower, around 0.019-0.020, but about 25-26% of pixels exceed 0.03 in 000047/000069/000070. This means the threshold is clipping some weak contribution but not the harmful local contribution.
+
+Color interpretation:
+- The harmful top abdomen outer-only RGB is near white/gray, not green: 000047 outer RGB around [0.982, 0.982, 0.982], 000069 around [0.980, 0.979, 0.980], 000070 around [0.981, 0.981, 0.981].
+- The visible artifact can look gray-green because a near-white/gray outer layer is blended over a dark green shirt, washing out the shirt color. It is not evidence that the outer rows learned a saturated green wrong color.
+- T48 supports inspecting/changing outer support or opacity/color target logic later, but not blindly lowering the threshold now.
+
+Decision:
+- Do not change the threshold yet. The current threshold is relevant because harmful local alpha is often above it; changing it without a better support/color rule would hide symptoms and may remove useful outer contribution elsewhere.
+- If the goal is to fix the artifact, the next clean experiment should target the outer top contribution/source rows around the trigger frames, not add a per-frame exception. A better follow-up is a row-level attribution pass on the top-abdomen harmful pixels in 000047/000069/000070 to identify the Gaussian rows/faces responsible.
+
+
+T49:
+- Purpose: verify whether all-frame combined supervision can fix the top clothing color mismatch by RGB-only postfit with fixed outer geometry.
+- Script: evaluation/stage2_combiined_eval/fit_outer_rgb_combined_allframes.py.
+- Source ckpt: outputs/T20260414-46_stage2_outer_t45_teacher_combined_top_strong_pants_mid/gaussians3d.pt.
+- Output: outputs/T20260414-49_stage2_outer_t46_top_allframe_combined_rgb.
+- Result: no effective update. Manifest recorded changed_rgb_mean_abs=0.0 and changed_rgb_max_abs=0.0.
+- Conclusion: all-frame combined RGB-only optimization is a dead end under fixed geometry/support. The problem is not solved by simply repainting top rows.
+
+T50:
+- Purpose: retest all-frame combined postfit after adding optional opacity optimization, still with fixed outer geometry.
+- Script update: added --optimize_opacity / --lr_opacity / --opacity_reg_weight / --opacity_delta_limit to evaluation/stage2_combiined_eval/fit_outer_rgb_combined_allframes.py.
+- Output: outputs/T20260414-50_stage2_outer_t46_top_allframe_combined_rgb_opacity.
+- Manifest: changed_rgb_mean_abs=0.0, opacity_change_mean_abs=0.0, loss_best=0.04582345485687256.
+- Iter log: iter 0001 was already the best point; later iterations only increased the objective slightly.
+- Conclusion: fixed-geometry all-frame combined RGB+opacity postfit still cannot improve the model. This confirms the bottleneck is support/distribution, not lack of a later color-only pass.
+
+T51:
+- Purpose: test a different direction: identify top abdomen-proxy faces where outer contribution repeatedly makes combined worse than inner, then globally attenuate those outer faces.
+- New script: evaluation/stage2_combiined_eval/attenuate_harmful_outer_top_faces.py.
+- Source ckpt: outputs/T20260414-46_stage2_outer_t45_teacher_combined_top_strong_pants_mid/gaussians3d.pt.
+- Output ckpt: outputs/T20260414-51_stage2_outer_t46_top_harmful_face_atten60.
+- Eval output: evaluation/eval_outputs/T20260414-51_stage2_combined_outer_t46_top_harmful_face_atten60.
+- Selected harmful top faces: 48. Actual affected active outer rows: 45.
+- Opacity change: mean_abs=0.0274558272, max_abs=0.0321534798.
+- Global metrics vs T46: MAE 0.07691665 -> 0.07684722, SSIM 0.84928244 -> 0.84930813, PSNR 15.62725925 -> 15.62400055.
+- Top metrics vs T46: MAE 0.04984828 -> 0.04967611, SSIM 0.83313715 -> 0.83326906.
+- Key clothing frames all improved slightly except 000067, which became marginally worse. Example: 000069 MAE 0.096269 -> 0.095866, 000070 0.086077 -> 0.085657, 000047 0.082452 -> 0.082086.
+- Conclusion: harmful-face attenuation is the first post-T46 modification that consistently improves the abdomen-problem frames. This is a valid direction.
+
+T52:
+- Purpose: test stronger attenuation on the same harmful top faces to see whether the abdomen artifact keeps decreasing or starts causing support loss.
+- Output ckpt: outputs/T20260414-52_stage2_outer_t46_top_harmful_face_atten35.
+- Eval output: evaluation/eval_outputs/T20260414-52_stage2_combined_outer_t46_top_harmful_face_atten35.
+- Same selected faces as T51; affected active outer rows still 45.
+- Opacity change: mean_abs=0.0446157195, max_abs=0.0522494093.
+- Global metrics vs T46: MAE 0.07691665 -> 0.07682376, SSIM 0.84928244 -> 0.84929448, PSNR 15.62725925 -> 15.62115383.
+- Top metrics vs T46: MAE 0.04984828 -> 0.04962255, SSIM 0.83313715 -> 0.83324999.
+- Key frames continued to improve over both T46 and T51. Examples: 000047 MAE 0.082452 -> 0.081896, 000069 0.096269 -> 0.095652, 000070 0.086077 -> 0.085445, 000073 0.085638 -> 0.085022, 000075 0.073128 -> 0.072592.
+- 000067 remained the main counterexample and became slightly worse than T46: MAE 0.108462 -> 0.108499.
+- Conclusion: stronger harmful-face attenuation gives better clothing-frame behavior than T51 and is currently the best variant on the abdomen-problem frame set.
+
+T53:
+- Purpose: push the same attenuation direction harder to check for another gain region.
+- Output ckpt: outputs/T20260414-53_stage2_outer_t46_top_harmful_face_atten20.
+- Eval output: evaluation/eval_outputs/T20260414-53_stage2_combined_outer_t46_top_harmful_face_atten20.
+- Opacity change: mean_abs=0.0547319986, max_abs=0.0643069595.
+- Evaluation result: effectively identical to T52 at report precision. Same global summary and same key-frame scores were observed.
+- Conclusion: this attenuation branch has saturated. Going below the T52 opacity scale on the selected harmful rows does not buy additional measurable improvement.
+
+Current conclusion after T49-T53:
+- The original hypothesis that a later combined color-only refinement would fix the gray-green abdomen artifact was too optimistic. The experiments falsified it directly.
+- The more accurate mechanism is: a small subset of active top outer rows/faces contributes repeatedly harmful support in the abdomen proxy across many frames.
+- A data-driven global attenuation of those rows improves the target frames without touching inner assets or inner code.
+- Among the new variants in this round, T52 is the best practical checkpoint for the shirt-abdomen artifact. T53 does not improve beyond it.
+- Current best clothing-fix checkpoint from this round: outputs/T20260414-52_stage2_outer_t46_top_harmful_face_atten35/gaussians3d.pt.
+- Current paired combined evaluation from this round: evaluation/eval_outputs/T20260414-52_stage2_combined_outer_t46_top_harmful_face_atten35.
+T54:
+- Purpose: test whether T52 can be improved by reactivating pruned top outer rows on low-alpha high-error faces.
+- Script: evaluation/stage2_combiined_eval/targeted_reactivate_outer_parts.py.
+- Source ckpt: outputs/T20260414-52_stage2_outer_t46_top_harmful_face_atten35/gaussians3d.pt.
+- Output ckpt: outputs/T20260415-54_stage2_outer_t52_top_reactivate_moderate.
+- Parameters: parts=top, low_outer_alpha=0.05, high_error_quantile=0.80, min_face_votes=100, top_faces_per_part=80, target_opacity=0.035.
+- Result: selected_face_count=80 but reactivated_rows=0.
+- Conclusion: there are no useful pruned top rows left on the selected support-deficit faces. The residual problem is not recoverable through simple reactivation of pruned outer rows.
+
+T55:
+- Purpose: after T54 failed, test a new branch that boosts active low-opacity top rows on support-deficit faces while explicitly excluding the harmful faces already attenuated in T52.
+- New script: evaluation/stage2_combiined_eval/boost_supportive_outer_top_faces.py.
+- Source ckpt: outputs/T20260414-52_stage2_outer_t46_top_harmful_face_atten35/gaussians3d.pt.
+- Output ckpt: outputs/T20260415-55_stage2_outer_t52_top_support_boost035.
+- Eval output: evaluation/eval_outputs/T20260415-55_stage2_combined_outer_t52_top_support_boost035.
+- Parameters: low_outer_alpha=0.05, high_error_quantile=0.80, min_face_votes=100, top_faces=80, target_opacity=0.035, exclude_harmful_faces=true.
+- Manifest: selected_rows=61, boosted_rows=7, opacity_change_mean_abs=0.0050000027.
+- Evaluation: identical to T52 at report precision.
+- Conclusion: the support-boost idea is not wrong, but this setting is too weak to move the renders.
+
+T56:
+- Purpose: test stronger support boost on the same selected supportive top faces.
+- Output ckpt: outputs/T20260415-56_stage2_outer_t52_top_support_boost060.
+- Eval output: evaluation/eval_outputs/T20260415-56_stage2_combined_outer_t52_top_support_boost060.
+- Parameters changed from T55: target_opacity=0.06.
+- Manifest: selected_rows=61, boosted_rows=34, opacity_change_mean_abs=0.0140454229, opacity_change_max_abs=0.0300000012.
+- Global metrics vs T52: MAE 0.07682376 -> 0.07681462, PSNR 15.62115383 -> 15.62242603, SSIM 0.84929448 -> 0.84930456.
+- Top metrics vs T52: MAE 0.04962255 -> 0.04960201, SSIM 0.83324999 -> 0.83328241.
+- Key clothing/problem frames: 000067 MAE 0.108499 -> 0.108496, 000069 0.095652 -> 0.095597, 000068 0.106748 -> 0.106708, 000047 0.081896 -> 0.081881.
+- Tradeoff: a few already-good frames became microscopically worse, e.g. 000050 and 000051 by around 1e-5 to 1e-4 scale.
+- Conclusion: moderate support boost is valid and improves T52 slightly.
+
+T57:
+- Purpose: push the same support-boost branch further.
+- Output ckpt: outputs/T20260415-57_stage2_outer_t52_top_support_boost080.
+- Eval output: evaluation/eval_outputs/T20260415-57_stage2_combined_outer_t52_top_support_boost080.
+- Parameters changed from T56: target_opacity=0.08.
+- Manifest: selected_rows=61, boosted_rows=45, opacity_change_mean_abs=0.0257826224, opacity_change_max_abs=0.0500000007.
+- Global metrics vs T56: MAE 0.07681462 -> 0.07680737, PSNR 15.62242603 -> 15.62349606, SSIM 0.84930456 -> 0.84931195.
+- Top metrics vs T56: MAE 0.04960201 -> 0.04958323, SSIM 0.83328241 -> 0.83330512.
+- Key frames improved again: 000067 MAE 0.108496 -> 0.108494, 000069 0.095597 -> 0.095571, 000068 0.106708 -> 0.106679, 000047 0.081881 -> 0.081874.
+- Conclusion: the support-boost branch still has positive headroom at 0.08.
+
+T58:
+- Purpose: one more saturation test for supportive top-face boost.
+- Output ckpt: outputs/T20260415-58_stage2_outer_t52_top_support_boost100.
+- Eval output: evaluation/eval_outputs/T20260415-58_stage2_combined_outer_t52_top_support_boost100.
+- Parameters changed from T57: target_opacity=0.10.
+- Manifest: selected_rows=61, boosted_rows=58, opacity_change_mean_abs=0.0399663039, opacity_change_max_abs=0.0700000077.
+- Global metrics vs T57: MAE 0.07680737 -> 0.07680006, PSNR 15.62349606 -> 15.62475777, SSIM 0.84931195 -> 0.84931874.
+- Top metrics vs T57: MAE 0.04958323 -> 0.04956267, SSIM 0.83330512 -> 0.83332974.
+- Key frames improved again: 000067 MAE 0.108494 -> 0.108490, 000069 0.095571 -> 0.095539, 000068 0.106679 -> 0.106638, 000047 0.081874 -> 0.081865.
+- Tradeoff remains tiny: some non-priority frames such as 000072/000074/000075 worsen by only a few 1e-5 to 1e-4.
+- Conclusion: among the support-boost variants tested so far, T58 is the strongest result. The branch has not fully reversed yet, but the gains are already very small, so this is close to a diminishing-returns zone.
+
+Current conclusion after T54-T58:
+- T54 falsified the idea that residual top support can be recovered by simply reactivating pruned rows.
+- The useful follow-up was not reactivation but selective boosting of already-active low-opacity supportive top rows while excluding the previously identified harmful faces.
+- This branch gives small but consistent gains from T55 -> T56 -> T57 -> T58.
+- Current best checkpoint after this round: outputs/T20260415-58_stage2_outer_t52_top_support_boost100/gaussians3d.pt.
+- Current best paired combined evaluation after this round: evaluation/eval_outputs/T20260415-58_stage2_combined_outer_t52_top_support_boost100.
+- Relative to the earlier best post-attenuation candidate T52, T58 further improves the priority clothing frames without touching inner code or inner artifacts: 000047 MAE 0.081896 -> 0.081865, 000067 0.108499 -> 0.108490, 000069 0.095652 -> 0.095539, 000070 0.085445 -> 0.085421.
+- The remaining gains are now small enough that further progress is more likely to require changing outer support distribution in training rather than continuing post-hoc opacity nudging.
+
+T59:
+- Purpose: test whether a weighted supportive-top-face boost can beat the uniform T58-style branch by assigning per-face target opacity from support score instead of using a single shared target.
+- New script: evaluation/stage2_combiined_eval/boost_supportive_outer_top_faces_weighted.py.
+- Source ckpt: outputs/T20260414-52_stage2_outer_t46_top_harmful_face_atten35/gaussians3d.pt.
+- Output ckpt: outputs/T20260415-59_stage2_outer_t52_top_support_boost_weighted_04_10.
+- Eval output: evaluation/eval_outputs/T20260415-59_stage2_combined_outer_t52_top_support_boost_weighted_04_10.
+- Parameters: low_outer_alpha=0.05, high_error_quantile=0.80, min_face_votes=100, top_faces=80, target_opacity_min=0.04, target_opacity_max=0.10, score_gamma=1.0, exclude_harmful_faces=true.
+- Manifest: selected_rows=61, boosted_rows=14, opacity_change_mean_abs=0.0119729.
+- Global metrics vs T58: MAE 0.07680006 -> 0.07681790, PSNR 15.62475777 -> 15.62194157, SSIM 0.84931874 -> 0.84930164.
+- Top metrics vs T58: MAE 0.04956267 -> 0.04961083, SSIM 0.83332974 -> 0.83327258.
+- Key frames vs T58 all moved the wrong way on the priority set: 000047 MAE 0.08186506 -> 0.08188579, 000067 0.10848998 -> 0.10849777, 000068 0.10663758 -> 0.10672253, 000069 0.09553940 -> 0.09561230, 000070 0.08542133 -> 0.08544077.
+- Conclusion: the weighted branch is not more intelligent here; it is simply worse. The current support score is not reliable enough to allocate per-face opacity targets better than the uniform branch.
+
+T60:
+- Purpose: test whether the uniform supportive-top-face boost branch still has real headroom beyond T58 by pushing target_opacity from 0.10 to 0.12.
+- Source ckpt: outputs/T20260414-52_stage2_outer_t46_top_harmful_face_atten35/gaussians3d.pt.
+- Output ckpt: outputs/T20260415-60_stage2_outer_t52_top_support_boost120.
+- Eval output: evaluation/eval_outputs/T20260415-60_stage2_combined_outer_t52_top_support_boost120.
+- Parameters changed from T58: target_opacity=0.12.
+- Manifest: selected_rows=61, boosted_rows=60, opacity_change_mean_abs=0.0580909029, opacity_change_max_abs=0.0900000036.
+- Global metrics vs T58: MAE 0.07680006 -> 0.07679397, PSNR 15.62475777 -> 15.62578392, SSIM 0.84931874 -> 0.84932560, mask IoU 0.98820871 -> 0.98821169.
+- Top metrics vs T58: MAE 0.04956267 -> 0.04954443, SSIM 0.83332974 -> 0.83335274.
+- Pants metrics vs T58: MAE 0.05517155 -> 0.05517117, SSIM 0.84555477 -> 0.84555537.
+- Key clothing/problem frames mostly improved again: 000047 MAE 0.08186506 -> 0.08185790, 000067 0.10848998 -> 0.10848650, 000068 0.10663758 -> 0.10659976, 000069 0.09553940 -> 0.09550419, 000070 0.08542133 -> 0.08541214.
+- Tradeoff: a few already-good non-priority frames moved slightly worse, e.g. 000072 0.07708569 -> 0.07710075, 000074 0.07696673 -> 0.07697006, 000075 0.07260676 -> 0.07261405.
+- Conclusion: T60 is the new best result on this post-hoc support-boost branch, but the gains are now extremely small. This branch still has not clearly reversed, yet it is firmly in diminishing-returns territory.
+
+Current conclusion after T59-T60:
+- T59 falsified the idea that a weighted per-face opacity schedule is better than the simpler uniform support-boost branch.
+- T60 confirms that the uniform support-boost branch still yields real but tiny gains beyond T58.
+- Current best checkpoint after this round: outputs/T20260415-60_stage2_outer_t52_top_support_boost120/gaussians3d.pt.
+- Current best paired combined evaluation after this round: evaluation/eval_outputs/T20260415-60_stage2_combined_outer_t52_top_support_boost120.
+- The branch is now so close to saturation that continuing to nudge post-hoc opacity is unlikely to solve the remaining abdomen color error in any meaningful way; the next non-cosmetic improvement should come from changing outer support distribution during training rather than continuing this line indefinitely.
+
+T61:
+- Purpose: stop chasing tiny post-hoc opacity gains and test a teacher-driven color/opacity refinement that updates only outer gaussians on cloth parts using combined targets.
+- New script: src/avatar_gs/cli/stage2_outer_part_postfit.py.
+- Design: derived from stage2_part_postfit.py but changed in three crucial ways: select only shell==1 active rows, bind with apply_outer_anchor_per_frame, and support target_source=combined_rgb.
+- First run failure: the inherited PROJECT_ROOT resolution in the copied script pointed one directory too high, which caused ModuleNotFoundError: avatar_gs. This was patched before the successful rerun; no inner code was touched.
+- Source ckpt: outputs/T20260415-60_stage2_outer_t52_top_support_boost120/gaussians3d.pt.
+- Teacher bank: outputs/stage2/teacher_bank/stage2/teacher_bank.json.
+- Postfit tag: outputs/stage2/part_fit/T20260415-61_outer_partpostfit_combined_teacher_t60_top_pants_torso.
+- Output ckpt: outputs/T20260415-61_stage2_outer_t60_partpostfit_combined_teacher/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-61_stage2_combined_outer_t60_partpostfit_combined_teacher.
+- Parameters: target_source=combined_rgb, iters=300, train_parts=[top,pants,torso].
+- Training coverage: selected gaussians=3106 / 110908 initially; after support gating the trainable subset was 937 outer gaussians across 26 teacher targets.
+- Global metrics vs T60: MAE 0.07679397 -> 0.07370480, PSNR 15.62578392 -> 15.82970142, SSIM 0.84932560 -> 0.85428810, mask IoU 0.98821169 -> 0.99007607.
+- Top metrics vs T60: MAE 0.04954443 -> 0.04516151, SSIM 0.83335274 -> 0.84262717, coverage 0.99560559 -> 0.99808168.
+- Pants metrics vs T60: MAE 0.05517117 -> 0.05040682, SSIM 0.84555537 -> 0.85364646, coverage 0.99679089 -> 0.99826992.
+- Hair stayed effectively unchanged instead of regressing: MAE 0.07671738 -> 0.07671426, SSIM 0.79850733 -> 0.79852277.
+- Key clothing/problem frames improved by meaningful margins rather than 1e-5 noise: 000047 MAE 0.08185790 -> 0.07773728, 000048 0.08614688 -> 0.08380549, 000053 0.11025093 -> 0.10413128, 000067 0.10848650 -> 0.10122088, 000068 0.10659976 -> 0.09274911, 000069 0.09550419 -> 0.08708899, 000070 0.08541214 -> 0.08132056.
+- Tradeoff: a few already-good frames changed little or slightly worsened, but the dominant movement is clearly positive; even the mild regressions are far smaller than the gains on the abdomen-problem frames.
+- Conclusion: this is the first modification after the attenuation/support-boost branch that produces a real step-change instead of decimal dust. The remaining abdomen issue was not mainly a visibility-threshold problem; it was largely an outer color/support attribution problem, and teacher-driven combined outer postfit addresses it much more directly.
+
+Current conclusion after T61:
+- The uniform opacity branch was useful for cleanup, but it was nearing saturation and could not resolve the cloth color mismatch meaningfully.
+- The stronger direction is not more opacity tuning; it is outer-only teacher postfit against combined targets.
+- Current best checkpoint overall: outputs/T20260415-61_stage2_outer_t60_partpostfit_combined_teacher/gaussians3d.pt.
+- Current best paired combined evaluation overall: evaluation/eval_outputs/T20260415-61_stage2_combined_outer_t60_partpostfit_combined_teacher.
+
+T61-visual-review:
+- Method: pulled representative overlay images for T60 and T61 to local %TEMP% only, then inspected them with multimodal side-by-side. No local repo files were modified.
+- Checked frames: 000047, 000048, 000053, 000067, 000068, 000069, 000070.
+- Visual conclusion: T61 is not just numerically better; on the main failure region it is visibly better. The abdomen / lower-top gray-green contamination and pants bright blotches are reduced in the inspected frames.
+- 000067 / side view: still not clean. The torso color is improved, but there is still visible smear around the neck / shoulder transition and the side-body cloth texture remains imperfect.
+- 000068 / side-front: T61 clearly reduces the large pants-side bright streaks and the lower-top contamination compared with T60.
+- 000069 / frontal-oblique: T61 reduces the abdomen gray-green cast and makes the shirt tone more coherent with GT; this is a real visual gain, not a metric-only illusion.
+- 000047 / frontal: no obvious new hair collapse was observed in the checked overlay; hair/face remain roughly stable while cloth gets cleaner.
+- Caution: the current metrics are frame-averaged and can still hide fine-detail failures. Visual review needs to remain a hard gate for future outer changes, especially for cloth folds, hair edges, and neck/shoulder transition artifacts.
+
+T62:
+- Purpose: test whether dropping torso and using a slightly eroded cloth core improves T61 side-view cloth without touching inner outputs.
+- Source ckpt: outputs/T20260415-61_stage2_outer_t60_partpostfit_combined_teacher/gaussians3d.pt.
+- Output ckpt: outputs/T20260415-62_stage2_outer_t61_partpostfit_combined_teacher_top_pants_erode1/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-62_stage2_combined_outer_t61_partpostfit_combined_teacher_top_pants_erode1.
+- Parameters: train_parts=[top,pants], cloth_core_erode_px=1, iters=220.
+- Result vs T61: global MAE 0.07370480 -> 0.07360168, top MAE 0.04516151 -> 0.04506485, pants MAE 0.05040682 -> 0.04897309, hair unchanged.
+- Tradeoff: key right-side frames improved, but some frontal frames regressed: 000048 0.083805 -> 0.085015, 000072 0.077343 -> 0.079764, 000074 0.075906 -> 0.077262, 000075 0.071112 -> 0.072339.
+- Visual check: no convincing visual win over T61; treat as a tradeoff branch, not the main best.
+
+T63:
+- Purpose: test whether freezing scale and anchoring RGB/opacity to the T61 source checkpoint prevents texture/edge drift.
+- Code change: src/avatar_gs/cli/stage2_outer_part_postfit.py gained rgb_reg_weight, opacity_reg_weight, and scale_reg_weight. Backup saved to trash/T20260415_before_T63_stage2_outer_part_postfit.py.
+- Source ckpt: outputs/T20260415-61_stage2_outer_t60_partpostfit_combined_teacher/gaussians3d.pt.
+- Output ckpt: outputs/T20260415-63_stage2_outer_t61_partpostfit_combined_teacher_top_pants_regfreeze/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-63_stage2_combined_outer_t61_partpostfit_combined_teacher_top_pants_regfreeze.
+- Parameters: train_parts=[top,pants], iters=240, lr_scale=0, rgb_reg_weight=0.03, opacity_reg_weight=0.02.
+- Result vs T61: global MAE 0.07370480 -> 0.07361088, top MAE 0.04516151 -> 0.04489055, pants MAE 0.05040682 -> 0.05002767.
+- Tradeoff: 000068/000069 improved, but 000048/000072/000074/000075 regressed. Visual differences were too small to justify replacing T61.
+- Conclusion: source anchoring alone is not the controlling factor.
+
+T64:
+- Purpose: test the hypothesis that top teacher supervision is right-view deficient.
+- New teacher bank: outputs/stage2/teacher_bank/stage2/T20260415-64_teacher_bank_top_right_rebalanced.json.
+- Teacher-bank change: add right-view top frames 000021, 000020, 000046, 000069 as base teachers. Original teacher_bank.json was not modified.
+- Source ckpt: outputs/T20260415-61_stage2_outer_t60_partpostfit_combined_teacher/gaussians3d.pt.
+- Output ckpt: outputs/T20260415-64_stage2_outer_t61_partpostfit_combined_teacher_top_pants_rightrebalance/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-64_stage2_combined_outer_t61_partpostfit_combined_teacher_top_pants_rightrebalance.
+- Result vs T61: global MAE 0.07370480 -> 0.07364403, top MAE 0.04516151 -> 0.04488062, pants MAE 0.05040682 -> 0.04890792.
+- Key wins: 000068 0.092749 -> 0.088413, 000069 0.087089 -> 0.085925, 000046 0.114019 -> 0.110103.
+- Key regressions: 000048 0.083805 -> 0.085262, 000072 0.077343 -> 0.080149, 000074 0.075906 -> 0.077599, 000075 0.071112 -> 0.072643.
+- Conclusion: right-view teacher deficiency is real, but treating added right-view frames as base teachers over-pulls the frontal solution.
+
+T65:
+- Purpose: keep the T64 right-view idea but make added right-view frames late-phase extras instead of base teachers.
+- Code change: stage2_outer_part_postfit.py gained use_all_cloth_extras. Backup saved to trash/T20260415_before_T65_stage2_outer_part_postfit.py.
+- New teacher bank: outputs/stage2/teacher_bank/stage2/T20260415-65_teacher_bank_top_right_extra.json.
+- Output ckpt: outputs/T20260415-65_stage2_outer_t61_partpostfit_combined_teacher_top_pants_rightextra_alllate/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-65_stage2_combined_outer_t61_partpostfit_combined_teacher_top_pants_rightextra_alllate.
+- Result vs T61: global MAE 0.07370480 -> 0.07360098, top MAE 0.04516151 -> 0.04506310, pants MAE 0.05040682 -> 0.04887962.
+- Diagnostic finding: best_iter=240 while extra phase starts at it>240, meaning the late extra targets did not actually enter the saved best checkpoint.
+- Conclusion: T65 mostly reproduced the top/pants-only branch; the late-extra mechanism was ineffective because best-state selection compared different objectives.
+
+T66:
+- Purpose: test whether reducing extra_loss_weight from 0.45 to 0.25 helps, before fixing best-state reset.
+- Code change: stage2_outer_part_postfit.py gained extra_loss_weight. Backup saved to trash/T20260415_before_T66_stage2_outer_part_postfit.py.
+- Output ckpt: outputs/T20260415-66_stage2_outer_t61_partpostfit_top_pants_rightextra_w025/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-66_stage2_combined_outer_t61_partpostfit_top_pants_rightextra_w025.
+- Result: essentially identical to T65. best_iter=240 again.
+- Conclusion: extra_loss_weight was not the controlling factor because the extra phase still did not enter the final checkpoint.
+
+T67:
+- Purpose: force the final checkpoint to come from the extra phase by resetting best_state when extra targets start.
+- Code change: stage2_outer_part_postfit.py gained reset_best_at_extra_start. Backup saved to trash/T20260415_before_T67_stage2_outer_part_postfit.py.
+- Output ckpt: outputs/T20260415-67_stage2_outer_t61_partpostfit_top_pants_rightextra_w025_resetbest/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-67_stage2_combined_outer_t61_partpostfit_top_pants_rightextra_w025_resetbest.
+- Parameters: train_parts=[top,pants], use_all_cloth_extras=true, extra_loss_weight=0.25, reset_best_at_extra_start=true.
+- Result vs T61: global MAE 0.07370480 -> 0.07348613, SSIM 0.85428810 -> 0.85454482, top MAE 0.04516151 -> 0.04470136, top SSIM 0.84262717 -> 0.84314513, pants MAE 0.05040682 -> 0.04886029.
+- Key wins: 000067 0.101221 -> 0.100503, 000068 0.092749 -> 0.087982, 000069 0.087089 -> 0.085437, 000046 0.114019 -> 0.109891.
+- Tradeoff: frontal frames still worse than T61: 000072 0.077343 -> 0.080238, 000074 0.075906 -> 0.077610, 000075 0.071112 -> 0.072593.
+- Visual check: right-side clothing is visibly cleaner; no obvious hair collapse. Frontal shirt dark speckle remains the main cost.
+- Conclusion: this is the first right-view teacher branch that truly updates the final checkpoint and improves both global/top metrics, but it carries a visible frontal tradeoff.
+
+T68:
+- Purpose: add light source regularization on top of T67 to reduce frontal drift while preserving right-view gains.
+- Output ckpt: outputs/T20260415-68_stage2_outer_t61_rightextra_w025_resetbest_reg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-68_stage2_combined_outer_t61_rightextra_w025_resetbest_reg.
+- Parameters: same as T67 plus rgb_reg_weight=0.02, opacity_reg_weight=0.02, scale_reg_weight=0.01.
+- Result vs T67: global MAE 0.07348613 -> 0.07347535, SSIM 0.85454482 -> 0.85456324, top MAE 0.04470136 -> 0.04468712, top SSIM 0.84314513 -> 0.84318650, pants MAE 0.04886029 -> 0.04885164.
+- Result vs T61: 000067 0.101221 -> 0.100497, 000068 0.092749 -> 0.087982, 000069 0.087089 -> 0.085424, 000046 0.114019 -> 0.109890.
+- Remaining cost vs T61: 000048 0.083805 -> 0.084971, 000072 0.077343 -> 0.080212, 000074 0.075906 -> 0.077592, 000075 0.071112 -> 0.072579.
+- Visual check: T68 keeps the T67 right-view improvement and is marginally cleaner, but does not eliminate the frontal dark-speckle tradeoff. Current best candidate if prioritizing side-view/overall robustness; T61 remains cleaner on some frontal frames.
+
+Current conclusion after T62-T68:
+- The remaining failure is not just opacity threshold or color postfit noise.
+- The right-view teacher distribution was underconstrained; adding right-view cloth supervision helps the difficult 000067-000069 region.
+- The first attempt that actually used those right-view extras in the final checkpoint was T67; T68 is a small regularized improvement over T67.
+- Current best overall candidate: outputs/T20260415-68_stage2_outer_t61_rightextra_w025_resetbest_reg/gaussians3d.pt.
+- Current paired eval: evaluation/eval_outputs/T20260415-68_stage2_combined_outer_t61_rightextra_w025_resetbest_reg.
+- Remaining issue: T68 still pays a frontal-frame cost, especially 000072/000074/000075. Further work should not add more right-view supervision blindly; it should add a frontal-preservation guard or objective normalization so the improved side views do not darken already-good frontal cloth.
+
+
+T69:
+- Purpose: reduce the frontal dark-speckle tradeoff introduced by the right-view extra-teacher branch without hardcoding eval-error frames.
+- New teacher bank: outputs/stage2/teacher_bank/stage2/T20260415-69_teacher_bank_top_right_extra_frontguard.json.
+- Teacher-bank change: starting from T65 right-extra bank, add high-quality front-view top candidates selected only by metadata: score>=0.88, contamination<=0.09, projected_pixels>=27000.
+- Added front guard frames: 000070, 000048, 000027, 000052, 000001, 000024.
+- Source ckpt: outputs/T20260415-61_stage2_outer_t60_partpostfit_combined_teacher/gaussians3d.pt.
+- Output ckpt: outputs/T20260415-69_stage2_outer_t61_right_frontguard_w025_reg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-69_stage2_combined_outer_t61_right_frontguard_w025_reg.
+- Parameters: train_parts=[top,pants], use_all_cloth_extras=true, extra_loss_weight=0.25, reset_best_at_extra_start=true, rgb_reg_weight=0.02, opacity_reg_weight=0.02, scale_reg_weight=0.01.
+- Result vs T68: global MAE 0.07347535 -> 0.07338035, SSIM 0.85456324 -> 0.85478467, top MAE 0.04468712 -> 0.04444186, top SSIM 0.84318650 -> 0.84398288.
+- Result vs T61: key side-view frames remain strongly improved: 000067 0.101221 -> 0.100325, 000068 0.092749 -> 0.087875, 000069 0.087089 -> 0.085275, 000046 0.114019 -> 0.109824.
+- Frontal residual vs T68 improved: 000048 0.084971 -> 0.084774, 000070 0.081564 -> 0.081269, 000072 0.080212 -> 0.079938, 000074 0.077592 -> 0.077387, 000075 0.072579 -> 0.072356.
+- Visual check: no obvious hair collapse or cloth-detail wipeout. Front guard reduces the residual frontal speckle relative to T68, but T61 is still cleaner on a few frontal frames.
+- Conclusion: T69 validates the front-guard idea. The issue was not just right-view under-supervision; it was right-view correction without enough frontal preservation.
+
+T70:
+- Purpose: test whether front+right extra supervision still has headroom by increasing extra_loss_weight from 0.25 to 0.35.
+- Output ckpt: outputs/T20260415-70_stage2_outer_t61_right_frontguard_w035_reg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-70_stage2_combined_outer_t61_right_frontguard_w035_reg.
+- Result vs T69: global MAE 0.07338035 -> 0.07335305, SSIM 0.85478467 -> 0.85483885, top MAE 0.04444186 -> 0.04436304, top SSIM 0.84398288 -> 0.84418237.
+- Key frames improved slightly and consistently: 000068 0.087875 -> 0.087735, 000069 0.085275 -> 0.085134, 000070 0.081269 -> 0.081211, 000072 0.079938 -> 0.079891.
+- Conclusion: 0.35 is a real small improvement over 0.25, not a reversal.
+
+T71:
+- Purpose: continue controlled weight search with extra_loss_weight=0.45.
+- Output ckpt: outputs/T20260415-71_stage2_outer_t61_right_frontguard_w045_reg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-71_stage2_combined_outer_t61_right_frontguard_w045_reg.
+- Result vs T70: global MAE 0.07335305 -> 0.07333271, SSIM 0.85483885 -> 0.85487813, top MAE 0.04436304 -> 0.04430842, top SSIM 0.84418237 -> 0.84432161.
+- Key frames again improved slightly: 000068 0.087735 -> 0.087662, 000069 0.085134 -> 0.085074, 000046 0.109676 -> 0.109613.
+- Frontal residual remains but does not explode: 000072 0.079891 -> 0.079855, 000074 0.077380 -> 0.077364, 000075 0.072338 -> 0.072318.
+- Conclusion: 0.45 is better than 0.35, but the gains are now small.
+
+T72:
+- Purpose: locate the upper side of the extra-loss weight curve with extra_loss_weight=0.60.
+- Output ckpt: outputs/T20260415-72_stage2_outer_t61_right_frontguard_w060_reg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-72_stage2_combined_outer_t61_right_frontguard_w060_reg.
+- Result vs T71: global MAE 0.07333271 -> 0.07331612, SSIM 0.85487813 -> 0.85491371, top MAE 0.04430842 -> 0.04426689, top SSIM 0.84432161 -> 0.84444463.
+- Improvements: 000067 0.100248 -> 0.100216, 000068 0.087662 -> 0.087588, 000069 0.085074 -> 0.084995, 000070 0.081170 -> 0.081122.
+- Warning signs: non-priority frames begin to show tiny mixed movement, e.g. 000053 MAE 0.100951 -> 0.101000, 000057 0.045810 -> 0.045824, 000055 0.095847 -> 0.095861. Hair summary remains identical to T61.
+- Visual check: no obvious new collapse, but the curve is nearing diminishing returns.
+- Conclusion: T72 is better numerically than T71, but it is close to the point where extra weighting starts trading small local regressions for global gains.
+
+T73:
+- Purpose: reduce the remaining frontal residual on 000072/000074/000075-like poses by extending front guard coverage, still using metadata rather than eval-error selection.
+- New teacher bank: outputs/stage2/teacher_bank/stage2/T20260415-73_teacher_bank_top_right_frontguard_coverage.json.
+- Teacher-bank change: starting from T69, add large-area front-view top candidates selected by score>=0.79, contamination<=0.08, projected_pixels>=30000.
+- Added front coverage frames: 000072, 000051, 000074, 000050.
+- Output ckpt: outputs/T20260415-73_stage2_outer_t61_right_frontcoverage_w060_reg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-73_stage2_combined_outer_t61_right_frontcoverage_w060_reg.
+- Parameters: same as T72 except teacher bank includes front coverage extras.
+- Result vs T72: global MAE 0.07331612 -> 0.07327241, SSIM 0.85491371 -> 0.85498691, top MAE 0.04426689 -> 0.04421145, top SSIM 0.84444463 -> 0.84464312.
+- Side-view improvements are preserved or slightly improved: 000067 0.100216 -> 0.100170, 000068 0.087588 -> 0.087531, 000069 0.084995 -> 0.084901, 000046 0.109533 -> 0.109509.
+- Frontal residual is reduced relative to T72: 000048 0.084628 -> 0.084550, 000070 0.081122 -> 0.081003, 000072 0.079843 -> 0.079749, 000074 0.077371 -> 0.077303, 000075 0.072323 -> 0.072249.
+- Costs: pants mean is marginally worse than T72 (0.04889980 -> 0.04890469), and some non-priority frames remain slightly worse than T61, e.g. 000053/000055/000057. Hair remains unchanged at summary precision.
+- Visual check: T73 keeps the side-view clothing improvement, reduces frontal speckle relative to T68-T72, and shows no obvious hair collapse in the inspected crops. It still does not fully recover the cleanest frontal appearance of T61.
+- Conclusion: T73 is the current best overall candidate. It is not perfect; it is a better balanced solution than T68-T72 because it keeps right-view gains while partially restoring frontal stability.
+
+Current conclusion after T69-T73:
+- The cleanest logic chain is now: T61 established combined teacher postfit; T67 proved right-view extras matter; T69 proved front guard is necessary; T73 adds large-area front coverage and is the current best balance.
+- Current best checkpoint: outputs/T20260415-73_stage2_outer_t61_right_frontcoverage_w060_reg/gaussians3d.pt.
+- Current paired eval: evaluation/eval_outputs/T20260415-73_stage2_combined_outer_t61_right_frontcoverage_w060_reg.
+- Remaining issue: T73 still cannot dominate T61 on every frontal frame. That means the current shared outer representation is balancing inconsistent multi-view cloth evidence, not simply missing a single threshold or color correction.
+- Next useful direction, if continuing: add an explicit per-view teacher balance/normalization inside the outer postfit objective, instead of continuing to add more teacher frames or push extra_loss_weight upward.
+
+T74:
+- Purpose: test explicit per-view teacher loss normalization in the outer-only postfit objective, because the T73 teacher set is view-imbalanced and repeated front/top targets may dominate the shared outer texture solution.
+- Code change: src/avatar_gs/cli/stage2_outer_part_postfit.py gained balance_view_buckets and stores each target's teacher_bank view_bucket. Backup saved to trash/T20260415_before_T74_stage2_outer_part_postfit.py.
+- Source ckpt: outputs/T20260415-61_stage2_outer_t60_partpostfit_combined_teacher/gaussians3d.pt.
+- Teacher bank: outputs/stage2/teacher_bank/stage2/T20260415-73_teacher_bank_top_right_frontguard_coverage.json.
+- Output ckpt: outputs/T20260415-74_stage2_outer_t61_right_frontcoverage_w060_viewbalance_reg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-74_stage2_combined_outer_t61_right_frontcoverage_w060_viewbalance_reg.
+- Parameters: same as T73 plus balance_view_buckets=true. extra_loss_weight=0.60, rgb_reg_weight=0.02, opacity_reg_weight=0.02, scale_reg_weight=0.01.
+- Diagnostic: full target counts were pants:back=2, pants:front=2, pants:left=2, pants:right=1, top:back=10, top:front=13, top:left=2, top:right=5. Hard inverse-count balancing produced a wide full-phase weight range of 0.3558 to 4.6250.
+- Result vs T73: global MAE worsened 0.0732724145 -> 0.0734605342, SSIM worsened 0.8549869061 -> 0.8545662761. Top MAE worsened 0.0442114510 -> 0.0445514992. Pants MAE improved only slightly 0.0489046872 -> 0.0488485880.
+- Key regressions vs T73: 000068 0.087531 -> 0.087947, 000069 0.084901 -> 0.085439, 000070 0.081003 -> 0.081516, 000072 0.079749 -> 0.080050. A few frames improved, e.g. 000053 0.101033 -> 0.100577, but this does not compensate.
+- Visual check: compared T61/T73/T74 overlays after pulling only temporary contact sheets to local %TEMP%. T74 looked more averaged/dirty on clothing and did not improve the important right-view shirt appearance over T73. Rejected.
+- Conclusion: the view imbalance diagnosis was real, but hard inverse-count loss normalization is too aggressive. It over-dilutes top/front and over-amplifies sparse buckets such as pants/right.
+
+T75:
+- Purpose: keep the view-balance idea but soften it with a power-law exponent instead of hard inverse-count weighting.
+- Code change: src/avatar_gs/cli/stage2_outer_part_postfit.py gained view_balance_power. Backup saved to trash/T20260415_before_T75_stage2_outer_part_postfit.py.
+- Output ckpt: outputs/T20260415-75_stage2_outer_t61_right_frontcoverage_w060_viewbalance_p050_reg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-75_stage2_combined_outer_t61_right_frontcoverage_w060_viewbalance_p050_reg.
+- Parameters: same as T74 but view_balance_power=0.50.
+- Diagnostic: full-phase weight range narrowed from T74's 0.3558-4.6250 to 0.6553-2.3626.
+- Result vs T74: T75 recovered much of the T74 damage: global MAE 0.0734605342 -> 0.0733117759, SSIM 0.8545662761 -> 0.8549044132.
+- Result vs T73: still worse. Global MAE 0.0732724145 -> 0.0733117759, SSIM 0.8549869061 -> 0.8549044132, top MAE 0.0442114510 -> 0.0442529209.
+- Key frame movement vs T73 was mixed: 000053 improved 0.101033 -> 0.100742, but 000048, 000050, 000051, 000067, 000068, 000069, 000070, 000071, and 000072 all worsened slightly.
+- Conclusion: soft view-balance is less harmful than T74, but it still does not beat T73. Continuing to tune view_balance_power would mostly interpolate between T73 and a worse solution, so this branch is rejected for now.
+
+T76:
+- Purpose: test a stronger source-regularized version of T73 to reduce residual frontal abdomen speckle while preserving the right-view gains, without changing inner training/eval code or inner artifacts.
+- Output ckpt: outputs/T20260415-76_stage2_outer_t61_right_frontcoverage_w060_strongreg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-76_stage2_combined_outer_t61_right_frontcoverage_w060_strongreg.
+- Parameters: same source ckpt and teacher bank as T73, no view balance, extra_loss_weight=0.60, reset_best_at_extra_start=true, train_parts=[top,pants], rgb_reg_weight=0.04, opacity_reg_weight=0.03, scale_reg_weight=0.015.
+- Result vs T73: global MAE improved 0.0732724145 -> 0.0732668862, PSNR improved 15.8673486710 -> 15.8676404953, SSIM improved 0.8549869061 -> 0.8549981713. Top MAE improved 0.0442114510 -> 0.0442055874, top SSIM improved 0.8446431160 -> 0.8446646333. Pants remained effectively unchanged: MAE 0.0489046872 -> 0.0488986857. Hair remained unchanged at summary precision: MAE 0.0767142624, SSIM 0.7985227704.
+- Key frame movement vs T73 was small but mostly positive: 000047 -0.000007, 000048 -0.000012, 000050 -0.000014, 000051 -0.000008, 000053 -0.000011, 000055 -0.000005, 000057 -0.000003, 000067 -0.000016, 000069 -0.000004, 000070 -0.000009, 000071 -0.000014, 000072 -0.000014, 000074 -0.000010, 000075 -0.000010. 000046 worsened by only +0.000003 and 000068 was unchanged at rounded precision.
+- Visual check: compared T61/T73/T76 overlays via a temporary local contact sheet. T76 looked essentially as stable as T73, with no visible T74/T75-style averaging or extra clothing dirt; the gain is small but does not introduce an obvious visual regression.
+- Conclusion: T76 becomes the current best candidate. The practical lesson is also clear: the remaining issue is not solved by reweighting view buckets globally; it responds better to keeping T73's teacher distribution and applying slightly stronger source regularization.
+
+Current conclusion after T74-T76:
+- Current best checkpoint: outputs/T20260415-76_stage2_outer_t61_right_frontcoverage_w060_strongreg/gaussians3d.pt.
+- Current paired eval: evaluation/eval_outputs/T20260415-76_stage2_combined_outer_t61_right_frontcoverage_w060_strongreg.
+- Rejected branches: T74 hard view-balance and T75 soft view-balance. They confirmed the teacher distribution is imbalanced, but the cure damaged top texture more than it helped.
+- Next useful direction: if continuing, do not add more global view-balance. The better short path is a constrained regularization search around T76, or a local objective term that penalizes color drift from the source only on high-confidence top regions, not a broad per-view loss reweight.
+
+T77:
+- Purpose: continue the constrained source-regularization search after T76. T76 improved T73 only slightly, so T77 tested a stronger but still moderate regularizer.
+- Output ckpt: outputs/T20260415-77_stage2_outer_t61_right_frontcoverage_w060_strongerreg/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-77_stage2_combined_outer_t61_right_frontcoverage_w060_strongerreg.
+- Parameters: same source ckpt and teacher bank as T73, no view balance, extra_loss_weight=0.60, rgb_reg_weight=0.06, opacity_reg_weight=0.04, scale_reg_weight=0.02.
+- Result vs T76: global MAE 0.0732668862 -> 0.0732601658, SSIM 0.8549981713 -> 0.8550118208. Top MAE 0.0442055874 -> 0.0441943705. Pants MAE 0.0488986857 -> 0.0488940962. Hair unchanged.
+- Visual check: temporary local contact sheet comparing T73/T76/T77 showed no obvious new black/gray-green clothing artifacts and no visible hair regression. Improvement was visually small.
+- Conclusion: T77 is a valid incremental improvement over T76 but still too small to be the end of the search.
+
+T78:
+- Purpose: test whether the positive regularization trend continues with rgb/op/scale weights 0.10/0.06/0.03.
+- Output ckpt: outputs/T20260415-78_stage2_outer_t61_right_frontcoverage_w060_reg010_006_003/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-78_stage2_combined_outer_t61_right_frontcoverage_w060_reg010_006_003.
+- Result vs T77: global MAE 0.0732601658 -> 0.0732525513, SSIM 0.8550118208 -> 0.8550290465. Top MAE 0.0441943705 -> 0.0441885665. Pants MAE 0.0488940962 -> 0.0488800220. Hair unchanged.
+- Key movement: most frontal and side frames improved slightly, with tiny mixed movement on 000046/000067. No visual collapse observed in the T79 comparison sheet where T78 was included.
+- Conclusion: T78 confirmed that the earlier small gains were not a one-off, but the effect remained modest.
+
+T79:
+- Purpose: make the source regularization large enough to matter rather than staying at decimal-dust scale. Tested rgb/op/scale weights 0.50/0.25/0.10.
+- Output ckpt: outputs/T20260415-79_stage2_outer_t61_right_frontcoverage_w060_reg050_025_010/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-79_stage2_combined_outer_t61_right_frontcoverage_w060_reg050_025_010.
+- Result vs T78: global MAE 0.0732525513 -> 0.0731660053, SSIM 0.8550290465 -> 0.8552130461. Top MAE 0.0441885665 -> 0.0440963618. Pants MAE 0.0488800220 -> 0.0487828776. Torso MAE 0.0696556568 -> 0.0696011484. Hair unchanged.
+- Result vs T73: key frame MAE improved broadly: 000047 -0.000093, 000048 -0.000106, 000050 -0.000104, 000051 -0.000119, 000053 -0.000167, 000067 -0.000067, 000069 -0.000077, 000070 -0.000137, 000072 -0.000205, 000074 -0.000160, 000075 -0.000142. 000046 was effectively unchanged at +0.000001.
+- Visual check: T73/T78/T79 contact sheet showed T79 did not introduce visible new hair or side-view collapse; black/gray-green clothing contamination was slightly reduced but not eliminated.
+- Conclusion: T79 is the first meaningful regularization result in this branch, not just numerical noise.
+
+T80:
+- Purpose: test an upper-bound conservative regularization setting to directly attack black/gray-green outer artifacts: rgb/op/scale weights 2.00/1.00/0.40.
+- Output ckpt: outputs/T20260415-80_stage2_outer_t61_right_frontcoverage_w060_reg200_100_040/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-80_stage2_combined_outer_t61_right_frontcoverage_w060_reg200_100_040.
+- Result vs T79: global MAE 0.0731660053 -> 0.0730322450, PSNR 15.8716831207 -> 15.8798847198, SSIM 0.8552130461 -> 0.8555570245. Top MAE 0.0440963618 -> 0.0439520739. Pants MAE 0.0487828776 -> 0.0486929789. Torso MAE 0.0696011484 -> 0.0694476441. Hair unchanged.
+- Key wins vs T79: 000048 -0.000191, 000050 -0.000173, 000051 -0.000210, 000053 -0.000261, 000070 -0.000217, 000072 -0.000287, 000074 -0.000271, 000075 -0.000240.
+- Costs vs T79: 000046 +0.000193, 000055 +0.000066, 000068 +0.000086, 000069 +0.000072. These are real but small; 000068 is slightly worse than T73 while the frontal abdomen/problem range is much better.
+- Visual check: compared T73/T79/T80 via temporary local contact sheet. T80 reduces frontal shirt/abdomen noise more visibly than T79 and does not show obvious hair collapse. The side-view regressions on 000046/000068 are not visually dramatic in the contact sheet, but they are measurable and should be kept as a known risk.
+- Conclusion: T80 is the current best if the priority is reducing black/gray-green clothing artifacts. T79 is the conservative fallback if side-view preservation is weighted more than frontal artifact cleanup.
+
+T81:
+- Purpose: test a midpoint between T79 and T80, rgb/op/scale weights 1.00/0.50/0.20, to see whether it keeps most T80 cleanup while reducing T80's side-view regressions.
+- Output ckpt: outputs/T20260415-81_stage2_outer_t61_right_frontcoverage_w060_reg100_050_020/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260415-81_stage2_combined_outer_t61_right_frontcoverage_w060_reg100_050_020.
+- Result: T81 landed between T79 and T80 but did not dominate either. Global MAE/SSIM were better than T79 but worse than T80: T79 0.0731660053/0.8552130461, T80 0.0730322450/0.8555570245, T81 0.0731082335/0.8553723097.
+- Side tradeoff: T81 reduced T80's 000046/000068/000069 regressions only partially while giving up much of T80's frontal cleanup. It is not a useful Pareto improvement.
+- Conclusion: reject T81. Keep T80 as current best and T79 as conservative fallback.
+
+Current conclusion after T77-T81:
+- Current best checkpoint for artifact cleanup: outputs/T20260415-80_stage2_outer_t61_right_frontcoverage_w060_reg200_100_040/gaussians3d.pt.
+- Current paired eval: evaluation/eval_outputs/T20260415-80_stage2_combined_outer_t61_right_frontcoverage_w060_reg200_100_040.
+- Conservative fallback: outputs/T20260415-79_stage2_outer_t61_right_frontcoverage_w060_reg050_025_010/gaussians3d.pt with eval evaluation/eval_outputs/T20260415-79_stage2_combined_outer_t61_right_frontcoverage_w060_reg050_025_010.
+- T80 does not eliminate all visible clothing artifacts. It reduces the main black/gray-green contamination better than prior candidates, but there are still residual dark patches. The next non-wasteful direction is not more global regularization alone; it is a high-confidence top-region color-drift penalty or a more localized artifact-aware outer color objective that still updates only outer gaussians.
+
+T84:
+- Purpose: test whether the remaining black/gray-green shirt artifacts are missed because the artifact loss was detail-weighted and therefore weak on flat cloth regions.
+- Code change: src/avatar_gs/cli/stage2_outer_part_postfit.py gained --artifact_detail_floor. Backup saved to trash/T20260416_before_T84_stage2_outer_part_postfit.py.
+- Source ckpt: outputs/T20260415-61_stage2_outer_t60_partpostfit_combined_teacher/gaussians3d.pt.
+- Teacher bank: outputs/stage2/teacher_bank/stage2/T20260415-73_teacher_bank_top_right_frontguard_coverage.json.
+- Output ckpt: outputs/T20260416-84_stage2_outer_t61_reg200_art100_floor035/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260416-84_stage2_combined_outer_t61_reg200_art100_floor035.
+- Parameters: same teacher distribution as T80/T82, rgb/op/scale regularization 2.00/1.00/0.40, artifact_loss_weight=1.0, margins=0.01, artifact_detail_floor=0.35.
+- Result: almost identical to T82 and not a useful improvement. T84 global MAE/SSIM=0.0729829818/0.8555758595, top MAE/SSIM=0.0439591706/0.8454428315, pants MAE/SSIM=0.0487761311/0.8554123044.
+- Conclusion: the flat-region artifact weighting fix is logically reasonable but not the controlling factor. The deeper issue is that stage2_outer_part_postfit optimizes part-only renders, while the visible failure is in combined inner+outer rendering.
+
+T85:
+- Purpose: switch from part-only RGB correction to combined-aware RGB correction. This updates only outer top/pants RGB while comparing the rendered combined result against combined_rgb teacher crops.
+- Script: evaluation/stage2_combiined_eval/fit_outer_rgb_teacher_combined.py, no inner code or inner checkpoint modified.
+- Source ckpt: outputs/T20260415-80_stage2_outer_t61_right_frontcoverage_w060_reg200_100_040/gaussians3d.pt.
+- Output ckpt: outputs/T20260416-85_stage2_outer_t80_teacher_combined_rgb_guard/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260416-85_stage2_combined_outer_t80_teacher_combined_rgb_guard.
+- Parameters: teacher_bank=T20260415-73, parts=top,pants, teacher_roles=base,extra, iters=40, lr_rgb=0.006, l1_weight=1.0, hf_weight=0.65, reg_weight=0.08, guard_mode=non_teacher, guard_weight=0.15, guard_frame_stride=5, guard_max_frames=12. Opacity/scale/positions were not changed.
+- RGB change: selected_rows=2515, changed_rgb_mean_abs=0.002384, changed_rgb_max_abs=0.040447.
+- Result vs T80: global MAE 0.0730322450 -> 0.0724581182, SSIM 0.8555570245 -> 0.8563500047, top MAE 0.0439520739 -> 0.0430794433, pants MAE 0.0486929789 -> 0.0480474122. Hair unchanged at summary precision.
+- Critical frames vs T80 all improved: 000046 -0.000729, 000048 -0.001163, 000052 -0.001603, 000068 -0.000595, 000072 -0.001358, 000075 -0.001069.
+- Visual check: temporary local contact sheets showed no hair regression and no obvious cloth-detail wipeout. Shirt artifacts were reduced but still visible.
+- Conclusion: the combined-aware RGB objective is the first clean fix for the color-cast problem. It validates the hypothesis that optimizing outer color against outer/part-only renders is misaligned with the final combined appearance.
+
+T86:
+- Purpose: strengthen the successful T85 combined-aware RGB correction while still restricting the change to outer top/pants RGB.
+- Source ckpt: outputs/T20260415-80_stage2_outer_t61_right_frontcoverage_w060_reg200_100_040/gaussians3d.pt.
+- Output ckpt: outputs/T20260416-86_stage2_outer_t80_teacher_combined_rgb_guard_stronger/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260416-86_stage2_combined_outer_t80_teacher_combined_rgb_guard_stronger.
+- Parameters: same as T85 except iters=80, hf_weight=0.85, reg_weight=0.04, guard_weight=0.10. Opacity/scale/positions were not changed.
+- RGB change: selected_rows=2515, changed_rgb_mean_abs=0.004146, changed_rgb_max_abs=0.078553.
+- Result vs T80: global MAE 0.0730322450 -> 0.0722393620, SSIM 0.8555570245 -> 0.8566296101, top MAE 0.0439520739 -> 0.0427824892, pants MAE 0.0486929789 -> 0.0477716699. Hair unchanged at summary precision.
+- Result vs T85: global MAE 0.0724581182 -> 0.0722393620, top MAE 0.0430794433 -> 0.0427824892, pants MAE 0.0480474122 -> 0.0477716699.
+- Critical frames vs T80 all improved: 000046 -0.001113, 000048 -0.001605, 000052 -0.002304, 000068 -0.000847, 000069 -0.001097, 000072 -0.001774, 000074 -0.001323, 000075 -0.001320.
+- Visual check: compared T80/T85/T86 zoom contact sheets after pulling only overlays to local temp. T86 reduced the shirt/abdomen color cast more than T85 and did not show obvious hair collapse or clothing blur. Some dark/green residual remains; it is improved, not solved.
+- Conclusion: T86 is the current best candidate. It should replace T80 as the best outer checkpoint for combined color fidelity unless a later test finds visible texture loss that the contact sheets missed.
+
+T87:
+- Purpose: test whether a tiny combined-aware opacity adjustment helps the same color-cast issue.
+- Source ckpt: outputs/T20260415-80_stage2_outer_t61_right_frontcoverage_w060_reg200_100_040/gaussians3d.pt.
+- Output ckpt: outputs/T20260416-87_stage2_outer_t80_teacher_combined_rgb_opacity_guard/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260416-87_stage2_combined_outer_t80_teacher_combined_rgb_opacity_guard.
+- Parameters: based on T86 but iters=60, optimize_opacity=true, lr_opacity=0.0005, opacity_reg_weight=0.20, opacity_delta_limit=0.35.
+- Opacity change: opacity_change_mean_abs=0.00000155, opacity_change_max_abs=0.00002176, effectively no meaningful opacity update.
+- Result: worse than T86. T87 global MAE/SSIM=0.0722957104/0.8565574884, top MAE/SSIM=0.0428452715/0.8472134471, pants MAE/SSIM=0.0478637628/0.8576728106.
+- Conclusion: reject T87. Under this constrained setup, the optimizer uses RGB, not opacity, to solve the color cast. Current best remains T86.
+
+Current conclusion after T84-T87:
+- The important correction is conceptual: final color must be optimized against combined rendering, not only outer/part-only rendering. This directly addresses the user's point that outer color can look wrong only after inner+outer composition.
+- Current best checkpoint: outputs/T20260416-86_stage2_outer_t80_teacher_combined_rgb_guard_stronger/gaussians3d.pt.
+- Current paired eval: evaluation/eval_outputs/T20260416-86_stage2_combined_outer_t80_teacher_combined_rgb_guard_stronger.
+- Remaining issue: T86 reduces but does not eliminate all dark/green shirt artifacts. Further work should continue from the combined-aware objective, not from the rejected part-only artifact-loss path.
+
+T88:
+- Purpose: test whether adding the new combined-level artifact loss to the successful T86-style combined RGB postfit can suppress the remaining dark/gray-green clothing spots without changing inner code, inner checkpoints, outer positions, scales, or opacity.
+- Source ckpt: outputs/T20260415-80_stage2_outer_t61_right_frontcoverage_w060_reg200_100_040/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-88_stage2_outer_t80_combined_rgb_artifact_guard/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-88_stage2_combined_outer_t80_combined_rgb_artifact_guard.
+- Parameters: teacher_bank=T20260415-73_teacher_bank_top_right_frontguard_coverage.json, parts=[top,pants], teacher_roles=[base,extra], iters=80, lr_rgb=0.006, guard_mode=non_teacher, guard_weight=0.10, artifact_weight=0.35. Opacity/scale/positions were not changed.
+- Result vs T86: global MAE 0.0722393617 -> 0.0722180679 and SSIM 0.8566296101 -> 0.8567463756 improved slightly. Top MAE 0.0427824892 -> 0.0427487940 improved. Pants MAE 0.0477716699 -> 0.0478532650 worsened. Hair stayed unchanged at summary precision.
+- Visual check: pulled T86/T88 overlays for frames 000046-000053 and 000068-000075 to local temporary contact sheets. T88 did not visibly remove the shirt abdomen gray-green/dark contamination; it also looked slightly softer in some clothing regions. Conclusion: reject T88 as a main candidate despite the small global metric improvement. The average metric is not aligned enough with the visible artifact.
+
+T89:
+- Purpose: test a more targeted color correction: apply artifact loss only to the top region and add a chroma-direction loss for top only, so the optimization attacks green/gray color drift without chasing pants/background errors.
+- Code change: evaluation/stage2_combiined_eval/fit_outer_rgb_teacher_combined.py now has combined_chroma_loss plus --artifact_parts, --chroma_weight, and --chroma_parts. Backup saved before this edit at trash/T20260417_before_T89_fit_outer_rgb_teacher_combined.py. This script remains an outer postfit/eval helper; no inner training/eval code or inner artifacts were modified.
+- Source ckpt: outputs/T20260416-86_stage2_outer_t80_teacher_combined_rgb_guard_stronger/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-89_stage2_outer_t86_top_chroma_artifact/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-89_stage2_combined_outer_t86_top_chroma_artifact.
+- Parameters: iters=60, lr_rgb=0.0035, l1_weight=0.85, hf_weight=0.95, reg_weight=0.06, guard_weight=0.12, artifact_weight=0.20, artifact_parts=[top], artifact margins dark/gray/green=0.012/0.012/0.006, chroma_weight=0.65, chroma_parts=[top]. Opacity/scale/positions were not changed.
+- RGB change: selected_rows=2515, changed_rgb_mean_abs=0.000879, changed_rgb_max_abs=0.030469.
+- Result vs T86: global MAE 0.0722393617 -> 0.0721778423, SSIM 0.8566296101 -> 0.8567034602. Top MAE 0.0427824892 -> 0.0427205302. Pants MAE 0.0477716699 -> 0.0476760156. Hair unchanged.
+- Visual check: compared T86/T88/T89 and T86/T89/T90 contact sheets for frames 000046-000053 and 000068-000075. T89 was a small improvement and did not create black borders, hair collapse, or obvious pants damage, but residual shirt abdomen artifacts remained. Conclusion: T89 is valid but not the best; continue with stronger top-only chroma.
+
+T90:
+- Purpose: strengthen the T89 idea from the same T86 baseline, not stacked on T89, to test whether top-only chroma/artifact correction has useful headroom.
+- Source ckpt: outputs/T20260416-86_stage2_outer_t80_teacher_combined_rgb_guard_stronger/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-90_stage2_combined_outer_t86_top_chroma_artifact_stronger.
+- Parameters: iters=80, lr_rgb=0.004, l1_weight=0.75, hf_weight=1.10, reg_weight=0.05, guard_weight=0.12, artifact_weight=0.30, artifact_parts=[top], artifact margins dark/gray/green=0.010/0.010/0.005, chroma_weight=1.25, chroma_parts=[top]. Opacity/scale/positions were not changed.
+- RGB change: selected_rows=2515, changed_rgb_mean_abs=0.001469, changed_rgb_max_abs=0.063992.
+- Result vs T86: global MAE 0.0722393617 -> 0.0721583590, PSNR 15.8989114761 -> 15.9033889771, SSIM 0.8566296101 -> 0.8567270041. Top MAE 0.0427824892 -> 0.0427112915, pants MAE 0.0477716699 -> 0.0476501808, torso MAE 0.0695747137 -> 0.0694654435. Hair unchanged.
+- Result vs T89: T90 improved global MAE, top MAE, pants MAE, top SSIM, pants SSIM, and torso MAE. It is a clean numerical improvement over T89.
+- Visual check: compared T86/T89/T90 contact sheets. T90 was slightly cleaner than T89 on the target shirt frames, with no visible hair regression or new black border. The shirt abdomen gray-green/dark residual is still visible, so this is not a final visual solution. Conclusion: T90 becomes the current best candidate among the combined-aware RGB-only postfits.
+
+T91:
+- Purpose: test whether the remaining inner-outline/dirty-color issue needs a constrained outer opacity adjustment rather than RGB-only correction.
+- Source ckpt: outputs/T20260416-86_stage2_outer_t80_teacher_combined_rgb_guard_stronger/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-91_stage2_outer_t86_top_chroma_artifact_opacity/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-91_stage2_combined_outer_t86_top_chroma_artifact_opacity.
+- Parameters: same general objective as T90 but iters=60, optimize_opacity=true, lr_opacity=0.01, opacity_reg_weight=0.02, opacity_delta_limit=0.25.
+- Change magnitude: opacity_change_mean_abs=0.0000137, opacity_change_max_abs=0.0001687, changed_rgb_mean_abs=0.001347. The opacity update is still effectively negligible.
+- Result vs T90: global MAE worsened 0.0721583590 -> 0.0721693486, SSIM worsened 0.8567270041 -> 0.8567153215. Top MAE worsened 0.0427112915 -> 0.0427221097, pants MAE worsened 0.0476501808 -> 0.0476687253. Hair unchanged.
+- Visual check: compared T90/T91 on frames 000048, 000052, 000069, 000072, and 000075. They are visually almost identical; T91 does not reduce the shirt artifacts or inner-outline issue enough to justify the regression.
+- Conclusion: reject T91. The current opacity parameterization/regularization is not an effective short path. Current best remains T90.
+
+Current conclusion after T88-T91:
+- Current best checkpoint: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- Current paired eval: evaluation/eval_outputs/T20260417-90_stage2_combined_outer_t86_top_chroma_artifact_stronger.
+- Important lesson: the useful direction is targeted top-only chroma correction on combined rendering. Broad artifact loss (T88) and naive opacity tuning (T91) are not sufficient. The remaining residual is likely no longer a simple scalar color correction problem; it may require changing which outer gaussians are active/visible on the shirt or adding a stronger distribution-aware objective while keeping inner fixed.
+T92:
+- Purpose: test whether directly attenuating rows whose projected centers repeatedly fall on dark/green/gray top artifacts can reduce residual shirt contamination after T90.
+- Code/script: evaluation/stage2_combiined_eval/attenuate_outer_harmful_top.py. It uses combined teacher-frame residuals, selects active outer top rows, and only changes outer opacity logits. No inner code or inner checkpoint/artifact was changed.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-92_stage2_outer_t90_top_harmful_attenuation/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-92_stage2_combined_outer_t90_top_harmful_attenuation.
+- Parameters: parts=top, teacher_roles=base,extra, bad_quantile=0.90, min_score=0.004, min_hits=2, attenuate_logit=0.28, max_rows=180.
+- Change magnitude: selected_rows=1590, candidate_rows=1087, attenuated_rows=109, opacity_change_mean_abs=0.007905, opacity_change_max_abs=0.033115.
+- Result vs T90: global MAE 0.0721583590 -> 0.0721553415, SSIM 0.8567270041 -> 0.8567333221. Top MAE 0.0427112915 -> 0.0427077748. Hair unchanged.
+- Visual check: compared T90/T92 key torso frames via pulled local contact sheet. No new holes or hair regression, but the visible improvement was barely perceptible.
+- Conclusion: T92 is safe but too weak to solve the abdomen gray-green artifact.
+
+T93:
+- Purpose: test a stronger version of T92 from the same T90 source, not stacked on T92.
+- Output ckpt: outputs/T20260417-93_stage2_outer_t90_top_harmful_attenuation_stronger/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-93_stage2_combined_outer_t90_top_harmful_attenuation_stronger.
+- Parameters: parts=top, teacher_roles=base,extra, bad_quantile=0.85, min_score=0.004, min_hits=2, attenuate_logit=0.55, max_rows=260.
+- Change magnitude: selected_rows=1590, candidate_rows=1087, attenuated_rows=163, opacity_change_mean_abs=0.014293, opacity_change_max_abs=0.065411.
+- Result vs T90: global MAE 0.0721583590 -> 0.0721528977, SSIM 0.8567270041 -> 0.8567400575. Top MAE 0.0427112915 -> 0.0427054949. Pants MAE 0.0476501808 -> 0.0476501435. Hair unchanged.
+- Visual check: T90/T92/T93 contact sheet on frames 000046, 000048, 000050, 000052, 000069, 000070, 000072, 000074, 000075 showed no new black holes or hair collapse. The abdomen artifact reduction remained very small.
+- Conclusion: T93 is numerically better than T90/T92 and visually safe, but the effect is not strong enough to call the visible artifact solved.
+
+T94:
+- Purpose: test a stricter attribution idea: use T93's harmful row manifest as a fixed row subset and optimize only those outer top RGB rows against teacher combined crops.
+- Code change: evaluation/stage2_combiined_eval/fit_outer_rgb_teacher_combined.py gained --selected_rows_json and --selected_rows_field so a postfit can restrict RGB optimization to explicit outer rows. Backup saved at trash/T20260417_before_T94_fit_outer_rgb_teacher_combined.py. This still only affects outer postfit tooling.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-94_stage2_outer_t90_harmful_rows_rgb/gaussians3d.pt.
+- Parameters: selected_rows_json=outputs/T20260417-93_stage2_outer_t90_top_harmful_attenuation_stronger/outer_harmful_top_attenuation_manifest.json, selected_rows=163, parts=top, iters=90, lr_rgb=0.006, artifact_weight=0.45, chroma_weight=1.60.
+- Result: changed_rgb_mean_abs=0.0 and changed_rgb_max_abs=0.0. The best optimization state was the initial state.
+- Conclusion: reject T94. The projected-center harmful-row selection does not reliably identify rows that can reduce the differentiable combined loss. This is a useful negative result: row attribution by center projection is too crude for splat contribution.
+
+T95:
+- Purpose: test whether the remaining spots are missed because the previous RGB postfit used too low a crop resolution and too weak a chroma/artifact emphasis.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-95_stage2_outer_t90_top_highres_chroma_artifact/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-95_stage2_combined_outer_t90_top_highres_chroma_artifact.
+- Parameters: parts=top, out_size=512, iters=100, lr_rgb=0.0035, l1_weight=0.45, hf_weight=1.35, reg_weight=0.035, guard_weight=0.12, artifact_weight=0.80, chroma_weight=2.20.
+- Change magnitude: selected_rows=1590, changed_rgb_mean_abs=0.005638, changed_rgb_max_abs=0.081150.
+- Result vs T90: global MAE worsened 0.0721583590 -> 0.0721621141, SSIM worsened 0.8567270041 -> 0.8566928506. Top MAE worsened 0.0427112915 -> 0.0429574437. Torso MAE improved 0.0694654435 -> 0.0689854920.
+- Visual check: zoomed T90/T93/T95 abdomen crops showed no meaningful removal of the gray-green artifact and no clear texture improvement. The top metrics also moved in the wrong direction.
+- Conclusion: reject T95. Increasing high-res chroma/artifact pressure over all top rows is not the right lever; it shifts averages but does not fix the local visible artifact.
+
+T96:
+- Purpose: test the opposite opacity hypothesis: some gray-green contamination may be caused by insufficient outer coverage letting inner/background influence show through, so boost only low-alpha/high-error supportive top faces.
+- Script: evaluation/stage2_combiined_eval/boost_supportive_outer_top_faces_weighted.py.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-96_stage2_outer_t90_supportive_top_opacity_boost/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-96_stage2_combined_outer_t90_supportive_top_opacity_boost.
+- Parameters: low_outer_alpha=0.08, high_error_quantile=0.86, min_face_votes=140, top_faces=55, target_opacity_min=0.045, target_opacity_max=0.085, score_gamma=1.25.
+- Change magnitude: selected_faces=55, selected_rows=9, boosted_rows=3, opacity_change_mean_abs=0.017058, opacity_change_max_abs=0.019395.
+- Result vs T90: effectively unchanged. Global MAE 0.0721583590 -> 0.0721583813, top MAE 0.0427112915 -> 0.0427112095.
+- Conclusion: the existing active supportive rows are too sparse. Simple opacity boost cannot solve this because there are almost no eligible active rows in the target faces.
+
+T97/T98:
+- Purpose: test real distribution modification by reactivating pruned outer top Gaussians on low-alpha/high-error top faces, then refining only the reactivated rows' colors from teacher combined frames.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- T97 output ckpt: outputs/T20260417-97_stage2_outer_t90_targeted_top_reactivate/gaussians3d.pt.
+- T98 output ckpt: outputs/T20260417-98_stage2_outer_t97_reactivated_top_color_refine/gaussians3d.pt.
+- T98 eval output: evaluation/eval_outputs/T20260417-98_stage2_combined_outer_t97_reactivated_top_color_refine.
+- T97 parameters: parts=top, low_outer_alpha=0.08, high_error_quantile=0.86, min_face_votes=140, top_faces_per_part=120, target_opacity=0.035.
+- T97 change: selected_face_count=114, reactivated_rows=43. A later check showed all 43 reactivated rows were not excluded by exclude_outer_mask, so the no-effect result was not caused by the exposed-region deactivation rule.
+- T98 parameters: candidate_mode=reactivated, teacher_bank=T20260415-73, teacher_parts=top, teacher_roles=base,extra, low_outer_alpha=0.10, high_error_quantile=0.80, min_pixels_per_face=16, blend=0.65.
+- T98 change: candidate_rows=43, changed_rows=43.
+- Result vs T90: summary metrics were exactly unchanged at displayed precision: global MAE 0.0721583590, top MAE 0.0427112915.
+- Conclusion: reject T97/T98. Reactivating at opacity=0.035 is below the practical contribution threshold for these splats; it is too weak to affect the final render.
+
+T99/T100:
+- Purpose: repeat the T97/T98 distribution modification with a meaningful opacity dose: reactivate the same kind of top support at opacity=0.08, then refine colors from teacher combined frames.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- T99 output ckpt: outputs/T20260417-99_stage2_outer_t90_targeted_top_reactivate_op008/gaussians3d.pt.
+- T100 output ckpt: outputs/T20260417-100_stage2_outer_t99_reactivated_top_color_refine/gaussians3d.pt.
+- T100 eval output: evaluation/eval_outputs/T20260417-100_stage2_combined_outer_t99_reactivated_top_color_refine.
+- T99 parameters: same face selection as T97 but target_opacity=0.080. Reactivated_rows=43.
+- T100 parameters: candidate_mode=reactivated, teacher_bank=T20260415-73, teacher_parts=top, teacher_roles=base,extra, low_outer_alpha=0.12, high_error_quantile=0.80, min_pixels_per_face=16, blend=0.65.
+- T100 color change: candidate_rows=43, changed_rows=43.
+- Result vs T90: global MAE 0.0721583590 -> 0.0721517131, PSNR 15.9033889771 -> 15.9045495987, SSIM 0.8567270041 -> 0.8567440510. Top MAE 0.0427112915 -> 0.0426986367, top SSIM 0.8474181890 -> 0.8474769592, top badness 0.1964052469 -> 0.1963288337. Pants MAE 0.0476501808 -> 0.0476487204. Hair unchanged at summary precision.
+- Result vs T93: T100 is also slightly better numerically: global MAE 0.0721528977 -> 0.0721517131 and top MAE 0.0427054949 -> 0.0426986367.
+- Visual check: pulled T90/T93/T100 overlays and inspected zoomed abdomen crops for frames 000048, 000049, 000050, 000051, 000052, 000069, 000070, 000072, 000074, 000075. T100 did not introduce black borders, new black spots, obvious hair regression, or visible shirt texture wipeout. The abdomen gray-green artifact is only slightly reduced; it remains visible.
+- Conclusion: accept T100 as the current best small improvement. It is not a final solution. The useful direction is targeted distribution support plus teacher combined color refinement. The negative results show that projected-center row attribution, broad high-res chroma over all top rows, and tiny-opacity reactivation are not enough.
+
+Current conclusion after T92-T100:
+- Current best checkpoint: outputs/T20260417-100_stage2_outer_t99_reactivated_top_color_refine/gaussians3d.pt.
+- Current paired eval: evaluation/eval_outputs/T20260417-100_stage2_combined_outer_t99_reactivated_top_color_refine.
+- Conservative fallback: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt. T93 is numerically between T90 and T100 and visually safe, but the improvement is too small to matter much.
+- Important technical lesson: the remaining artifact is not solved by more global RGB fitting. It needs better distribution/visibility attribution. T100's small gain came from adding a small number of reactivated top outer supports with teacher-combined color refinement while keeping inner fixed.
+
+
+T101/T102:
+- Purpose: test a stronger distribution-level change than T99/T100 by reactivating top outer Gaussians on an abdomen-proxy subset of top faces, then refining only those reactivated rows with teacher combined frames. This still modifies only outer checkpoints and combined-eval helper outputs; inner code and inner artifacts were not changed.
+- Code dependency: evaluation/stage2_combiined_eval/targeted_reactivate_outer_parts.py already supports --abdomen_proxy_parts. The selected region is a lower-torso proxy inside the top mask; this is not a hard-coded frame exception.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- T101 output ckpt: outputs/T20260417-101_stage2_outer_t90_abdomen_top_reactivate_op012/gaussians3d.pt.
+- T101 parameters: parts=top, abdomen_proxy_parts=top, low_outer_alpha=0.10, high_error_quantile=0.82, min_face_votes=80, top_faces_per_part=140, target_opacity=0.12.
+- T101 change: selected_face_count=140, reactivated_rows=46.
+- T102 output ckpt: outputs/T20260417-102_stage2_outer_t101_abdomen_top_color_refine/gaussians3d.pt.
+- T102 eval output: evaluation/eval_outputs/T20260417-102_stage2_combined_outer_t101_abdomen_top_color_refine.
+- T102 color-refine parameters: candidate_mode=reactivated, parts=top, teacher_bank=T20260415-73, teacher_roles=base,extra, low_outer_alpha=0.15, high_error_quantile=0.72, blend=0.70.
+- T102 change: candidate_rows=46, changed_rows=45.
+- Result vs T100: global MAE improved 0.0721517131 -> 0.0721392184, PSNR improved 15.9045495987 -> 15.9058198929, SSIM slightly worsened 0.8567440510 -> 0.8567405343. Top MAE improved 0.0426986367 -> 0.0426824391, top badness improved 0.1963288337 -> 0.1963205636. Pants and hair were effectively unchanged.
+- Visual check: compared T90/T100/T102/T104/T106 abdomen and hair sheets on frames 000048, 000050, 000052, 000069, 000072, 000075. T102 was a small safe improvement but the abdomen gray-green residual remained visible.
+- Conclusion: T102 is valid but not enough. The useful part is the abdomen-proxy support selection; the effect size remains small.
+
+T103/T104:
+- Purpose: test whether the same abdomen-proxy distribution support needs stronger opacity than T101/T102.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- T103 output ckpt: outputs/T20260417-103_stage2_outer_t90_abdomen_top_reactivate_op016/gaussians3d.pt.
+- T103 parameters: same as T101 but target_opacity=0.16. selected_face_count=140, reactivated_rows=46.
+- T104 output ckpt: outputs/T20260417-104_stage2_outer_t103_abdomen_top_color_refine/gaussians3d.pt.
+- T104 eval output: evaluation/eval_outputs/T20260417-104_stage2_combined_outer_t103_abdomen_top_color_refine.
+- T104 color-refine parameters: candidate_mode=reactivated, parts=top, low_outer_alpha=0.18, high_error_quantile=0.72, blend=0.70.
+- T104 change: candidate_rows=46, changed_rows=46.
+- Result vs T100: global MAE improved 0.0721517131 -> 0.0721364170, PSNR improved 15.9045495987 -> 15.9063596725, SSIM slightly worsened 0.8567440510 -> 0.8567411900. Top MAE improved 0.0426986367 -> 0.0426798612, top badness improved 0.1963288337 -> 0.1963115931. Hair unchanged.
+- Visual check: T104 looked nearly identical to T102/T106 on the abdomen sheet, with no black border and no hair collapse. The residual dirty green/dark abdomen artifacts were still present.
+- Conclusion: T104 is a better numerical candidate than T102, but still a small visual movement. It is not a real fix.
+
+T105/T106:
+- Purpose: pressure-test stronger opacity for the same abdomen-proxy support, to see whether the visible issue is mainly insufficient outer coverage.
+- Source ckpt: outputs/T20260417-90_stage2_outer_t86_top_chroma_artifact_stronger/gaussians3d.pt.
+- T105 output ckpt: outputs/T20260417-105_stage2_outer_t90_abdomen_top_reactivate_op024/gaussians3d.pt.
+- T105 parameters: same as T101/T103 but target_opacity=0.24. selected_face_count=140, reactivated_rows=46.
+- T106 output ckpt: outputs/T20260417-106_stage2_outer_t105_abdomen_top_color_refine/gaussians3d.pt.
+- T106 eval output: evaluation/eval_outputs/T20260417-106_stage2_combined_outer_t105_abdomen_top_color_refine.
+- T106 color-refine parameters: candidate_mode=reactivated, parts=top, low_outer_alpha=0.28, high_error_quantile=0.72, blend=0.70.
+- T106 change: candidate_rows=46, changed_rows=46.
+- Result vs T104: global MAE improved 0.0721364170 -> 0.0721315965, PSNR improved 15.9063596725 -> 15.9074811935, but SSIM worsened 0.8567411900 -> 0.8567383289. Top MAE improved 0.0426798612 -> 0.0426763035, but top SSIM/badness worsened slightly 0.8474761248/0.1963115931 -> 0.8474678397/0.1963140517. Hair unchanged.
+- Visual check: T106 did not create hair regression or black borders, but it also did not visibly remove the abdomen residual. It looks marginally more covered, not materially cleaner.
+- Conclusion: increasing reactivation opacity alone has hit diminishing returns. T106 is a valid candidate but not a solved result.
+
+T107:
+- Purpose: after T106 added abdomen support, test whether a conservative combined-aware top RGB refit can make the newly active support participate in the final combined colors.
+- Code path: evaluation/stage2_combiined_eval/fit_outer_rgb_teacher_combined.py. This run updated only active top outer RGB; no opacity, scale, position, inner code, or inner artifact was changed.
+- Source ckpt: outputs/T20260417-106_stage2_outer_t105_abdomen_top_color_refine/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-107_stage2_combined_outer_t106_top_combined_rgb_refit.
+- Parameters: parts=top, teacher_bank=T20260415-73, teacher_roles=base,extra, guard_mode=non_teacher, guard_parts=top, guard_weight=0.14, guard_frame_stride=5, guard_max_frames=12, iters=70, lr_rgb=0.0025, out_size=384, l1_weight=0.72, hf_weight=1.05, reg_weight=0.07, artifact_weight=0.35, chroma_weight=1.20.
+- Change: selected_rows=1636, changed_rgb_mean_abs=0.0006648196, changed_rgb_max_abs=0.0285775661.
+- Result vs T106: global MAE improved 0.0721315965 -> 0.0721174330, PSNR improved 15.9074811935 -> 15.9110641479, SSIM improved 0.8567383289 -> 0.8567572832. Top SSIM/badness improved 0.8474678397/0.1963140517 -> 0.8475086093/0.1962799430, while top MAE worsened slightly 0.0426763035 -> 0.0426830165. Pants and hair stayed effectively unchanged.
+- Visual check: pulled T90/T100/T104/T106/T107 abdomen and hair sheets, plus T107/T108/T109 zooms. T107 has no new black border, no obvious hair regression, and no visible texture collapse. The abdomen artifact is still present, but T107 is the best balanced result in this round.
+- Conclusion: accept T107 as current best balanced checkpoint. It improves global and structural metrics while keeping the visual result stable. It still does not solve the gray-green abdomen artifact; it only reduces the risk profile relative to T106.
+
+T108:
+- Purpose: localize the combined-aware RGB loss to the actual failing region by adding abdomen-proxy targets to fit_outer_rgb_teacher_combined.py, instead of optimizing the whole top crop.
+- Code change: evaluation/stage2_combiined_eval/fit_outer_rgb_teacher_combined.py gained --abdomen_proxy_parts and an abdomen_proxy_mask() used inside make_part_targets(). Backup saved at trash/T20260417_before_T108_fit_outer_rgb_teacher_combined.py. This change affects only outer postfit tooling.
+- Source ckpt: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-108_stage2_outer_t107_abdomen_proxy_rgb_refit/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-108_stage2_combined_outer_t107_abdomen_proxy_rgb_refit.
+- Parameters: parts=top, abdomen_proxy_parts=top, guard_mode=non_teacher, guard_parts=top, guard_weight=0.18, iters=80, lr_rgb=0.003, crop_pad_px=16, min_pixels=128, l1_weight=0.78, hf_weight=0.95, reg_weight=0.08, artifact_weight=0.45, chroma_weight=1.50.
+- Change: selected_rows=1636, changed_rgb_mean_abs=0.0016438386, changed_rgb_max_abs=0.0527349412.
+- Result vs T107: global MAE improved 0.0721174330 -> 0.0721134469 and PSNR improved 15.9110641479 -> 15.9168968201, but SSIM worsened 0.8567572832 -> 0.8567481637. Top MAE/SSIM/badness all worsened: 0.0426830165/0.8475086093/0.1962799430 -> 0.0427278765/0.8474586010/0.1963748038.
+- Visual check: T108 did not create a catastrophic artifact, but it also did not visibly remove the gray-green abdomen residue. The local loss can improve global photometric numbers while harming top quality.
+- Conclusion: reject T108 as a main checkpoint. Keep the code feature because it is diagnostically useful, but do not promote the output.
+
+T109:
+- Purpose: pressure-test the abdomen-proxy RGB idea with much stronger chroma/artifact weights to determine whether more local color pressure can solve the residual.
+- Source ckpt: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-109_stage2_outer_t107_abdomen_proxy_strong_rgb_refit/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-109_stage2_combined_outer_t107_abdomen_proxy_strong_rgb_refit.
+- Parameters: parts=top, abdomen_proxy_parts=top, guard_mode=non_teacher, guard_parts=top, guard_weight=0.20, iters=100, lr_rgb=0.004, crop_pad_px=16, min_pixels=128, l1_weight=0.60, hf_weight=0.75, reg_weight=0.04, artifact_weight=0.90, chroma_weight=2.40.
+- Change: selected_rows=1636, changed_rgb_mean_abs=0.0055535734, changed_rgb_max_abs=0.0963070989.
+- Result vs T107: global MAE worsened 0.0721174330 -> 0.0721804425, SSIM worsened 0.8567572832 -> 0.8566544056, top MAE/SSIM/badness worsened strongly 0.0426830165/0.8475086093/0.1962799430 -> 0.0429828055/0.8471094966/0.1969789118. PSNR improved to 15.9250097275, but this is a misleading average-color gain.
+- Visual check: T107/T108/T109 abdomen sheet confirmed no useful visible cleanup; stronger local pressure mostly changes tone and risks washing or dirtying local structure. This matches the metrics.
+- Conclusion: reject T109. The residual is not solved by stronger abdomen RGB pressure. The next real direction should improve visibility/contribution attribution of individual outer Gaussians rather than increasing local color loss.
+
+Current conclusion after T101-T109:
+- Current best checkpoint: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- Current paired eval: evaluation/eval_outputs/T20260417-107_stage2_combined_outer_t106_top_combined_rgb_refit.
+- Best conservative fallback: outputs/T20260417-106_stage2_outer_t105_abdomen_top_color_refine/gaussians3d.pt if top MAE is weighted more than top SSIM/badness and visual stability.
+- Rejected in this block: T108 and T109. T108 proves abdomen-proxy local loss is diagnostically useful but not good enough; T109 proves more pressure damages top quality.
+- Important lesson: the visible gray-green/black abdomen residue is no longer mainly a scalar color-fit problem. T107 is the best incremental result, but the next non-wasteful change needs better attribution of which outer splats actually contribute to the visible bad pixels. Center-projection row attribution and stronger RGB losses have both shown weak or negative returns.
+
+
+T110:
+- Purpose: improve attribution beyond face-center selection by selecting active outer top rows via differentiable gradients of the combined abdomen-proxy loss. This tests whether rows that actually receive loss gradient can be corrected without touching inner code, inner artifacts, outer positions, scales, or opacity.
+- Code change: added evaluation/stage2_combiined_eval/select_outer_rows_by_gradient.py. It imports the existing combined target builder/losses, merges existing inner with the candidate outer only for evaluation, computes gradients w.r.t. active outer top RGB rows, and writes a selected_rows_json for fit_outer_rgb_teacher_combined.py. Local temp was used only to transfer the script; the repository change is on the cloud server.
+- Row selection source ckpt: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- Row selection output: outputs/T20260417-110_gradient_row_selection/outer_gradient_row_selection.json.
+- Row selection parameters: parts=top, abdomen_proxy_parts=top, teacher_bank=T20260415-73, teacher_roles=base,extra, out_size=384, crop_pad_px=16, top_rows=260, l1/hf/artifact/chroma=0.60/0.75/0.90/2.40.
+- Row selection result: candidate_rows=1636, selected top_rows=260, gradient loss=0.0810330957, score_max=0.0002800538, score_mean=0.0000056565. Top gradient rows mostly indicated the desired anti-green direction: among top80, 65 rows had positive green_direction, meaning gradient descent would lower G and raise R/B.
+- RGB refit source ckpt: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- RGB refit output ckpt: outputs/T20260417-110_stage2_outer_t107_grad260_abdomen_rgb_refit/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-110_stage2_combined_outer_t107_grad260_abdomen_rgb_refit.
+- RGB refit parameters: selected_rows_json=T110 gradient selection, selected_rows=260, parts=top, abdomen_proxy_parts=top, guard_weight=0.20, iters=90, lr_rgb=0.005, l1/hf/reg/artifact/chroma=0.70/0.85/0.04/0.60/1.80.
+- Change: selected_rows=260, changed_rgb_mean_abs=0.0036849109, changed_rgb_max_abs=0.0606714934.
+- Result vs T107: global MAE barely improved 0.0721174330 -> 0.0721165761, but SSIM slightly worsened 0.8567572832 -> 0.8567566872. Top MAE/SSIM/badness all worsened: 0.0426830165/0.8475086093/0.1962799430 -> 0.0427210331/0.8474934101/0.1963331550. Hair unchanged.
+- Visual check: T107/T110/T113 abdomen sheet on frames 000048, 000050, 000052, 000069, 000072, 000075 did not show a meaningful reduction of the residual gray-green abdomen artifact. T110 can look slightly harder/dirtier locally.
+- Conclusion: reject T110. Gradient row selection is a better attribution tool than projected centers, but optimizing 260 gradient rows with Adam still harms top quality more than it helps the visible artifact.
+
+T111:
+- Purpose: test whether T110 failed because 260 rows was too wide and the optimizer had too much freedom.
+- Selection source: outputs/T20260417-110_gradient_row_selection/outer_gradient_row_selection.json.
+- Selection output: outputs/T20260417-111_gradient_row_selection_top80/outer_gradient_row_selection_top80.json, created by taking the top 80 rows from the T110 gradient ranking.
+- RGB refit source ckpt: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- RGB refit output ckpt: outputs/T20260417-111_stage2_outer_t107_grad80_abdomen_rgb_refit/gaussians3d.pt.
+- RGB refit parameters: selected_rows=80, parts=top, abdomen_proxy_parts=top, guard_weight=0.18, iters=70, lr_rgb=0.004, l1/hf/reg/artifact/chroma=0.75/0.90/0.08/0.35/1.10.
+- Result: changed_rgb_mean_abs=0.0 and changed_rgb_max_abs=0.0 because the best optimizer state was the initial state.
+- Evaluation was intentionally skipped because the saved checkpoint is effectively identical to T107 in the optimized tensors.
+- Conclusion: reject T111. Narrowing to top80 with conservative loss removes the harmful freedom, but also leaves no useful descent direction under this objective.
+
+T112:
+- Purpose: test the opacity version of T110. If gradient-selected rows are harmful contributors, reducing or adjusting their opacity could help without changing color.
+- Source ckpt: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- Output ckpt: outputs/T20260417-112_stage2_outer_t107_grad260_abdomen_opacity_refit/gaussians3d.pt.
+- Parameters: selected_rows_json=T110 gradient selection, selected_rows=260, lr_rgb=0.0, optimize_opacity=true, lr_opacity=0.03, opacity_delta_limit=0.30, opacity_reg_weight=0.02, l1/hf/artifact/chroma=0.70/0.85/0.60/1.80.
+- Result: opacity_change_mean_abs=0.0, opacity_change_max_abs=0.0, changed_rgb_mean_abs=0.0. The best state was again the initial state.
+- Evaluation was skipped because no optimized tensor changed.
+- Conclusion: reject T112. This repeats the earlier opacity lesson with better row attribution: opacity is not an effective short lever under the current differentiable objective/regularization.
+
+T113:
+- Purpose: test a non-Adam direct correction using the useful sign information from T110 gradients. Instead of optimizing many steps, apply a small bounded anti-green RGB update only to top80 rows whose gradient direction clearly says decrease G and increase R/B.
+- Source ckpt: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- Selection source: outputs/T20260417-110_gradient_row_selection/outer_gradient_row_selection.json.
+- Output ckpt: outputs/T20260417-113_stage2_outer_t107_grad80_direct_green_bias/gaussians3d.pt.
+- Eval output: evaluation/eval_outputs/T20260417-113_stage2_combined_outer_t107_grad80_direct_green_bias.
+- Parameters: considered top80 gradient rows, changed only rows with positive green_direction and anti-green update direction, max_delta=0.012 in RGB probability space.
+- Change: changed_rows=49, mean_abs_delta=0.0023141662, max_abs_delta=0.0047785193.
+- Result vs T107: global MAE worsened 0.0721174330 -> 0.0721200332, SSIM worsened 0.8567572832 -> 0.8567554355. Top MAE/SSIM/badness worsened slightly 0.0426830165/0.8475086093/0.1962799430 -> 0.0426902920/0.8475026488/0.1962931454. Pants and hair stayed effectively unchanged.
+- Visual check: T107/T110/T113 abdomen sheet did not show a convincing visible cleanup. T113 is safe and much less destructive than T109, but it is not a better result than T107.
+- Conclusion: reject T113 as a candidate, but keep the sign-analysis lesson. The gradient does correctly identify an anti-green direction, yet direct tiny color nudges still do not solve the visible artifact.
+
+Current conclusion after T110-T113:
+- Current best checkpoint remains: outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt.
+- Current paired eval remains: evaluation/eval_outputs/T20260417-107_stage2_combined_outer_t106_top_combined_rgb_refit.
+- New tool kept for diagnostics: evaluation/stage2_combiined_eval/select_outer_rows_by_gradient.py.
+- Rejected in this block: T110, T111, T112, T113.
+- Important lesson: true gradient attribution is better than center projection but still not enough if the correction variable is only RGB or opacity. The residual gray-green abdomen artifact appears to be a mixed representation problem: the visible pixels are produced by several high-opacity top rows whose color direction can be identified, but local RGB/opacity updates either do nothing or slightly degrade top structure. The next useful direction should not be another scalar loss weight sweep. It should either change outer support distribution before color fitting, or introduce a contribution-aware regularizer that preserves top texture while separating the dirty rows from supportive rows.
+
+## T20260417-114 to T20260417-119 outer optimization log
+
+Context:
+- All changes/tests in this block were run on the cloud server only under the `ega` environment.
+- Inner checkpoint/code/artifacts were not modified. Combined evaluation continued to merge existing inner `outputs/stage2/gaussians3d.pt` with the tested outer checkpoint, with `deactivate_outer_exposed=true` and render-preview based combined eval.
+- Local machine was used only to pull visual contact sheets for multimodal inspection.
+
+T114 diagnostic/script fix:
+- Fixed `evaluation/stage2_combiined_eval/diagnose_outer_artifact_triggers.py` after `make_part_targets()` gained `abdomen_proxy_parts`; backup saved to `trash/T20260417_before_T114_diagnose_outer_artifact_triggers.py`.
+- Ran artifact trigger diagnosis on T107:
+  - Output: `outputs/T20260417-114_artifact_trigger_diag_t107/outer_artifact_trigger_diag.json`.
+  - Work dir: `outputs/T20260417-114_artifact_trigger_diag_t107_work`.
+  - Important result: many abdomen-proxy pixels where outer participates are still globally helpful vs inner-only, but some high-alpha local pixels push the top/abdomen region darker/dirty. This weakens the simple "just RGB gray-green" hypothesis; the more useful target is high-confidence harmful contribution, not broad RGB refitting.
+
+T114:
+- Purpose: test a conservative structural top-only postfit from T107, allowing RGB/opacity/scale changes under teacher combined targets and high-frequency constraints.
+- Source: `outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt`.
+- Training command used `src/avatar_gs/cli/stage2_outer_part_postfit.py`, `target_source=combined_rgb`, `train_parts=top`, `iters=240`, `out_size=384`, `lr_rgb=0.004`, `lr_opacity=0.0015`, `lr_scale=0.0018`, `rgb/opacity/scale reg=0.18/0.05/0.08`, `artifact_loss_weight=0.35`, `extra_loss_weight=0.22`, view balancing enabled.
+- Output ckpt: `outputs/T20260417-114_stage2_outer_t107_top_structural_partpostfit/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-114_stage2_combined_outer_t107_top_structural_partpostfit`.
+- Result vs T107:
+  - Global MAE/PSNR/SSIM: `0.07211743 / 15.911064 / 0.856757` -> `0.07262542 / 15.902989 / 0.856303`.
+  - Top MAE/SSIM/badness: `0.04268302 / 0.84750861 / 0.19627994` -> `0.04365008 / 0.84614152 / 0.19842151`.
+- Visual check: pulled `outputs/T20260417-114_visual_compare_work/T20260417-114_T107_vs_T114_abdomen_zoom.png`. T114 did not remove the gray-green residue and introduced more blur/dirty texture in the problematic abdomen crops.
+- Conclusion: reject T114. Broad top structural postfit is too blunt; it damages top texture more than it fixes the residual.
+
+T115:
+- Purpose: high-confidence harmful-face attenuation from T107. Instead of retraining all top gaussians, attenuate only faces whose abdomen-proxy contribution is consistently harmful vs inner-only.
+- Source: T107.
+- Output: `outputs/T20260417-115_stage2_outer_t107_top_harmful_face_atten82_strict/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-115_stage2_combined_outer_t107_top_harmful_face_atten82_strict`.
+- Parameters: `harmful_margin=0.006`, `effect_min=0.004`, `min_face_votes=220`, `min_harmful_ratio=0.42`, `top_faces=32`, `opacity_scale=0.82`.
+- Change: selected faces=8, attenuated rows=6, mean abs opacity change=0.172879.
+- Result vs T107:
+  - Global MAE/PSNR/SSIM: `0.07211743 / 15.911064 / 0.856757` -> `0.07211109 / 15.911699 / 0.856771`.
+  - Top MAE/SSIM/badness: `0.04268302 / 0.84750861 / 0.19627994` -> `0.04267113 / 0.84755486 / 0.19622186`.
+  - Pants/hair/face effectively unchanged.
+- Visual check: T115 showed no new black border, no visible hair regression, and no obvious inner-outline exposure; improvement was very small.
+- Conclusion: accept direction, but not final; test stronger same-face attenuation.
+
+T116:
+- Purpose: same strict selected faces as T115, stronger opacity attenuation.
+- Source: T107.
+- Output: `outputs/T20260417-116_stage2_outer_t107_top_harmful_face_atten70_strict/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-116_stage2_combined_outer_t107_top_harmful_face_atten70_strict`.
+- Parameters: same as T115 except `opacity_scale=0.70`.
+- Change: selected faces=8, attenuated rows=6, mean abs opacity change=0.288132.
+- Result vs T107:
+  - Global MAE/PSNR/SSIM: `0.07211743 / 15.911064 / 0.856757` -> `0.07210751 / 15.912090 / 0.856778`.
+  - Top MAE/SSIM/badness: `0.04268302 / 0.84750861 / 0.19627994` -> `0.04266490 / 0.84757799 / 0.19619246`.
+- Conclusion: T116 improves over T115 with the same limited write scope; continue testing stronger.
+
+T117:
+- Purpose: same strict selected faces as T115/T116, stronger opacity attenuation.
+- Source: T107.
+- Output: `outputs/T20260417-117_stage2_outer_t107_top_harmful_face_atten55_strict/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-117_stage2_combined_outer_t107_top_harmful_face_atten55_strict`.
+- Parameters: same as T115 except `opacity_scale=0.55`.
+- Change: selected faces=8, attenuated rows=6, mean abs opacity change=0.432198.
+- Result vs T107:
+  - Global MAE/PSNR/SSIM: `0.07211743 / 15.911064 / 0.856757` -> `0.07210389 / 15.912550 / 0.856784`.
+  - Top MAE/SSIM/badness: `0.04268302 / 0.84750861 / 0.19627994` -> `0.04265931 / 0.84759742 / 0.19616753`.
+- Visual check: pulled `outputs/T20260417-117_visual_compare_work/T20260417-117_T107_vs_T117_abdomen_zoom.png`. No obvious new black hole, no visible inner outline exposure; improvement remains subtle.
+- Conclusion: T117 is valid, but T118 tests the upper bound.
+
+T118:
+- Purpose: stronger strict attenuation upper bound.
+- Source: T107.
+- Output: `outputs/T20260417-118_stage2_outer_t107_top_harmful_face_atten35_strict/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-118_stage2_combined_outer_t107_top_harmful_face_atten35_strict`.
+- Parameters: same selected strict faces as T115-T117, `opacity_scale=0.35`.
+- Change: selected faces=8, attenuated rows=6, mean abs opacity change=0.624286.
+- Result vs T107:
+  - Global MAE/PSNR/SSIM: `0.07211743 / 15.911064 / 0.856757` -> `0.07210062 / 15.913095 / 0.856786`.
+  - Top MAE/SSIM/badness: `0.04268302 / 0.84750861 / 0.19627994` -> `0.04265564 / 0.84760606 / 0.19615512`.
+  - Hair unchanged.
+- Visual check: pulled `outputs/T20260417-118_visual_compare_work/T20260417-118_T107_T117_T118_abdomen_zoom.png`. T118 remains visually safe and does not show new inner-outline exposure, but visible improvement is still modest.
+- Conclusion: T118 is a stronger safe candidate than T117.
+
+T119:
+- Purpose: test whether the residual can be reduced more by widening the harmful-face set while using milder attenuation than T118.
+- Source: T107.
+- Output: `outputs/T20260417-119_stage2_outer_t107_top_harmful_face_atten65_wider/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-119_stage2_combined_outer_t107_top_harmful_face_atten65_wider`.
+- Parameters: `harmful_margin=0.006`, `effect_min=0.0035`, `min_face_votes=160`, `min_harmful_ratio=0.32`, `top_faces=48`, `opacity_scale=0.65`.
+- Change: selected faces=48, attenuated rows=42, mean abs opacity change=0.218371, max=0.344975.
+- Result vs T107:
+  - Global MAE/PSNR/SSIM: `0.07211743 / 15.911064 / 0.856757` -> `0.07209767 / 15.912295 / 0.856796`.
+  - Top MAE/SSIM/badness: `0.04268302 / 0.84750861 / 0.19627994` -> `0.04263894 / 0.84764415 / 0.19610032`.
+  - Pants slightly worsened: `MAE 0.04765114 -> 0.04765213`, `SSIM 0.85813743 -> 0.85813516`, `badness 0.19038951 -> 0.19039276`.
+  - Hair unchanged.
+- Critical-frame check on frames 000047-000053 and 000069-000075:
+  - T118 average deltas vs T107: global MAE `-0.00000227`, global SSIM `+0.00000003`, top MAE `+0.00000106`, top badness `-0.00004696`.
+  - T119 average deltas vs T107: global MAE `-0.00001810`, global SSIM `+0.00002247`, top MAE `-0.00003361`, top badness `-0.00014660`.
+- Visual check: pulled `outputs/T20260417-119_visual_compare_work/T20260417-119_T107_T118_T119_abdomen_pants_zoom.png`. T119 does not introduce a visible black hole or obvious inner-layer exposure in the inspected frames. It is visually similar to T118 but has better critical-frame top deltas.
+- Conclusion: accept T119 as the current best checkpoint, with a caveat: it improves the abdomen/top artifact more than T118, but it starts to slightly touch pants metrics. This is acceptable for now because the visual check did not show an obvious pants regression, but future widening should be treated skeptically.
+
+Current best after this block:
+- Outer checkpoint: `outputs/T20260417-119_stage2_outer_t107_top_harmful_face_atten65_wider/gaussians3d.pt`.
+- Combined eval: `evaluation/eval_outputs/T20260417-119_stage2_combined_outer_t107_top_harmful_face_atten65_wider`.
+- Rejected: T114.
+- Superseded: T115, T116, T117, T118.
+- Important lesson: broad retraining of top is the wrong hammer. Contribution-aware harmful face attenuation is the first path in this block that improves both global and critical-frame top metrics without touching inner or hair. The remaining artifact is not solved completely; the next non-wasteful step should improve attribution granularity from face-level to row/pixel contribution, not widen attenuation blindly.
+
+## 2026-04-17 Continued Outer Optimization: T120-T127
+
+Scope and constraints:
+- All changes in this block were made on the cloud repository only: `/data/work/Editable Gaussian Avatars`.
+- Inner checkpoint and inner code were not modified. Combined evals used existing inner `outputs/stage2/gaussians3d.pt` and `deactivate_outer_exposed=True`.
+- Environment: `/data/miniconda3/envs/ega/bin/python` (`ega`).
+- Visual inspection images were pulled only to local temp `C:\Temp\ega_visual` for multimodal review.
+
+New script added:
+- `evaluation/stage2_combiined_eval/attenuate_harmful_outer_top_rows.py`
+  - Purpose: improve attribution granularity from harmful SMPL face-level attenuation to per-outer-row attenuation.
+  - Logic: render combined/inner/outer, build top abdomen proxy masks, project active top outer rows into all frames, score rows by whether combined is worse than inner in the projected artifact area, then attenuate only selected rows.
+  - Does not change inner artifacts or inner code.
+- `evaluation/stage2_combiined_eval/rebalance_outer_top_green_residual.py`
+  - Purpose: test whether residual gray-green artifacts can be reduced by automatic all-frame combined residual attribution.
+  - Logic: find top abdomen pixels where combined is more green/gray/dark than GT, project active top outer rows, accumulate residual `GT - combined`, and apply bounded RGB-only row rebalancing.
+  - Does not change geometry, scale, opacity, inner artifacts, or inner code.
+
+T120:
+- Purpose: conservative row-level attenuation from T119.
+- Source: `outputs/T20260417-119_stage2_outer_t107_top_harmful_face_atten65_wider/gaussians3d.pt`.
+- Output: `outputs/T20260417-120_stage2_outer_t119_top_row_atten_conservative/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-120_stage2_combined_outer_t119_top_row_atten_conservative`.
+- Parameters: `frames=all`, `harmful_margin=0.006`, `helpful_margin=0.006`, `effect_min=0.0035`, `sample_radius=3`, `min_harm_score=0.0012`, `min_harm_hits=3`, `min_net_ratio=0.22`, `helpful_weight=0.85`, `top_rows=24`, `min_opacity_scale=0.72`, `max_opacity_scale=0.90`.
+- Change: candidate top rows=1636, eligible=132, attenuated=24, mean abs opacity change=0.052300, max=0.264451.
+- Result vs T119:
+  - Global MAE/PSNR/SSIM: `0.07209767 / 15.912295 / 0.85679591` -> `0.07208990 / 15.912482 / 0.85680938`.
+  - Top MAE/SSIM/badness: `0.04263894 / 0.84764415 / 0.19610032` -> `0.04262132 / 0.84769481 / 0.19603205`.
+  - Pants slightly worsened: badness `0.19039276 -> 0.19039395`.
+- Visual check: pulled `outputs/T20260417-120_visual_compare_work/T20260417-120_T119_T120_abdomen_pants_zoom.png`; no obvious new black hole or pants degradation, but improvement was subtle.
+- Conclusion: valid but too conservative to be final.
+
+T121:
+- Purpose: stronger row-level attenuation from T119 using the same attribution family.
+- Source: T119.
+- Output: `outputs/T20260417-121_stage2_outer_t119_top_row_atten_stronger/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-121_stage2_combined_outer_t119_top_row_atten_stronger`.
+- Parameters: same as T120 except `min_opacity_scale=0.55`, `max_opacity_scale=0.82`.
+- Change: candidate rows=1636, eligible=132, attenuated=24, mean abs opacity change=0.090908, max=0.425011.
+- Result vs T119:
+  - Global MAE/PSNR/SSIM: `0.07209767 / 15.912295 / 0.85679591` -> `0.07208486 / 15.912616 / 0.85681653`.
+  - Top MAE/SSIM/badness: `0.04263894 / 0.84764415 / 0.19610032` -> `0.04261005 / 0.84772336 / 0.19599229`.
+  - Pants badness worsened slightly more: `0.19039276 -> 0.19039477`.
+- Conclusion: strongest top/global row attenuation from the T119 branch, but pants side effect makes it less clean.
+
+T122:
+- Purpose: apply strong row-level attenuation to the safer T118 branch to avoid T119's pants side effect.
+- Source: `outputs/T20260417-118_stage2_outer_t107_top_harmful_face_atten35_strict/gaussians3d.pt`.
+- Output: `outputs/T20260417-122_stage2_outer_t118_top_row_atten_stronger/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-122_stage2_combined_outer_t118_top_row_atten_stronger`.
+- Parameters: same as T121.
+- Change: candidate rows=1636, eligible=134, attenuated=24, mean abs opacity change=0.080566, max=0.425011.
+- Result vs T119:
+  - Global MAE/SSIM improved on critical frames: average `global_mae -0.00002747`, `global_ssim +0.00004761` over frames `000047-000053` and `000069-000075`.
+  - Critical top average: `top_mae -0.00006447`, `top_ssim +0.00019520`, `top_badness -0.00025967` vs T119.
+  - Critical pants average: `pants_mae -0.00000097`, `pants_ssim +0.00000177`, `pants_badness -0.00000274` vs T119.
+- Visual check: pulled `outputs/T20260417-122_visual_compare_work/T20260417-122_T119_T121_T122_abdomen_pants_zoom.png`. T122 looked at least as safe as T121 and kept pants cleaner.
+- Conclusion: T122 superseded T119/T120/T121 as the safer row-level attenuation candidate.
+
+T123:
+- Purpose: test selected-row teacher-combined RGB correction only on T122's 24 harmful rows.
+- Source: T122.
+- Output: `outputs/T20260417-123_stage2_outer_t122_selectedrow_teacher_color_chroma/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-123_stage2_combined_outer_t122_selectedrow_teacher_color_chroma`.
+- Parameters: selected rows from `outputs/T20260417-122_stage2_outer_t118_top_row_atten_stronger/harmful_top_row_attenuation_manifest.json`, `parts=top`, `abdomen_proxy_parts=top`, `teacher_roles=base,extra`, `iters=80`, `lr_rgb=0.010`, color/artifact/chroma loss enabled, non-teacher guard on `top,pants`.
+- Change: selected rows=24, but final `changed_rgb_mean_abs=0.0`, `changed_rgb_max_abs=0.0`.
+- Result: exactly identical to T122.
+- Conclusion: reject as ineffective. The 24 attenuated rows have negligible teacher-combined color gradient; the gray-green artifact is not solved by recoloring only these rows.
+
+T124:
+- Purpose: test all-active-top teacher-combined RGB correction from T122.
+- Source: T122.
+- Output: `outputs/T20260417-124_stage2_outer_t122_alltop_teacher_color_chroma_guarded/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-124_stage2_combined_outer_t122_alltop_teacher_color_chroma_guarded`.
+- Parameters: selected active top rows=1636, `iters=70`, `lr_rgb=0.006`, `reg_weight=0.080`, `artifact_weight=0.90`, `chroma_weight=0.45`, non-teacher guard weight=0.35.
+- Change: `changed_rgb_mean_abs=0.002193`, `changed_rgb_max_abs=0.085077`.
+- Result vs T122:
+  - Global MAE worsened: `0.07208883 -> 0.07212789`; SSIM worsened: `0.85680592 -> 0.85673034`.
+  - Top MAE/badness worsened: `0.04262799 / 0.19604975` -> `0.04282685 / 0.19654731`.
+- Visual check: pulled `outputs/T20260417-124_visual_compare_work/T20260417-124_T119_T122_T124_abdomen_pants_zoom.png`; no visible win, top looked slightly more dulled.
+- Conclusion: reject. Broad teacher color fitting still behaves like a blunt repainting tool and hurts top quality.
+
+T125:
+- Purpose: first automatic all-frame green/gray residual rebalancing test.
+- Source: T122.
+- Output: `outputs/T20260417-125_stage2_outer_t122_top_green_residual_rebalance/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-125_stage2_combined_outer_t122_top_green_residual_rebalance`.
+- Parameters: `green_margin=0.006`, `gray_margin=0.010`, `dark_margin=0.012`, `min_artifact_score=0.18`, `min_artifact_hits=5`, `min_artifact_ratio=0.28`, `top_rows=96`, `residual_gain=0.70`, `max_rgb_delta=0.055`.
+- Change: candidate rows=1636, eligible=169, changed rows=96, `changed_rgb_mean_abs=0.045547`, `changed_rgb_max_abs=0.055000`.
+- Result vs T122:
+  - Global MAE worsened: `0.07208883 -> 0.07211166`.
+  - Top MAE/badness worsened: `0.04262799 / 0.19604975` -> `0.04281945 / 0.19643986`.
+  - Pants MAE/badness also worsened slightly.
+- Visual check: pulled `outputs/T20260417-125_visual_compare_work/T20260417-125_T119_T122_T125_abdomen_pants_zoom.png`; no clear visible benefit.
+- Conclusion: reject. The residual idea is useful, but this parameterization is too broad and too strong.
+
+T126:
+- Purpose: strict, small-step automatic residual rebalancing.
+- Source: T122.
+- Output: `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-126_stage2_combined_outer_t122_top_green_residual_rebalance_strict`.
+- Parameters: `green_margin=0.007`, `gray_margin=0.012`, `dark_margin=0.014`, `min_artifact_score=0.35`, `min_artifact_hits=8`, `min_artifact_ratio=0.45`, `top_rows=32`, `residual_gain=0.35`, `max_rgb_delta=0.025`, `green_cap_ratio=0.25`.
+- Change: candidate rows=1636, eligible=97, changed rows=32, `changed_rgb_mean_abs=0.018945`, `changed_rgb_max_abs=0.025000`.
+- Result vs T122:
+  - Global MAE/PSNR/SSIM: `0.07208883 / 15.913196 / 0.85680592` -> `0.07207680 / 15.915895 / 0.85683084`.
+  - Top MAE/SSIM/badness: `0.04262799 / 0.84768373 / 0.19604975` -> `0.04262694 / 0.84772146 / 0.19601104`.
+  - Pants MAE/SSIM/badness: `0.04765144 / 0.85813582 / 0.19039138` -> `0.04765015 / 0.85815316 / 0.19037278`.
+  - Hair and face unchanged.
+- Critical-frame check vs T119 on frames `000047-000053` and `000069-000075`:
+  - `global_mae -0.00004169`, `global_ssim +0.00005449`.
+  - `top_mae -0.00005561`, `top_ssim +0.00020290`, `top_badness -0.00025851`.
+  - `pants_mae +0.00000081`, `pants_ssim +0.00000822`, `pants_badness -0.00000741`.
+- Critical-frame check vs T122:
+  - Global and pants improved; top critical average is effectively neutral (`top_badness +0.00000116`) while all-frame top summary improves.
+- Visual check: pulled `outputs/T20260417-126_visual_compare_work/T20260417-126_T119_T122_T126_abdomen_pants_zoom.png`. No new black spots, no visible hair regression, no obvious pants degradation. T126 is visually similar to T122 but slightly cleaner in the aggregate.
+- Conclusion: accept T126 as current best. The improvement is small but clean; it is the first residual-color variant that improves summary metrics without visible detail loss.
+
+T127:
+- Purpose: test whether slightly broader residual-color coverage can improve more than T126.
+- Source: T122.
+- Output: `outputs/T20260417-127_stage2_outer_t122_top_green_residual_rebalance_mid/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-127_stage2_combined_outer_t122_top_green_residual_rebalance_mid`.
+- Parameters: `min_artifact_score=0.30`, `min_artifact_ratio=0.40`, `top_rows=48`, `residual_gain=0.30`, `max_rgb_delta=0.020`; other margins same as T126.
+- Change: candidate rows=1636, eligible=112, changed rows=48, `changed_rgb_mean_abs=0.015104`, `changed_rgb_max_abs=0.020000`.
+- Result vs T126:
+  - Global MAE similar, PSNR slightly higher, but SSIM lower: `0.85683084 -> 0.85682428`.
+  - Top MAE/badness worsened: `0.04262694 / 0.19601104` -> `0.04263213 / 0.19603030`.
+  - Pants badness worsened: `0.19037278 -> 0.19038267`.
+- Conclusion: reject/supersede by T126. Broader coverage is already past the useful point.
+
+Current best after T120-T127:
+- Outer checkpoint: `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/gaussians3d.pt`.
+- Combined eval: `evaluation/eval_outputs/T20260417-126_stage2_combined_outer_t122_top_green_residual_rebalance_strict`.
+- Useful chain: T107 -> T118 -> T122 -> T126.
+- Rejected: T123 ineffective; T124 broad teacher color fit worsened top; T125 too broad/strong residual recolor; T127 broader residual recolor worse than T126.
+- Technical lesson: the artifact is not solved by global teacher color fitting. The least harmful approach is high-confidence row-level structural attenuation plus very small RGB residual rebalancing on a limited row set. If optimizing further, do not broaden blindly; improve row attribution confidence or add a visual/detail-preservation objective before increasing changed-row count.
+
+## 2026-04-17 Continued Outer Optimization: T128-T130
+
+Scope and constraints:
+- All edits and runs in this block were performed on the cloud repository only: `/data/work/Editable Gaussian Avatars`.
+- Inner checkpoint and inner training/eval code were not modified. Combined evals used existing inner `outputs/stage2/gaussians3d.pt`.
+- Local machine was used only to inspect pulled comparison images under `C:\Temp\ega_visual`.
+
+New script added/updated:
+- `evaluation/stage2_combiined_eval/fit_outer_selected_rows_combined_allframes.py`
+  - Purpose: strict outer-only combined-aware micro-refinement for selected outer rows.
+  - It freezes inner, freezes outer geometry/scale, and can update only selected outer row RGB and optionally opacity under hard per-row bounds.
+  - Target is all-frame `combined` top abdomen proxy crops. This is deliberately narrower than broad top refitting.
+
+T128:
+- Purpose: test whether T126 still has RGB-only improvement space under all-frame combined-aware supervision.
+- Source: `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/gaussians3d.pt`.
+- Selected rows: 32 rows from `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/top_green_residual_rebalance_manifest.json`.
+- Output: `outputs/T20260417-128_stage2_outer_t126_selectedrow_allframe_combined_microfit/gaussians3d.pt`.
+- Parameters: `frames=all`, `parts=top`, `abdomen_proxy_parts=top`, `iters=50`, `lr_rgb=0.003`, `max_rgb_delta=0.012`, `l1_weight=1.0`, `hf_weight=0.60`, `artifact_weight=0.45`, `chroma_weight=0.20`, `reg_weight=0.25`.
+- Result: best state was iteration 1; saved RGB change was effectively zero (`changed_rgb_mean_abs=4.66e-09`, `changed_rgb_max_abs=4.47e-08`).
+- Eval was not rerun because the saved checkpoint is numerically equivalent to T126 for the optimized fields.
+- Conclusion: T126 is already a local optimum for RGB-only selected-row all-frame combined microfit. Continuing to optimize these rows' RGB is wasted motion.
+
+T129:
+- Purpose: test whether T126 still has selected-row contribution/opacity improvement space.
+- Source: T126.
+- Selected rows: same 32 T126 residual rows.
+- Output: `outputs/T20260417-129_stage2_outer_t126_selectedrow_allframe_rgb_opacity_microfit/gaussians3d.pt`.
+- Parameters: same all-frame top abdomen proxy setup as T128, with `lr_rgb=0.002`, `max_rgb_delta=0.006`, `optimize_opacity=True`, `lr_opacity=0.001`, `max_opacity_delta=0.012`, `opacity_reg_weight=0.25`, `reg_weight=0.30`.
+- Result: best state was again iteration 1; saved RGB/opacity changes were effectively zero (`changed_rgb_mean_abs=4.66e-09`, `opacity_change_mean_abs=0.0`).
+- Eval was not rerun because the saved checkpoint is numerically equivalent to T126 for RGB/opacity.
+- Conclusion: T126 is also locally stable for selected-row opacity microfit. Remaining artifacts are not fixable by tiny gradient descent on these selected rows.
+
+T130:
+- Purpose: test a second pass of high-confidence residual RGB rebalancing from T126, selecting a new stricter row set rather than re-optimizing only T126's rows.
+- Source: T126.
+- Output: `outputs/T20260417-130_stage2_outer_t126_secondpass_green_residual_strict/gaussians3d.pt`.
+- Eval: `evaluation/eval_outputs/T20260417-130_stage2_combined_outer_t126_secondpass_green_residual_strict`.
+- Parameters: `green_margin=0.008`, `gray_margin=0.014`, `dark_margin=0.016`, `effect_min=0.0038`, `min_artifact_score=0.50`, `min_artifact_hits=10`, `min_artifact_ratio=0.55`, `top_rows=16`, `residual_gain=0.25`, `max_rgb_delta=0.012`, `green_cap_ratio=0.20`.
+- Change: candidate rows=1636, eligible=59, changed rows=16, `changed_rgb_mean_abs=0.008800`, `changed_rgb_max_abs=0.012000`.
+- Result vs T126:
+  - Global MAE/PSNR/SSIM: `0.07207680 / 15.915895 / 0.85683084` -> `0.07207602 / 15.916514 / 0.85683352`.
+  - Top MAE/SSIM/badness: `0.04262694 / 0.84772146 / 0.19601104` -> `0.04263166 / 0.84771883 / 0.19601831`.
+  - Pants badness improves slightly: `0.19037278 -> 0.19036788`.
+- Critical-frame check on frames `000047-000053` and `000069-000075` vs T126:
+  - `global_mae -0.00000037`, `global_ssim -0.00000061`.
+  - `top_mae +0.00000379`, `top_ssim -0.00000363`, `top_badness +0.00000742`.
+  - `pants_badness -0.00000127`.
+- Visual check: pulled `outputs/T20260417-130_visual_compare_work/T20260417-130_T126_T130_abdomen_pants_zoom.png`. T130 is visually almost indistinguishable from T126 and does not clearly reduce the visible gray-green residue.
+- Conclusion: reject/supersede by T126. T130 trades a tiny global/pants gain for worse top critical-frame behavior and no visible artifact reduction.
+
+Current best after T128-T130:
+- Outer checkpoint remains: `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/gaussians3d.pt`.
+- Combined eval remains: `evaluation/eval_outputs/T20260417-126_stage2_combined_outer_t122_top_green_residual_rebalance_strict`.
+- Strong evidence: T128/T129 show no useful local RGB/opacity gradient around T126; T130 shows second-pass residual rebalancing has no visible gain and slightly hurts top key-frame metrics.
+- Practical conclusion: T126 is near the limit of the current post-processing/refinement family. Further real improvement likely requires changing outer training data/visibility modeling or outer Gaussian initialization/support distribution, not additional small postfit passes.
+
+
+## 2026-04-17 T126 Reproduction And Cleanup: T131-T132
+
+T131:
+- Purpose: verify whether the accepted T126 result can be reproduced exactly from the upstream shared outer base without reusing the existing T126 final artifact.
+- Clean-chain runner: `evaluation/stage2_combiined_eval/reproduce_t126_clean_chain.py`.
+- Base outer checkpoint: `outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt`.
+- Chain:
+  - Step 1: `attenuate_harmful_outer_top_faces.py` -> `outputs/T20260417-131_repro_t126_clean_step1_t118/gaussians3d.pt`.
+  - Step 2: `attenuate_harmful_outer_top_rows.py` -> `outputs/T20260417-131_repro_t126_clean_step2_t122/gaussians3d.pt`.
+  - Step 3: `rebalance_outer_top_green_residual.py` -> `outputs/T20260417-131_repro_t126_clean_step3_t126/gaussians3d.pt`.
+  - Final eval: `evaluation/eval_outputs/T20260417-131_repro_t126_clean_combined_t126`.
+- Result: reproduced T126 matches the reference T126 exactly.
+- Exact metric deltas vs reference T126 eval:
+  - `global_delta.mae_mean = 0.0`
+  - `global_delta.psnr_mean = 0.0`
+  - `global_delta.ssim_mean = 0.0`
+  - `top_delta.mae_mean = 0.0`
+  - `top_delta.ssim_mean = 0.0`
+  - `top_delta.badness_mean = 0.0`
+  - `pants_delta.mae_mean = 0.0`
+  - `pants_delta.ssim_mean = 0.0`
+  - `pants_delta.badness_mean = 0.0`
+- Report: `outputs/T20260417-131_repro_t126_clean_step3_t126/reproduce_t126_clean_report.json`.
+- Conclusion: T126 is not an accidental one-off artifact. It is stably reproducible from the fixed shared outer base T107 through the strict three-step outer post-processing chain `T107 -> T118 -> T122 -> T126`.
+
+T132:
+- Purpose: extract a clean T126 chain and remove clutter from abandoned tests / compatibility branches without deleting history.
+- Trash root: `trash/T20260417-132_t126_cleanup`.
+- Action: moved non-chain scripts from `evaluation/stage2_combiined_eval` and moved rejected numbered experiment outputs/evals into trash. Nothing was force-deleted.
+- Moved count: 173 paths.
+- Kept eval scripts:
+  - `evaluation/stage2_combiined_eval/__init__.py`
+  - `evaluation/stage2_combiined_eval/attenuate_harmful_outer_top_faces.py`
+  - `evaluation/stage2_combiined_eval/attenuate_harmful_outer_top_rows.py`
+  - `evaluation/stage2_combiined_eval/rebalance_outer_top_green_residual.py`
+  - `evaluation/stage2_combiined_eval/reproduce_t126_clean_chain.py`
+  - `evaluation/stage2_combiined_eval/run_stage2_combined_eval.py`
+- Kept core outputs:
+  - `outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit`
+  - `outputs/T20260417-118_stage2_outer_t107_top_harmful_face_atten35_strict`
+  - `outputs/T20260417-122_stage2_outer_t118_top_row_atten_stronger`
+  - `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict`
+  - `outputs/T20260417-131_repro_t126_clean_step1_t118`
+  - `outputs/T20260417-131_repro_t126_clean_step2_t122`
+  - `outputs/T20260417-131_repro_t126_clean_step3_t126`
+- Kept eval outputs:
+  - `evaluation/eval_outputs/T20260417-107_stage2_combined_outer_t106_top_combined_rgb_refit`
+  - `evaluation/eval_outputs/T20260417-118_stage2_combined_outer_t107_top_harmful_face_atten35_strict`
+  - `evaluation/eval_outputs/T20260417-122_stage2_combined_outer_t118_top_row_atten_stronger`
+  - `evaluation/eval_outputs/T20260417-126_stage2_combined_outer_t122_top_green_residual_rebalance_strict`
+  - `evaluation/eval_outputs/T20260417-131_repro_t126_clean_combined_t126`
+- Cleanup manifest: `trash/T20260417-132_t126_cleanup/cleanup_manifest.json`.
+- Verification after cleanup: the retained clean-chain scripts compile successfully under `ega`.
+- Conclusion: the repository is now reduced to the minimal reproducible T126 path instead of a pile of half-rejected branches.
+
+
+T133:
+- Purpose: clean remaining intermediate/reproduction products after extracting the T126 clean chain, while still keeping the repository directly usable.
+- Trash root: `trash/T20260417-133_t126_product_cleanup`.
+- Action: moved intermediate chain artifacts and reproduction copies into trash; kept only the minimum in-place products needed for practical use.
+- Moved count: 8 paths.
+- Kept outputs in-place:
+  - `outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit`
+  - `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict`
+- Kept eval outputs in-place:
+  - `evaluation/eval_outputs/T20260417-107_stage2_combined_outer_t106_top_combined_rgb_refit`
+  - `evaluation/eval_outputs/T20260417-126_stage2_combined_outer_t122_top_green_residual_rebalance_strict`
+- Moved to trash:
+  - `outputs/T20260417-118_stage2_outer_t107_top_harmful_face_atten35_strict`
+  - `outputs/T20260417-122_stage2_outer_t118_top_row_atten_stronger`
+  - `outputs/T20260417-131_repro_t126_clean_step1_t118`
+  - `outputs/T20260417-131_repro_t126_clean_step2_t122`
+  - `outputs/T20260417-131_repro_t126_clean_step3_t126`
+  - `evaluation/eval_outputs/T20260417-118_stage2_combined_outer_t107_top_harmful_face_atten35_strict`
+  - `evaluation/eval_outputs/T20260417-122_stage2_combined_outer_t118_top_row_atten_stronger`
+  - `evaluation/eval_outputs/T20260417-131_repro_t126_clean_combined_t126`
+- Cleanup manifest: `trash/T20260417-133_t126_product_cleanup/cleanup_manifest.json`.
+- Conclusion: in-place products are now reduced to the shared base T107 and the accepted final T126. Intermediate states still exist, but only under trash.
+
+
+T134:
+- Purpose: finish the product cleanup properly instead of only cleaning numbered subsets.
+- Trash root: `trash/T20260417-134_full_legacy_product_cleanup`.
+- Action: moved all remaining legacy outer-stage products, eval outputs, work dirs, diagnostics, logs, renders, and old combined outputs into trash.
+- Moved count: 341 paths.
+- Final in-place outputs after cleanup:
+  - `outputs/stage1`
+  - `outputs/stage2`
+  - `outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit`
+  - `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict`
+- Final in-place eval outputs after cleanup:
+  - `evaluation/eval_outputs/stage1`
+  - `evaluation/eval_outputs/stage2`
+  - `evaluation/eval_outputs/T20260417-107_stage2_combined_outer_t106_top_combined_rgb_refit`
+  - `evaluation/eval_outputs/T20260417-126_stage2_combined_outer_t122_top_green_residual_rebalance_strict`
+- Cleanup manifest: `trash/T20260417-134_full_legacy_product_cleanup/cleanup_manifest.json`.
+- Conclusion: the main product directories are now actually clean. Only standard inner products and the current accepted outer result remain in-place; the rest is preserved under trash.
+
+
+T135:
+- Purpose: fold T107 into the final T126 chain so the main product paths keep only the accepted best T126 instead of both base and final artifacts.
+- Trash root: `trash/T20260417-135_t107_folded_into_t126_chain`.
+- Action:
+  - moved `outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit` into trash;
+  - moved `evaluation/eval_outputs/T20260417-107_stage2_combined_outer_t106_top_combined_rgb_refit` into trash;
+  - updated `evaluation/stage2_combiined_eval/reproduce_t126_clean_chain.py` so its default base checkpoint points to the archived T107 path under trash;
+  - wrote `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/t126_chain_manifest.json` to make the T107 -> T118 -> T122 -> T126 lineage explicit while keeping only T126 in main paths.
+- Moved count: 2 paths.
+- Final in-place outputs after fold:
+  - `outputs/stage1`
+  - `outputs/stage2`
+  - `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict`
+- Final in-place eval outputs after fold:
+  - `evaluation/eval_outputs/stage1`
+  - `evaluation/eval_outputs/stage2`
+  - `evaluation/eval_outputs/T20260417-126_stage2_combined_outer_t122_top_green_residual_rebalance_strict`
+- Archive manifest: `trash/T20260417-135_t107_folded_into_t126_chain/cleanup_manifest.json`.
+- Chain manifest: `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/t126_chain_manifest.json`.
+- Verification: `evaluation/stage2_combiined_eval/reproduce_t126_clean_chain.py` still compiles successfully under `ega` after repointing the default base path.
+- Conclusion: T107 is now treated as an archived upstream intermediate inside the T126 chain, not as a retained top-level product. The main product paths keep only the best T126.
+
+
+T136:
+- Purpose: clean legacy config files and verify that the cleaned repository still reproduces the accepted T126 exactly.
+- Config cleanup trash root: `trash/T20260417-136_config_cleanup`.
+- Action: moved old outer experiment YAML files out of `configs/` and kept only the standard generic configs:
+  - `configs/deform_input.yaml`
+  - `configs/render.yaml`
+  - `configs/stage1_smplestx.yaml`
+  - `configs/stage2_gaussian.yaml`
+  - `configs/video.yaml`
+- Moved config count: 15 files.
+- Reproduction run: `evaluation/stage2_combiined_eval/reproduce_t126_clean_chain.py --tag_root T20260417-136_repro_t126_after_config_cleanup`.
+- Reproduction base checkpoint: `trash/T20260417-135_t107_folded_into_t126_chain/outputs/T20260417-107_stage2_outer_t106_top_combined_rgb_refit/gaussians3d.pt`.
+- Result: exact reproduction of T126 after config cleanup.
+- Exact metric deltas vs accepted T126 eval:
+  - `global_delta.mae_mean = 0.0`
+  - `global_delta.psnr_mean = 0.0`
+  - `global_delta.ssim_mean = 0.0`
+  - `top_delta.mae_mean = 0.0`
+  - `top_delta.ssim_mean = 0.0`
+  - `top_delta.badness_mean = 0.0`
+  - `pants_delta.mae_mean = 0.0`
+  - `pants_delta.ssim_mean = 0.0`
+  - `pants_delta.badness_mean = 0.0`
+- Conclusion: the removed config files were genuinely non-essential historical outer experiment configs. The cleaned config set is sufficient to reproduce the final T126 chain exactly.
+
+T137:
+- Purpose: archive the temporary T136 reproduction artifacts so the main product paths remain clean after verification.
+- Trash root: `trash/T20260417-137_repro_t126_after_config_cleanup_archive`.
+- Action: moved all T136 step outputs, work dirs, and eval outputs into trash after verification.
+- Moved count: 8 paths.
+- Permanent reproduction report copy: `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/t136_reproduce_after_config_cleanup_report.json`.
+- Archive manifest: `trash/T20260417-137_repro_t126_after_config_cleanup_archive/archive_manifest.json`.
+- Conclusion: the main paths stay clean while the proof of exact T126 reproduction is still preserved.
+
+
+T138:
+- Purpose: fix the gray-green hair contamination without disabling hair outer gaussians.
+- New script: `evaluation/stage2_combiined_eval/stabilize_outer_hair_against_inner.py`.
+- Method: apply an inner-guided stabilization only to hair-bound outer rows.
+  - RGB is blended toward inner hair appearance on the same bound face, with fallback to the global inner hair mean.
+  - Opacity is reduced into a bounded low-contribution range instead of being turned off.
+- Source outer checkpoint: `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict/gaussians3d.pt`.
+- Output outer checkpoint: `outputs/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided/gaussians3d.pt`.
+- Eval output: `evaluation/eval_outputs/T20260417-138_stage2_combined_outer_t126_hair_outer_stabilize_innerguided`.
+- Hair stabilization report: `outputs/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided/stabilize_outer_hair_against_inner_report.json`.
+- Key change statistics:
+  - changed hair-bound outer rows: 909
+  - mean hair outer opacity: `0.162996 -> 0.084966`
+  - weighted hair outer RGB: `[0.455192, 0.424853, 0.340971] -> [0.399496, 0.363767, 0.297440]`
+- Combined eval deltas vs T126:
+  - global: `mae -0.00074200`, `psnr +0.00542450`, `ssim +0.00112569`, `mask_iou -0.00013357`
+  - top: unchanged to reported precision
+  - pants: unchanged to reported precision
+- Hair summary deltas from `bad_regions.log`:
+  - hair badness: `0.284139 -> 0.251746`
+  - hair mae: `0.076714 -> 0.064320`
+  - hair ssim: `0.798523 -> 0.820374`
+  - hair coverage: `0.994053 -> 0.992200`
+- Visual check on representative problematic frames (`000037`, `000059`, `000061`): the low-frequency gray-green residue on the back/side hair is visibly reduced while the hair silhouette remains present.
+- Conclusion: direction 2 is valid. The issue was not that hair outer must be disabled; it was that its color and opacity were too unconstrained relative to inner hair. Inner-guided color/opacity stabilization improves hair appearance and slightly improves global metrics without harming top/pants metrics.
+
+
+T139:
+- Purpose: promote T138 as the current best outer result and archive the previous best T126 from the main product paths.
+- Trash root: `trash/T20260417-139_promote_t138_as_best`.
+- Action:
+  - archived `outputs/T20260417-126_stage2_outer_t122_top_green_residual_rebalance_strict`
+  - archived `evaluation/eval_outputs/T20260417-126_stage2_combined_outer_t122_top_green_residual_rebalance_strict`
+  - archived transient `outputs/T20260417-138_stage2_combined_eval_work`
+  - copied useful lineage files from archived T126 into T138
+  - wrote `outputs/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided/t138_chain_manifest.json`
+- Moved count: 3 paths.
+- Final in-place outputs after promotion:
+  - `outputs/stage1`
+  - `outputs/stage2`
+  - `outputs/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided`
+- Final in-place eval outputs after promotion:
+  - `evaluation/eval_outputs/stage1`
+  - `evaluation/eval_outputs/stage2`
+  - `evaluation/eval_outputs/T20260417-138_stage2_combined_outer_t126_hair_outer_stabilize_innerguided`
+- Promotion manifest: `trash/T20260417-139_promote_t138_as_best/promotion_manifest.json`.
+- Current-best chain manifest: `outputs/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided/t138_chain_manifest.json`.
+- Conclusion: T138 is now the only retained outer result in the main product paths. T126 remains preserved under trash as the direct parent of the current best version.
+
+
+T140:
+- Purpose: move the promoted T138 outer artifact directory under `outputs/stage2` so the final outer product lives alongside the stage2 main outputs instead of at the `outputs/` root.
+- Action:
+  - moved `outputs/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided`
+  - to `outputs/stage2/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided`
+  - updated `outputs/stage2/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided/t138_chain_manifest.json`
+- Final canonical outer output dir:
+  - `outputs/stage2/T20260417-138_stage2_outer_t126_hair_outer_stabilize_innerguided`
+- Eval output dir unchanged:
+  - `evaluation/eval_outputs/T20260417-138_stage2_combined_outer_t126_hair_outer_stabilize_innerguided`
+- Conclusion: the repository root `outputs/` is reduced back to the standard `stage1/stage2` layout, while the current best outer artifact remains preserved inside `outputs/stage2`.
+
+## T142
+- ??: 2026-04-17
+- ??: ?? stage2 ????????????????????????????????? trash?
+- ??:
+  - ? outputs/stage2/part_fit ???????????? trash/T20260417-142_clean_stage2_active_names?
+  - ? outputs/stage2/teacher_bank/stage2 ????? inner ????????? teacher-bank JSON ???? trash ???
+  - ? outputs/stage2/outer ???? lineage ???? trash?????? outer ???????? checkpoint?
+  - ? evaluation/stage2_combiined_eval/reproduce_t126_clean_chain.py ???? evaluation/stage2_combiined_eval/reproduce_stage2_outer_chain.py?????????????
+  - ?? outputs/stage2/outer/outer_chain_manifest.json ? stabilize_outer_hair_against_inner_report.json?????????????????????
+- ??: ?????????????????????????????? trash ? LOG.md?

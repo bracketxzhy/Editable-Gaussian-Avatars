@@ -1,0 +1,30 @@
+{
+  "status": "current_best_main_output",
+  "output_dir": "outputs/stage2/outer",
+  "outer_ckpt": "outputs/stage2/outer/gaussians3d.pt",
+  "inner_ckpt": "outputs/stage2/gaussians3d.pt",
+  "eval_dir": "evaluation/eval_outputs/stage2_combined",
+  "pipeline": [
+    {
+      "step": "attenuate_harmful_outer_top_faces",
+      "script": "evaluation/stage2_combiined_eval/attenuate_harmful_outer_top_faces.py",
+      "role": "reduce clearly harmful top-facing outer splats"
+    },
+    {
+      "step": "attenuate_harmful_outer_top_rows",
+      "script": "evaluation/stage2_combiined_eval/attenuate_harmful_outer_top_rows.py",
+      "role": "reduce persistent harmful top-body outer rows"
+    },
+    {
+      "step": "rebalance_outer_top_green_residual",
+      "script": "evaluation/stage2_combiined_eval/rebalance_outer_top_green_residual.py",
+      "role": "remove top-region gray-green residuals without touching inner"
+    },
+    {
+      "step": "stabilize_outer_hair_against_inner",
+      "script": "evaluation/stage2_combiined_eval/stabilize_outer_hair_against_inner.py",
+      "role": "stabilize hair outer color and opacity against the fixed inner result"
+    }
+  ],
+  "historical_lineage": "Earlier numbered experiments are archived under trash/ and intentionally excluded from the active manifest."
+}
